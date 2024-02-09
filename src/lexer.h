@@ -73,8 +73,10 @@
 	enumdef(tok_rbrace) \
 	enumdef(tok_gt) \
 	enumdef(tok_ge) \
+	enumdef(tok_shr) \
 	enumdef(tok_lt) \
 	enumdef(tok_le) \
+	enumdef(tok_shl) \
 	enumdef(tok_comma) \
 	enumdef(tok_char_lit) \
 	enumdef(tok_semicol) \

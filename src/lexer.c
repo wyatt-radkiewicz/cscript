@@ -172,6 +172,7 @@ inline static bool consume_whitespace(lexer_t *const state) {
 	bool line_start = state->chr == 1;
 	while (isspace(*state->head) || *state->head == '/' || *state->head == '#') {
 		if (*state->head == '/' && *(state->head + 1) == '/') consume_line(state);
+		else if (*state->head == '/') return true;
 		if (*state->head == '#') {
 			if (line_start) consume_line(state);
 			else return false;
@@ -290,6 +291,10 @@ static tok_t _lexer_nexttok(lexer_t *const state) {
 			state->head++;
 			state->head_chr++;
 			return (tok_t){ .ty = tok_ge, .lit = c, .len = 2, .line = state->line, .chr = state->chr };
+		} if (*state->head == '>') {
+			state->head++;
+			state->head_chr++;
+			return (tok_t){ .ty = tok_shr, .lit = c, .len = 2, .line = state->line, .chr = state->chr };
 		} else {
 			return (tok_t){ .ty = tok_gt, .lit = c, .len = 1, .line = state->line, .chr = state->chr };
 		}
@@ -298,6 +303,10 @@ static tok_t _lexer_nexttok(lexer_t *const state) {
 			state->head++;
 			state->head_chr++;
 			return (tok_t){ .ty = tok_le, .lit = c, .len = 2, .line = state->line, .chr = state->chr };
+		} if (*state->head == '<') {
+			state->head++;
+			state->head_chr++;
+			return (tok_t){ .ty = tok_shl, .lit = c, .len = 2, .line = state->line, .chr = state->chr };
 		} else {
 			return (tok_t){ .ty = tok_lt, .lit = c, .len = 1, .line = state->line, .chr = state->chr };
 		}

@@ -23,7 +23,6 @@ typedef struct valref {
 
 void emit_error(compiler_t *const state, err_t err);
 void eat(compiler_t *const state, const tokty_t tokty, const char *const expect_msg);
-valref_t number(compiler_t *const state);
 
 compiler_t compiler_init(
 	const char *src,
