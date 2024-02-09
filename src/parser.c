@@ -91,8 +91,6 @@ static const parse_rule_t _rules[] = {
 };
 
 valref_t parse_unary(compiler_t *const state) {
-	dbgprintf("in unary\n");
-
 	valref_t val = (valref_t){ .ty = unit_undefined, .abs_idx = 0 };
 	switch (state->lexer.curr.ty) {
 	case tok_lparen:
@@ -115,8 +113,6 @@ valref_t parse_unary(compiler_t *const state) {
 	return val;
 }
 valref_t parse_binary(compiler_t *const state, const prec_t prec, valref_t left) {
-	dbgprintf("in addition\n");
-
 	opcodety_t opcode;
 	switch (state->lexer.curr.ty) {
 	case tok_plus: opcode = opcode_add; break;
@@ -146,11 +142,9 @@ valref_t parse_expression(
 	compiler_t *const state,
 	const prec_t prec
 ) {
-	dbgprintf("in expression with precedence %d\n", prec);
-	
 	const parse_unary_pfn prefix = _rules[state->lexer.curr.ty].prefix;
 	if (!prefix) {
-		emit_error(state, (err_t){ .ty = err_noerr });
+		emit_error(state, (err_t){ .ty = err_expected, .msg = "unary expression", .line = state->lexer.curr.line, .chr = state->lexer.curr.chr });
 		return (valref_t){ .ty = unit_undefined, .abs_idx = 0 };
 	}
 	valref_t left = prefix(state);
@@ -166,14 +160,13 @@ valref_t parse_number(compiler_t *const state) {
 	// TODO: bigger numbers and postfixes for numbers
 	char numbuf[25];
 	if (state->lexer.curr.len > 24) {
-		emit_error(state, (err_t){ .ty = err_limit, .msg = "exceeded max literal integer size" });
+		emit_error(state, (err_t){ .ty = err_limit, .msg = "exceeded max literal integer size", .line = state->lexer.curr.line, .chr = state->lexer.curr.chr });
 		return (valref_t){ .ty = unit_undefined };
 	}
 	memcpy(numbuf, state->lexer.curr.lit, state->lexer.curr.len);
 	numbuf[state->lexer.curr.len] = '\0';
 	lexer_next(&state->lexer);
 	int64_t i = atoll(numbuf);
-	dbgprintf("DBG: creating num: %lld\n", i);
 	if (i <= INT16_MAX) {
 		*(state->code++) = (codeunit_t){ .op = (opcode_t){
 			.ty = opcode_pushimm,

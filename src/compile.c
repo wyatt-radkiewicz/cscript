@@ -6,7 +6,7 @@
 
 void emit_error(compiler_t *const state, err_t err) {
 	if (state->nerrs == arrlen(state->errs) - 1) {
-		state->errs[state->nerrs++] = (err_t){ .ty = err_toomany, .msg = "Too many errors, stopping." };
+		state->errs[state->nerrs++] = (err_t){ .ty = err_toomany, .msg = "Too many errors, stopping.", .line = err.line, .chr = err.chr };
 	} else if (state->nerrs < arrlen(state->errs)) {
 		state->errs[state->nerrs++] = err;
 	}
@@ -24,7 +24,7 @@ void eat(compiler_t *const state, const tokty_t tokty, const char *const expect_
 	if (state->lexer.curr.ty == tokty) {
 		lexer_next(&state->lexer);
 	} else {
-		emit_error(state, (err_t){ .ty = err_expected, .msg = expect_msg });
+		emit_error(state, (err_t){ .ty = err_expected, .msg = expect_msg, .line = state->lexer.curr.line, .chr = state->lexer.curr.chr });
 	}
 }
 
