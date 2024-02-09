@@ -5,6 +5,7 @@
 
 // Size assumptions (not good?)
 static_assert(sizeof(unit_t) % sizeof(opcode_t) == 0);
+static_assert(sizeof(codeunit_t) == sizeof(opcode_t));
 static_assert(sizeof((unit_t){0}.i32) / sizeof(opcode_t) == 1);
 
 static inline void store_mem(const typed_unit_t data, void *const addr) {
@@ -80,7 +81,7 @@ static inline unit_t extend_unit(const unit_t unit, unitty_t from, unitty_t to) 
 }
 static inline unit_t extract_imm(
 	const opcode_t opcode,
-	const opcode_t *restrict *const code
+	const codeunit_t **const code
 ) {
 	switch (opcode.op1ty) {
 	case unit_i8:
@@ -92,16 +93,16 @@ static inline unit_t extract_imm(
 	case unit_u16:
 		return (unit_t){ .u64 = opcode.umm16 };
 	case unit_i32:
-		return (unit_t){ .i64 = *(int32_t *)((*code)++) };
+		return (unit_t){ .i64 = ((*code)++)->i32 };
 	case unit_u32:
-		return (unit_t){ .u64 = *(uint32_t *)((*code)++) };
+		return (unit_t){ .u64 = ((*code)++)->u32 };
 	case unit_i64:
 	case unit_u64:
 	case unit_ptr:
 		// FIXME: Only works with little endian 64bit...
 		{
-			unit_t unit = (unit_t){ .u64 = *(uint32_t *)((*code)++) };
-			unit.u64 |= (uint64_t)(*(uint32_t *)((*code)++)) << 32;
+			unit_t unit = (unit_t){ .u64 = ((*code)++)->u32 };
+			unit.u64 |= (uint64_t)(((*code)++))->u32 << 32;
 			return unit;
 		}
 	default:
@@ -110,41 +111,17 @@ static inline unit_t extract_imm(
 }
 
 typedef struct state {
-	const opcode_t *restrict code;
-	unit_t *restrict stack;
+	const codeunit_t *code;
+	unit_t *stack;
 	const size_t stacklen;
-	const opcode_t *restrict const code_start;
-	const unit_t *restrict const stack_start;
+	const codeunit_t *const code_start;
+	const unit_t *const stack_start;
 	unit_t cmp_left, cmp_right;
 	unitty_t cmp_ty;
 } state_t;
 
-#ifdef DEBUG
-static const char *opcode_to_str(const opcodety_t ty) {
-	switch (ty) {
-#define enumdef(e) case e: return #e;
-opcodety_def
-#undef enumdef
-	default: return "ERR";
-	}
-}
-
-static void dbg_state_print(const state_t *const state) {
-	const unit_t *restrict unit = state->stack;
-	size_t i = 0;
-	while (unit != state->stack_start) {
-		printf("stack[%zu].u64 = %llu\n", i++, (unit++)->u64);
-	}
-	printf("next opcode: %s\n", opcode_to_str(state->code->ty));
-}
-#endif
-
 static typed_unit_t _interpret(state_t state);
-typed_unit_t interpret(
-	const opcode_t *restrict code,
-	unit_t *restrict stack,
-	size_t stacklen
-) {
+typed_unit_t interpret(const codeunit_t *code, unit_t *stack, size_t stacklen) {
 	return _interpret((state_t){
 		.code = code,
 		.stacklen = stacklen,
@@ -155,10 +132,7 @@ typed_unit_t interpret(
 }
 static typed_unit_t _interpret(state_t state) {
 	while (true) {
-#ifdef DEBUG
-		//dbg_state_print(&state);
-#endif
-		const opcode_t opcode = *(state.code++);
+		const opcode_t opcode = (state.code++)->op;
 		switch (opcode.ty) {
 		case opcode_pushimm:
 			*(--state.stack) = extract_imm(opcode, &state.code);
@@ -177,7 +151,7 @@ static typed_unit_t _interpret(state_t state) {
 		case opcode_ret:
 			{
 				const unit_t unit = state.stack[opcode.op1];
-				state.code = (const opcode_t*restrict const)state.stack[opcode.op2].ptr;
+				state.code = (const codeunit_t *const)state.stack[opcode.op2].ptr;
 				state.stack += opcode.op2 + 1;
 				if (state.stack >= state.stack_start - 1) return (typed_unit_t){ .ty = opcode.op1ty, .unit = unit };
 				else *(--state.stack) = unit;
@@ -254,6 +228,7 @@ static typed_unit_t _interpret(state_t state) {
 		BINARY_INTOP(sub, -)
 		BINARY_INTOP(mul, *)
 		BINARY_INTOP(div, /)
+		BINARY_INTOP(mod, %)
 		BINARY_INTOP(shl, <<)
 		BINARY_INTOP(shr, >>)
 
@@ -274,14 +249,10 @@ static typed_unit_t _interpret(state_t state) {
 		UNARY_INTOP(eor, ^)
 		UNARY_INTOP(not, ~)
 		case opcode_neg:
-			{
-				unit_t unit;
-				switch (opcode.op1ty) {
-				case unit_i32: unit = (unit_t){ .i32 = -state.stack[opcode.op1].i32 }; break;
-				case unit_i64: unit = (unit_t){ .i64 = -state.stack[opcode.op1].i64 }; break;
-				default: assert(false && "vm integer negation error");
-				}
-				*(--state.stack) = unit;
+			switch (opcode.op1ty) {
+			case unit_i32: state.stack[opcode.op1].i32 = -state.stack[opcode.op1].i32; break;
+			case unit_i64: state.stack[opcode.op1].i64 = -state.stack[opcode.op1].i64; break;
+			default: assert(false && "vm integer negation error");
 			}
 			break;
 		case opcode_inc:
@@ -337,5 +308,18 @@ void dbg_typed_unit_print(const typed_unit_t unit) {
 	default: printf("unknown"); break;
 	}
 	printf("\n");
+}
+
+static const char *opcode_to_str(const opcodety_t ty) {
+	switch (ty) {
+#define enumdef(e) case e: return #e;
+opcodety_def
+#undef enumdef
+	default: return "ERR";
+	}
+}
+
+void dbg_opcode_print(const codeunit_t *unit) {
+	printf("opcode: %s\n", opcode_to_str(unit->op.ty));
 }
 

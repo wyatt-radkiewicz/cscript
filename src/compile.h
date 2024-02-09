@@ -1,0 +1,39 @@
+#ifndef _compile_h_
+#define _compile_h_
+
+#include "lexer.h"
+#include "vm.h"
+
+typedef struct compiler {
+	lexer_t lexer;
+	codeunit_t *code;
+	const codeunit_t *const code_end;
+	uint8_t *data;
+	uint8_t *const data_end;
+	err_t errs[32];
+	size_t nerrs;
+
+	int stacktop;
+} compiler_t;
+
+typedef struct valref {
+	unitty_t ty;
+	int abs_idx;
+} valref_t;
+
+void emit_error(compiler_t *const state, err_t err);
+void eat(compiler_t *const state, const tokty_t tokty, const char *const expect_msg);
+valref_t number(compiler_t *const state);
+
+compiler_t compiler_init(
+	const char *src,
+	codeunit_t *code,
+	size_t codelen,
+	uint8_t *dataseg,
+	size_t datalen
+);
+
+void compile(compiler_t *const state);
+
+#endif
+

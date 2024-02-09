@@ -13,6 +13,7 @@
 	enumdef(unit_i64) \
 	enumdef(unit_u64) \
 	enumdef(unit_ptr) \
+	enumdef(unit_undefined) \
 	enumdef(unit_maxty)
 
 typedef enum unitty {
@@ -65,6 +66,7 @@ typedef struct typed_unit {
 	enumdef(opcode_sub) \
 	enumdef(opcode_mul) \
 	enumdef(opcode_div) \
+	enumdef(opcode_mod) \
 	enumdef(opcode_neg) \
 	enumdef(opcode_ext) \
 	enumdef(opcode_inc) \
@@ -97,13 +99,16 @@ typedef struct opcode {
 	};
 } opcode_t;
 
-typed_unit_t interpret(
-	const opcode_t *restrict code,
-	unit_t *restrict stack,
-	size_t stacklen
-);
+typedef union codeunit {
+	opcode_t op;
+	int32_t i32;
+	uint32_t u32;
+} codeunit_t;
+
+typed_unit_t interpret(const codeunit_t *code, unit_t *stack, size_t stacklen);
 
 void dbg_typed_unit_print(const typed_unit_t unit);
+void dbg_opcode_print(const codeunit_t *unit);
 
 #endif
 
