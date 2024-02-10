@@ -4,6 +4,21 @@
 #include "lexer.h"
 #include "vm.h"
 
+typedef struct branchref {
+	codeunit_t *branch;
+	int branch_target;
+} branchref_t;
+
+typedef struct branch_target {
+	const codeunit_t *target;
+	int nrefs;
+} branch_target_t;
+
+typedef struct valref {
+	unitty_t ty;
+	int abs_idx;
+} valref_t;
+
 typedef struct compiler {
 	lexer_t lexer;
 	codeunit_t *code;
@@ -14,12 +29,12 @@ typedef struct compiler {
 	size_t nerrs;
 
 	int stacktop;
-} compiler_t;
 
-typedef struct valref {
-	unitty_t ty;
-	int abs_idx;
-} valref_t;
+	branchref_t branch_refs[64];
+	int brefs_top;
+	const codeunit_t *branch_targets[64];
+	int btargets_top;
+} compiler_t;
 
 void emit_error(compiler_t *const state, err_t err);
 void eat(compiler_t *const state, const tokty_t tokty, const char *const expect_msg);

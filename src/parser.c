@@ -55,25 +55,26 @@ static const parse_rule_t _rules[] = {
 	[tok_star] = (parse_rule_t){ .prefix = NULL, .infix = parse_binary, .prec = prec_multiplicative },
 	[tok_dot] = (parse_rule_t){ .prefix = NULL, .infix = NULL, .prec = prec_null },
 	[tok_eq] = (parse_rule_t){ .prefix = NULL, .infix = NULL, .prec = prec_null },
-	[tok_eqeq] = (parse_rule_t){ .prefix = NULL, .infix = NULL, .prec = prec_null },
-	[tok_bitand] = (parse_rule_t){ .prefix = NULL, .infix = NULL, .prec = prec_null },
-	[tok_and] = (parse_rule_t){ .prefix = NULL, .infix = NULL, .prec = prec_null },
-	[tok_bitor] = (parse_rule_t){ .prefix = NULL, .infix = NULL, .prec = prec_null },
-	[tok_or] = (parse_rule_t){ .prefix = NULL, .infix = NULL, .prec = prec_null },
-	[tok_bitnot] = (parse_rule_t){ .prefix = NULL, .infix = NULL, .prec = prec_null },
-	[tok_not] = (parse_rule_t){ .prefix = NULL, .infix = NULL, .prec = prec_null },
-	[tok_xor] = (parse_rule_t){ .prefix = NULL, .infix = NULL, .prec = prec_null },
+	[tok_eqeq] = (parse_rule_t){ .prefix = NULL, .infix = parse_binary, .prec = prec_eqeq },
+	[tok_bitand] = (parse_rule_t){ .prefix = NULL, .infix = parse_binary, .prec = prec_bitand },
+	[tok_and] = (parse_rule_t){ .prefix = NULL, .infix = parse_binary, .prec = prec_and },
+	[tok_bitor] = (parse_rule_t){ .prefix = NULL, .infix = parse_binary, .prec = prec_bitor },
+	[tok_or] = (parse_rule_t){ .prefix = NULL, .infix = parse_binary, .prec = prec_or },
+	[tok_bitnot] = (parse_rule_t){ .prefix = parse_unary, .infix = NULL, .prec = prec_null },
+	[tok_noteq] = (parse_rule_t){ .prefix = NULL, .infix = parse_binary, .prec = prec_eqeq },
+	[tok_not] = (parse_rule_t){ .prefix = parse_unary, .infix = NULL, .prec = prec_null },
+	[tok_xor] = (parse_rule_t){ .prefix = NULL, .infix = parse_binary, .prec = prec_bitxor },
 	[tok_lparen] = (parse_rule_t){ .prefix = parse_unary, .infix = NULL, .prec = prec_null },
 	[tok_rparen] = (parse_rule_t){ .prefix = NULL, .infix = NULL, .prec = prec_null },
 	[tok_lbrack] = (parse_rule_t){ .prefix = NULL, .infix = NULL, .prec = prec_null },
 	[tok_rbrach] = (parse_rule_t){ .prefix = NULL, .infix = NULL, .prec = prec_null },
 	[tok_lbrace] = (parse_rule_t){ .prefix = NULL, .infix = NULL, .prec = prec_null },
 	[tok_rbrace] = (parse_rule_t){ .prefix = NULL, .infix = NULL, .prec = prec_null },
-	[tok_gt] = (parse_rule_t){ .prefix = NULL, .infix = NULL, .prec = prec_null },
-	[tok_ge] = (parse_rule_t){ .prefix = NULL, .infix = NULL, .prec = prec_null },
+	[tok_gt] = (parse_rule_t){ .prefix = NULL, .infix = parse_binary, .prec = prec_relational },
+	[tok_ge] = (parse_rule_t){ .prefix = NULL, .infix = parse_binary, .prec = prec_relational },
 	[tok_shr] = (parse_rule_t){ .prefix = NULL, .infix = parse_binary, .prec = prec_bitshifting },
-	[tok_lt] = (parse_rule_t){ .prefix = NULL, .infix = NULL, .prec = prec_null },
-	[tok_le] = (parse_rule_t){ .prefix = NULL, .infix = NULL, .prec = prec_null },
+	[tok_lt] = (parse_rule_t){ .prefix = NULL, .infix = parse_binary, .prec = prec_relational },
+	[tok_le] = (parse_rule_t){ .prefix = NULL, .infix = parse_binary, .prec = prec_relational },
 	[tok_shl] = (parse_rule_t){ .prefix = NULL, .infix = parse_binary, .prec = prec_bitshifting },
 	[tok_comma] = (parse_rule_t){ .prefix = NULL, .infix = NULL, .prec = prec_null },
 	[tok_char_lit] = (parse_rule_t){ .prefix = NULL, .infix = NULL, .prec = prec_null },
@@ -90,43 +91,217 @@ static const parse_rule_t _rules[] = {
 	[tok_undefined] = (parse_rule_t){ .prefix = NULL, .infix = NULL, .prec = prec_null },
 };
 
-valref_t parse_unary(compiler_t *const state) {
+static valref_t push_cast_to_bool(
+	compiler_t *const state,
+	opcode_t test,
+	opcodety_t branch
+) {
+	// Cast a conditional to a 1 or 0
+	*(state->code++) = (codeunit_t){ .op = test };
+	*(state->code++) = (codeunit_t){ .op = (opcode_t){
+		.ty = branch,
+		.op1ty = unit_i16,
+		.imm16 = 2,
+	}};
+	*(state->code++) = (codeunit_t){ .op = (opcode_t){
+		.ty = opcode_pushimm,
+		.op1ty = unit_i16,
+		.imm16 = 0,
+	}};
+	*(state->code++) = (codeunit_t){ .op = (opcode_t){
+		.ty = opcode_bra,
+		.op1ty = unit_i16,
+		.imm16 = 1,
+	}};
+	*(state->code++) = (codeunit_t){ .op = (opcode_t){
+		.ty = opcode_pushimm,
+		.op1ty = unit_i16,
+		.imm16 = 1,
+	}};
+	return (valref_t){ .ty = unit_i32, .abs_idx = ++state->stacktop };
+}
+
+valref_t parse_unary(compiler_t *const state, parser_ctx_t ctx) {
 	valref_t val = (valref_t){ .ty = unit_undefined, .abs_idx = 0 };
 	switch (state->lexer.curr.ty) {
 	case tok_lparen:
 		lexer_next(&state->lexer);
-		val = parse_expression(state, prec_expr);
+		val = parse_expression(state, prec_assign, ctx);
 		eat(state, tok_rparen, "right paren");
 		break;
 	case tok_minus:
 		lexer_next(&state->lexer);
-		val = parse_expression(state, prec_grouping);
+		val = parse_expression(state, prec_grouping, ctx);
 		*(state->code++) = (codeunit_t){ .op = (opcode_t){
 			.ty = opcode_neg,
+			.op1ty = unit_u16,
+			.op1 = state->stacktop - val.abs_idx,
+			.op2ty = val.ty,
+		}};
+		break;
+	case tok_bitnot:
+		lexer_next(&state->lexer);
+		val = parse_expression(state, prec_grouping, ctx);
+		*(state->code++) = (codeunit_t){ .op = (opcode_t){
+			.ty = opcode_not,
 			.op1ty = val.ty,
 			.op1 = state->stacktop - val.abs_idx,
 		}};
+		break;
+	case tok_not:
+		lexer_next(&state->lexer);
+		val = parse_expression(state, prec_grouping, ctx);
+		val = push_cast_to_bool(
+			state,
+			(opcode_t){
+				.ty = opcode_tst,
+				.op1ty = val.ty,
+				.op1 = state->stacktop - val.abs_idx,
+			},
+			opcode_beq
+		);
 		break;
 	default: break;
 	}
 
 	return val;
 }
-valref_t parse_binary(compiler_t *const state, const prec_t prec, valref_t left) {
+
+valref_t parse_binary(
+	compiler_t *const state,
+	const prec_t prec,
+	valref_t left,
+	parser_ctx_t ctx
+) {
 	opcodety_t opcode;
-	switch (state->lexer.curr.ty) {
+	const tokty_t tokty = state->lexer.curr.ty;
+	switch (tokty) {
 	case tok_plus: opcode = opcode_add; break;
 	case tok_minus: opcode = opcode_sub; break;
 	case tok_star: opcode = opcode_mul; break;
 	case tok_slash: opcode = opcode_div; break;
 	case tok_percent: opcode = opcode_mod; break;
+	case tok_bitand: opcode = opcode_and; break;
+	case tok_bitor: opcode = opcode_or; break;
+	case tok_xor: opcode = opcode_eor; break;
 	case tok_shl: opcode = opcode_shl; break;
 	case tok_shr: opcode = opcode_shr; break;
+	case tok_gt: opcode = opcode_bgt; break;
+	case tok_ge: opcode = opcode_bge; break;
+	case tok_lt: opcode = opcode_blt; break;
+	case tok_le: opcode = opcode_ble; break;
+	case tok_eqeq: opcode = opcode_beq; break;
 	default: opcode = opcode_exit; break;
 	}
 	lexer_next(&state->lexer);
 
-	const valref_t right = parse_expression(state, prec - 1);
+	if (tokty == tok_and) {
+		*(state->code++) = (codeunit_t){ .op = (opcode_t){
+			.ty = opcode_tst,
+			.op1ty = left.ty,
+			.op1 = state->stacktop - left.abs_idx,
+		}};
+		*state->code = (codeunit_t){ .op = (opcode_t){
+			.ty = opcode_beq,
+			.op1ty = unit_i16,
+			.imm16 = 2,
+		}};
+		codeunit_t *const branch1 = state->code++;
+
+		const valref_t right = parse_expression(state, prec - 1, ctx);
+		*(state->code++) = (codeunit_t){ .op = (opcode_t){
+			.ty = opcode_tst,
+			.op1ty = right.ty,
+			.op1 = state->stacktop - right.abs_idx,
+		}};
+		*state->code = (codeunit_t){ .op = (opcode_t){
+			.ty = opcode_beq,
+			.op1ty = unit_i16,
+			.imm16 = 2,
+		}};
+		codeunit_t *const branch2 = state->code++;
+
+		*(state->code++) = (codeunit_t){ .op = (opcode_t){
+			.ty = opcode_pushimm,
+			.op1ty = unit_i16,
+			.imm16 = 1,
+		}};
+		*(state->code++) = (codeunit_t){ .op = (opcode_t){
+			.ty = opcode_bra,
+			.op1ty = unit_i16,
+			.imm16 = 1,
+		}};
+		*(state->code++) = (codeunit_t){ .op = (opcode_t){
+			.ty = opcode_pushimm,
+			.op1ty = unit_i16,
+			.imm16 = 0,
+		}};
+		// Set the branches
+		branch1->op.imm16 = state->code - branch1;
+		branch2->op.imm16 = state->code - branch2;
+		return (valref_t){ .ty = unit_i32, .abs_idx = ++state->stacktop };
+	} else if (tokty == tok_or) {
+		*(state->code++) = (codeunit_t){ .op = (opcode_t){
+			.ty = opcode_tst,
+			.op1ty = left.ty,
+			.op1 = state->stacktop - left.abs_idx,
+		}};
+		*state->code = (codeunit_t){ .op = (opcode_t){
+			.ty = opcode_bne,
+			.op1ty = unit_i16,
+			.imm16 = 2,
+		}};
+		codeunit_t *const branch1 = state->code++;
+
+		const valref_t right = parse_expression(state, prec - 1, ctx);
+		*(state->code++) = (codeunit_t){ .op = (opcode_t){
+			.ty = opcode_tst,
+			.op1ty = right.ty,
+			.op1 = state->stacktop - right.abs_idx,
+		}};
+		*state->code = (codeunit_t){ .op = (opcode_t){
+			.ty = opcode_bne,
+			.op1ty = unit_i16,
+			.imm16 = 2,
+		}};
+		codeunit_t *const branch2 = state->code++;
+
+		*(state->code++) = (codeunit_t){ .op = (opcode_t){
+			.ty = opcode_pushimm,
+			.op1ty = unit_i16,
+			.imm16 = 0,
+		}};
+		*(state->code++) = (codeunit_t){ .op = (opcode_t){
+			.ty = opcode_bra,
+			.op1ty = unit_i16,
+			.imm16 = 1,
+		}};
+		*(state->code++) = (codeunit_t){ .op = (opcode_t){
+			.ty = opcode_pushimm,
+			.op1ty = unit_i16,
+			.imm16 = 1,
+		}};
+		// Set the branches
+		branch1->op.imm16 = state->code - branch1;
+		branch2->op.imm16 = state->code - branch2;
+		return (valref_t){ .ty = unit_i32, .abs_idx = ++state->stacktop };
+
+	} else if (_rules[tokty].prec == prec_eqeq
+		|| _rules[tokty].prec == prec_relational) {
+		const valref_t right = parse_expression(state, prec - 1, ctx);
+		return push_cast_to_bool(
+			state,
+			(opcode_t){
+				.ty = opcode_cmp,
+				.op1ty = left.ty,
+				.op1 = state->stacktop - left.abs_idx,
+				.op2 = state->stacktop - right.abs_idx,
+			},
+			opcode
+		);
+	}
+	const valref_t right = parse_expression(state, prec - 1, ctx);
+
 	*(state->code++) = (codeunit_t){ .op = (opcode_t){
 		.ty = opcode,
 		.op1ty = left.ty,
@@ -140,23 +315,24 @@ valref_t parse_binary(compiler_t *const state, const prec_t prec, valref_t left)
 
 valref_t parse_expression(
 	compiler_t *const state,
-	const prec_t prec
+	const prec_t prec,
+	parser_ctx_t ctx
 ) {
 	const parse_unary_pfn prefix = _rules[state->lexer.curr.ty].prefix;
 	if (!prefix) {
 		emit_error(state, (err_t){ .ty = err_expected, .msg = "unary expression", .line = state->lexer.curr.line, .chr = state->lexer.curr.chr });
 		return (valref_t){ .ty = unit_undefined, .abs_idx = 0 };
 	}
-	valref_t left = prefix(state);
+	valref_t left = prefix(state, ctx);
 
 	while (_rules[state->lexer.curr.ty].prec <= prec) {
 		const parse_binary_pfn infix = _rules[state->lexer.curr.ty].infix;
-		left = infix(state, _rules[state->lexer.curr.ty].prec, left);
+		left = infix(state, _rules[state->lexer.curr.ty].prec, left, ctx);
 	}
 	return left;
 }
 
-valref_t parse_number(compiler_t *const state) {
+valref_t parse_number(compiler_t *const state, parser_ctx_t ctx) {
 	// TODO: bigger numbers and postfixes for numbers
 	char numbuf[25];
 	if (state->lexer.curr.len > 24) {

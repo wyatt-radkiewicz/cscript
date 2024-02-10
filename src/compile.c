@@ -35,7 +35,7 @@ compiler_t compiler_init(
 	uint8_t *dataseg,
 	size_t datalen
 ) {
-	return (compiler_t){
+	compiler_t compiler = (compiler_t){
 		.lexer = lexer_init(src),
 		.code = code,
 		.code_end = code + codelen - 1,
@@ -43,13 +43,24 @@ compiler_t compiler_init(
 		.data_end = dataseg + datalen - 1,
 		.nerrs = 0,
 		.stacktop = -1,
+		.brefs_top = -1,
+		.btargets_top = -1,
  	};
+
+	for (size_t i = 0; i < arrlen(compiler.branch_refs); i++) {
+		compiler.branch_refs[i] = (branchref_t){ .branch = NULL, .branch_target = -1 };
+	}
+	for (size_t i = 0; i < arrlen(compiler.branch_targets); i++) {
+		compiler.branch_targets[i] = NULL;
+	}
+
+	return compiler;
 }
 
 void compile(compiler_t *const state) {
 	// Initialize the lexer
 	if (!lexer_next(&state->lexer)) goto add_exit;
-	parse_expression(state, prec_expr);
+	parse_expression(state, prec_full, (parser_ctx_t){});
 
 add_exit:
 	// Safety exit

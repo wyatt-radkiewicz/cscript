@@ -40,6 +40,7 @@ typedef struct typed_unit {
 } typed_unit_t;
 
 #define opcodety_def \
+	enumdef(opcode_nop) \
 	enumdef(opcode_pushimm) \
 	enumdef(opcode_pushunit) \
 	enumdef(opcode_pop) \

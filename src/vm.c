@@ -210,20 +210,20 @@ static typed_unit_t _interpret(state_t state) {
 			break;
 
 #define BINARY_INTOP(opname, opsymb) \
-		case opcode_##opname: \
-			assert(opcode.op1ty == opcode.op2ty); \
-			{ \
-				unit_t unit; \
-				switch (opcode.op1ty) { \
-				case unit_i32: unit = (unit_t){ .i32 = state.stack[opcode.op1].i32 opsymb state.stack[opcode.op2].i32 }; break; \
-				case unit_u32: unit = (unit_t){ .u32 = state.stack[opcode.op1].u32 opsymb state.stack[opcode.op2].u32 }; break; \
-				case unit_i64: unit = (unit_t){ .i64 = state.stack[opcode.op1].i64 opsymb state.stack[opcode.op2].i64 }; break; \
-				case unit_u64: unit = (unit_t){ .u64 = state.stack[opcode.op1].u64 opsymb state.stack[opcode.op2].u64 }; break; \
-				default: assert(false && "vm integer binary operation error"); \
-				} \
-				*(--state.stack) = unit; \
+	case opcode_##opname: \
+		assert(opcode.op1ty == opcode.op2ty); \
+		{ \
+			unit_t unit; \
+			switch (opcode.op1ty) { \
+			case unit_i32: unit = (unit_t){ .i32 = state.stack[opcode.op1].i32 opsymb state.stack[opcode.op2].i32 }; break; \
+			case unit_u32: unit = (unit_t){ .u32 = state.stack[opcode.op1].u32 opsymb state.stack[opcode.op2].u32 }; break; \
+			case unit_i64: unit = (unit_t){ .i64 = state.stack[opcode.op1].i64 opsymb state.stack[opcode.op2].i64 }; break; \
+			case unit_u64: unit = (unit_t){ .u64 = state.stack[opcode.op1].u64 opsymb state.stack[opcode.op2].u64 }; break; \
+			default: assert(false && "vm integer binary operation error"); \
 			} \
-			break;
+			*(--state.stack) = unit; \
+		} \
+		break;
 		BINARY_INTOP(add, +)
 		BINARY_INTOP(sub, -)
 		BINARY_INTOP(mul, *)
@@ -231,30 +231,23 @@ static typed_unit_t _interpret(state_t state) {
 		BINARY_INTOP(mod, %)
 		BINARY_INTOP(shl, <<)
 		BINARY_INTOP(shr, >>)
+		BINARY_INTOP(and, &)
+		BINARY_INTOP(or, |)
+		BINARY_INTOP(eor, ^)
 
 #define UNARY_INTOP(opname, opsymb) \
-		case opcode_##opname: \
-			{ \
-				unit_t unit; \
-				switch (opcode.op1ty) { \
-				case unit_i32: unit = (unit_t){ .i32 = -state.stack[opcode.op1].i32 }; break; \
-				case unit_i64: unit = (unit_t){ .i64 = -state.stack[opcode.op1].i64 }; break; \
-				default: assert(false && "vm integer unary operation error"); \
-				} \
-				*(--state.stack) = unit; \
+	case opcode_##opname: \
+		{ \
+			uint64_t stackidx = extract_imm(opcode, &state.code).u64; \
+			switch (opcode.op2ty) { \
+			case unit_i32: state.stack[stackidx].i32 = opsymb state.stack[stackidx].i32; break; \
+			case unit_i64: state.stack[stackidx].i64 = opsymb state.stack[stackidx].i64; break; \
+			default: assert(false && "vm integer unary operation error"); \
 			} \
-			break;
-		UNARY_INTOP(and, &)
-		UNARY_INTOP(or, |)
-		UNARY_INTOP(eor, ^)
+		} \
+		break;
 		UNARY_INTOP(not, ~)
-		case opcode_neg:
-			switch (opcode.op1ty) {
-			case unit_i32: state.stack[opcode.op1].i32 = -state.stack[opcode.op1].i32; break;
-			case unit_i64: state.stack[opcode.op1].i64 = -state.stack[opcode.op1].i64; break;
-			default: assert(false && "vm integer negation error");
-			}
-			break;
+		UNARY_INTOP(neg, -)
 		case opcode_inc:
 			switch (opcode.op2ty) {
 			case unit_i32: state.stack[extract_imm(opcode, &state.code).u64].i32++; break;
@@ -276,6 +269,7 @@ static typed_unit_t _interpret(state_t state) {
 		case opcode_ext:
 			state.stack[opcode.op1] = extend_unit(state.stack[opcode.op1], opcode.op1ty, opcode.op2ty);
 			break;
+		case opcode_nop: break;
 		default:
 			assert(false && "unimplemented opcode");
 		}
@@ -319,7 +313,81 @@ opcodety_def
 	}
 }
 
+static inline void dbg_imm_print(
+	const opcode_t opcode,
+	const codeunit_t **const code
+) {
+	switch (opcode.op1ty) {
+	case unit_i8: printf(" %d", opcode.imm8); break;
+	case unit_u8: printf(" %u", opcode.umm8); break;
+	case unit_i16: printf(" %d", opcode.imm16); break;
+	case unit_u16: printf(" %u", opcode.umm16); break;
+	case unit_i32: printf(" %d", ((*code)++)->i32); break;
+	case unit_u32: printf(" %u", ((*code)++)->u32); break;
+	case unit_i64:
+	case unit_u64:
+	case unit_ptr:
+		// FIXME: Only works with little endian 64bit...
+		{
+			uint64_t data = ((*code)++)->u32;
+			data |= (uint64_t)(((*code)++))->u32 << 32;
+			if (opcode.op1ty == unit_i64) printf("%lld", data);
+			else if (opcode.op1ty == unit_u64) printf("%llu", data);
+			else printf(" %p", (void *)data);
+		}
+	default: printf(" [unkown imm unit]");
+	}
+}
+
 void dbg_opcode_print(const codeunit_t *unit) {
-	printf("opcode: %s\n", opcode_to_str(unit->op.ty));
+	printf("opcode: %s", opcode_to_str(unit->op.ty));
+	switch (unit->op.ty) {
+	case opcode_pushimm:
+	case opcode_pushunit:
+	case opcode_call:
+	case opcode_loadunit:
+	case opcode_loadmem:
+	case opcode_storemem:
+	case opcode_beq:
+	case opcode_bne:
+	case opcode_bgt:
+	case opcode_blt:
+	case opcode_bge:
+	case opcode_ble:
+	case opcode_bra:
+	case opcode_jmp:
+	case opcode_inc:
+	case opcode_dec:
+		dbg_imm_print(unit->op, &unit);
+		printf("\n");
+		break;
+	case opcode_pop:
+	case opcode_exit:
+	case opcode_tst:
+	case opcode_not:
+	case opcode_neg:
+	case opcode_ext:
+		printf(" %d\n", unit->op.op1);
+		break;
+	case opcode_ret:
+		printf(" %d %d\n", unit->op.op1, unit->op.op2 + 1);
+		break;
+	case opcode_moveunit:
+	case opcode_cmp:
+	case opcode_add:
+	case opcode_sub:
+	case opcode_mul:
+	case opcode_div:
+	case opcode_mod:
+	case opcode_shl:
+	case opcode_shr:
+	case opcode_and:
+	case opcode_or:
+	case opcode_eor:
+		printf(" %d %d\n", unit->op.op1, unit->op.op2);
+		break;
+	case opcode_nop: break;
+	default: printf(" unimplemented");
+	}
 }
 

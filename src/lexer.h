@@ -64,6 +64,7 @@
 	enumdef(tok_or) \
 	enumdef(tok_bitnot) \
 	enumdef(tok_not) \
+	enumdef(tok_noteq) \
 	enumdef(tok_xor) \
 	enumdef(tok_lparen) \
 	enumdef(tok_rparen) \

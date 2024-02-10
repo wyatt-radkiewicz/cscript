@@ -286,6 +286,14 @@ static tok_t _lexer_nexttok(lexer_t *const state) {
 		} else {
 			return (tok_t){ .ty = tok_bitor, .lit = c, .len = 1, .line = state->line, .chr = state->chr };
 		}
+	case '!':
+		if (*state->head == '=') {
+			state->head++;
+			state->head_chr++;
+			return (tok_t){ .ty = tok_noteq, .lit = c, .len = 2, .line = state->line, .chr = state->chr };
+		} else {
+			return (tok_t){ .ty = tok_not, .lit = c, .len = 1, .line = state->line, .chr = state->chr };
+		}
 	case '>':
 		if (*state->head == '=') {
 			state->head++;
@@ -311,7 +319,6 @@ static tok_t _lexer_nexttok(lexer_t *const state) {
 			return (tok_t){ .ty = tok_lt, .lit = c, .len = 1, .line = state->line, .chr = state->chr };
 		}
 	case '~': return (tok_t){ .ty = tok_bitnot, .lit = c, .len = 1, .line = state->line, .chr = state->chr };
-	case '!': return (tok_t){ .ty = tok_not, .lit = c, .len = 1, .line = state->line, .chr = state->chr };
 	case '^': return (tok_t){ .ty = tok_xor, .lit = c, .len = 1, .line = state->line, .chr = state->chr };
 	case '(': return (tok_t){ .ty = tok_lparen, .lit = c, .len = 1, .line = state->line, .chr = state->chr };
 	case ')': return (tok_t){ .ty = tok_rparen, .lit = c, .len = 1, .line = state->line, .chr = state->chr };
