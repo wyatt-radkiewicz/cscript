@@ -1,6 +1,7 @@
 #include <stdio.h>
 
 #include "common.h"
+#include "lexer.h"
 
 static const char *errty_to_str(const errty_t ty) {
 	switch (ty) {

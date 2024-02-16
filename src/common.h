@@ -34,6 +34,8 @@ typedef struct err {
 	size_t line, chr;
 } err_t;
 
+typedef struct lexer lexer_t;
+
 void err_print(const err_t *const err);
 
 #endif

@@ -86,299 +86,201 @@ static const parse_rule_t _rules[] = {
 	[tok_string] = (parse_rule_t){ .prefix = NULL, .infix = NULL, .prec = prec_null },
 	[tok_integer] = (parse_rule_t){ .prefix = parse_number, .infix = NULL, .prec = prec_null },
 	[tok_floating] = (parse_rule_t){ .prefix = parse_number, .infix = NULL, .prec = prec_null },
-	[tok_ident] = (parse_rule_t){ .prefix = NULL, .infix = NULL, .prec = prec_null },
+	[tok_ident] = (parse_rule_t){ .prefix = parse_ident, .infix = NULL, .prec = prec_null },
 	[tok_error] = (parse_rule_t){ .prefix = NULL, .infix = NULL, .prec = prec_null },
 	[tok_undefined] = (parse_rule_t){ .prefix = NULL, .infix = NULL, .prec = prec_null },
 };
 
-static valref_t push_cast_to_bool(
-	compiler_t *const state,
-	opcode_t test,
-	opcodety_t branch
+void parser_err(
+	parser_t *const state,
+	err_t err
 ) {
-	// Cast a conditional to a 1 or 0
-	*(state->code++) = (codeunit_t){ .op = test };
-	*(state->code++) = (codeunit_t){ .op = (opcode_t){
-		.ty = branch,
-		.op1ty = unit_i16,
-		.imm16 = 2,
-	}};
-	*(state->code++) = (codeunit_t){ .op = (opcode_t){
-		.ty = opcode_pushimm,
-		.op1ty = unit_i16,
-		.imm16 = 0,
-	}};
-	*(state->code++) = (codeunit_t){ .op = (opcode_t){
-		.ty = opcode_bra,
-		.op1ty = unit_i16,
-		.imm16 = 1,
-	}};
-	*(state->code++) = (codeunit_t){ .op = (opcode_t){
-		.ty = opcode_pushimm,
-		.op1ty = unit_i16,
-		.imm16 = 1,
-	}};
-	return (valref_t){ .ty = unit_i32, .abs_idx = ++state->stacktop };
-}
-
-valref_t parse_unary(compiler_t *const state, parser_ctx_t ctx) {
-	valref_t val = (valref_t){ .ty = unit_undefined, .abs_idx = 0 };
-	switch (state->lexer.curr.ty) {
-	case tok_lparen:
-		lexer_next(&state->lexer);
-		val = parse_expression(state, prec_assign, ctx);
-		eat(state, tok_rparen, "right paren");
-		break;
-	case tok_minus:
-		lexer_next(&state->lexer);
-		val = parse_expression(state, prec_grouping, ctx);
-		*(state->code++) = (codeunit_t){ .op = (opcode_t){
-			.ty = opcode_neg,
-			.op1ty = unit_u16,
-			.op1 = state->stacktop - val.abs_idx,
-			.op2ty = val.ty,
-		}};
-		break;
-	case tok_bitnot:
-		lexer_next(&state->lexer);
-		val = parse_expression(state, prec_grouping, ctx);
-		*(state->code++) = (codeunit_t){ .op = (opcode_t){
-			.ty = opcode_not,
-			.op1ty = val.ty,
-			.op1 = state->stacktop - val.abs_idx,
-		}};
-		break;
-	case tok_not:
-		lexer_next(&state->lexer);
-		val = parse_expression(state, prec_grouping, ctx);
-		val = push_cast_to_bool(
-			state,
-			(opcode_t){
-				.ty = opcode_tst,
-				.op1ty = val.ty,
-				.op1 = state->stacktop - val.abs_idx,
-			},
-			opcode_beq
-		);
-		break;
-	default: break;
+	if (state->nerrs == state->buflen - 1) {
+		state->errs[state->nerrs++] = (err_t){ .ty = err_toomany, .msg = "Too many errors, stopping.", .line = err.line, .chr = err.chr };
+	} else if (state->nerrs < state->buflen) {
+		state->errs[state->nerrs++] = err;
 	}
 
-	return val;
-}
-
-valref_t parse_binary(
-	compiler_t *const state,
-	const prec_t prec,
-	valref_t left,
-	parser_ctx_t ctx
-) {
-	opcodety_t opcode;
-	const tokty_t tokty = state->lexer.curr.ty;
-	switch (tokty) {
-	case tok_plus: opcode = opcode_add; break;
-	case tok_minus: opcode = opcode_sub; break;
-	case tok_star: opcode = opcode_mul; break;
-	case tok_slash: opcode = opcode_div; break;
-	case tok_percent: opcode = opcode_mod; break;
-	case tok_bitand: opcode = opcode_and; break;
-	case tok_bitor: opcode = opcode_or; break;
-	case tok_xor: opcode = opcode_eor; break;
-	case tok_shl: opcode = opcode_shl; break;
-	case tok_shr: opcode = opcode_shr; break;
-	case tok_gt: opcode = opcode_bgt; break;
-	case tok_ge: opcode = opcode_bge; break;
-	case tok_lt: opcode = opcode_blt; break;
-	case tok_le: opcode = opcode_ble; break;
-	case tok_eqeq: opcode = opcode_beq; break;
-	default: opcode = opcode_exit; break;
+	// TODO: Continue to next statement I guess, it depends
+	while (state->lexer.curr.ty != tok_semicol
+		&& state->lexer.curr.ty != tok_eof
+		&& state->lexer.curr.ty != tok_error) {
+		lexer_next(&state->lexer);
 	}
 	lexer_next(&state->lexer);
-
-	if (tokty == tok_and) {
-		*(state->code++) = (codeunit_t){ .op = (opcode_t){
-			.ty = opcode_tst,
-			.op1ty = left.ty,
-			.op1 = state->stacktop - left.abs_idx,
-		}};
-		*state->code = (codeunit_t){ .op = (opcode_t){
-			.ty = opcode_beq,
-			.op1ty = unit_i16,
-			.imm16 = 2,
-		}};
-		codeunit_t *const branch1 = state->code++;
-
-		const valref_t right = parse_expression(state, prec - 1, ctx);
-		*(state->code++) = (codeunit_t){ .op = (opcode_t){
-			.ty = opcode_tst,
-			.op1ty = right.ty,
-			.op1 = state->stacktop - right.abs_idx,
-		}};
-		*state->code = (codeunit_t){ .op = (opcode_t){
-			.ty = opcode_beq,
-			.op1ty = unit_i16,
-			.imm16 = 2,
-		}};
-		codeunit_t *const branch2 = state->code++;
-
-		*(state->code++) = (codeunit_t){ .op = (opcode_t){
-			.ty = opcode_pushimm,
-			.op1ty = unit_i16,
-			.imm16 = 1,
-		}};
-		*(state->code++) = (codeunit_t){ .op = (opcode_t){
-			.ty = opcode_bra,
-			.op1ty = unit_i16,
-			.imm16 = 1,
-		}};
-		*(state->code++) = (codeunit_t){ .op = (opcode_t){
-			.ty = opcode_pushimm,
-			.op1ty = unit_i16,
-			.imm16 = 0,
-		}};
-		// Set the branches
-		branch1->op.imm16 = state->code - branch1;
-		branch2->op.imm16 = state->code - branch2;
-		return (valref_t){ .ty = unit_i32, .abs_idx = ++state->stacktop };
-	} else if (tokty == tok_or) {
-		*(state->code++) = (codeunit_t){ .op = (opcode_t){
-			.ty = opcode_tst,
-			.op1ty = left.ty,
-			.op1 = state->stacktop - left.abs_idx,
-		}};
-		*state->code = (codeunit_t){ .op = (opcode_t){
-			.ty = opcode_bne,
-			.op1ty = unit_i16,
-			.imm16 = 2,
-		}};
-		codeunit_t *const branch1 = state->code++;
-
-		const valref_t right = parse_expression(state, prec - 1, ctx);
-		*(state->code++) = (codeunit_t){ .op = (opcode_t){
-			.ty = opcode_tst,
-			.op1ty = right.ty,
-			.op1 = state->stacktop - right.abs_idx,
-		}};
-		*state->code = (codeunit_t){ .op = (opcode_t){
-			.ty = opcode_bne,
-			.op1ty = unit_i16,
-			.imm16 = 2,
-		}};
-		codeunit_t *const branch2 = state->code++;
-
-		*(state->code++) = (codeunit_t){ .op = (opcode_t){
-			.ty = opcode_pushimm,
-			.op1ty = unit_i16,
-			.imm16 = 0,
-		}};
-		*(state->code++) = (codeunit_t){ .op = (opcode_t){
-			.ty = opcode_bra,
-			.op1ty = unit_i16,
-			.imm16 = 1,
-		}};
-		*(state->code++) = (codeunit_t){ .op = (opcode_t){
-			.ty = opcode_pushimm,
-			.op1ty = unit_i16,
-			.imm16 = 1,
-		}};
-		// Set the branches
-		branch1->op.imm16 = state->code - branch1;
-		branch2->op.imm16 = state->code - branch2;
-		return (valref_t){ .ty = unit_i32, .abs_idx = ++state->stacktop };
-
-	} else if (_rules[tokty].prec == prec_eqeq
-		|| _rules[tokty].prec == prec_relational) {
-		const valref_t right = parse_expression(state, prec - 1, ctx);
-		return push_cast_to_bool(
-			state,
-			(opcode_t){
-				.ty = opcode_cmp,
-				.op1ty = left.ty,
-				.op1 = state->stacktop - left.abs_idx,
-				.op2 = state->stacktop - right.abs_idx,
-			},
-			opcode
-		);
-	}
-	const valref_t right = parse_expression(state, prec - 1, ctx);
-
-	*(state->code++) = (codeunit_t){ .op = (opcode_t){
-		.ty = opcode,
-		.op1ty = left.ty,
-		.op1 = state->stacktop - left.abs_idx,
-		.op2ty = right.ty,
-		.op2 = state->stacktop - right.abs_idx,
-	}};
-
-	return (valref_t){ .ty = left.ty, .abs_idx = ++state->stacktop };
 }
 
-valref_t parse_expression(
-	compiler_t *const state,
+static void parser_eat(parser_t *const state, const tokty_t tokty, const char *const expect_msg) {
+	if (state->lexer.curr.ty == tokty) {
+		lexer_next(&state->lexer);
+	} else {
+		parser_err(state, (err_t){ .ty = err_expected, .msg = expect_msg, .line = state->lexer.curr.line, .chr = state->lexer.curr.chr });
+	}
+}
+
+int parse_unary(parser_t *const state) {
+	const tok_t tok = state->lexer.curr;
+	int val = AST_SENTINAL;
+	lexer_next(&state->lexer);
+	switch (tok.ty) {
+	case tok_lparen:
+		val = parse_expression(state, prec_assign);
+		parser_eat(state, tok_rparen, "right paren");
+		break;
+	default:
+		val = parse_expression(state, prec_grouping);
+		break;
+	}
+	return parser_add(state, (ast_t){
+		.ty = ast_unary,
+		.tok = tok,
+		.inner = val,
+	});
+}
+
+int parse_binary(
+	parser_t *const state,
 	const prec_t prec,
-	parser_ctx_t ctx
+	int left
+) {
+	const tok_t tok = state->lexer.curr;
+	lexer_next(&state->lexer);
+	const int right = parse_expression(state, prec - 1);
+	return parser_add(
+		state,
+		(ast_t){
+			.ty = ast_binary,
+			.tok = tok,
+			.left = left,
+			.right = right,
+		}
+	);
+}
+
+parser_t parse(const char *src, ast_t *astbuf, size_t buflen) {
+	parser_t state = (parser_t){
+		.buflen = buflen,
+		.buf = astbuf,
+		.nnodes = 0,
+		.lexer = lexer_init(src),
+		.nerrs = 0,
+	};
+	lexer_next(&state.lexer);
+	state.root = parse_expression(&state, prec_full);
+	return state;
+}
+
+int parse_expression(
+	parser_t *const state,
+	const prec_t prec
 ) {
 	const parse_unary_pfn prefix = _rules[state->lexer.curr.ty].prefix;
 	if (!prefix) {
-		emit_error(state, (err_t){ .ty = err_expected, .msg = "unary expression", .line = state->lexer.curr.line, .chr = state->lexer.curr.chr });
-		return (valref_t){ .ty = unit_undefined, .abs_idx = 0 };
+		parser_err(state, (err_t){ .ty = err_expected, .msg = "unary expression", .line = state->lexer.curr.line, .chr = state->lexer.curr.chr });
+		return AST_SENTINAL;
 	}
-	valref_t left = prefix(state, ctx);
+	int left = prefix(state);
 
 	while (_rules[state->lexer.curr.ty].prec <= prec) {
 		const parse_binary_pfn infix = _rules[state->lexer.curr.ty].infix;
-		left = infix(state, _rules[state->lexer.curr.ty].prec, left, ctx);
+		left = infix(state, _rules[state->lexer.curr.ty].prec, left);
 	}
 	return left;
 }
 
-valref_t parse_number(compiler_t *const state, parser_ctx_t ctx) {
+int parser_add(parser_t *const state, const ast_t newnode) {
+	if (state->nnodes == state->buflen) {
+		parser_err(state, (err_t){ .ty = err_limit, .msg = "max ast nodes reached", .line = state->lexer.curr.line, .chr = state->lexer.curr.chr });
+		return AST_SENTINAL;
+	}
+	state->buf[state->nnodes] = newnode;
+	return state->nnodes++;
+}
+int parse_number(parser_t *const state) {
 	// TODO: bigger numbers and postfixes for numbers
 	char numbuf[25];
-	if (state->lexer.curr.len > 24) {
-		emit_error(state, (err_t){ .ty = err_limit, .msg = "exceeded max literal integer size", .line = state->lexer.curr.line, .chr = state->lexer.curr.chr });
-		return (valref_t){ .ty = unit_undefined };
+	const tok_t tok = state->lexer.curr;
+	if (tok.len > 24) {
+		parser_err(state, (err_t){ .ty = err_limit, .msg = "exceeded max literal integer size", .line = state->lexer.curr.line, .chr = state->lexer.curr.chr });
+		return AST_SENTINAL;
 	}
-	memcpy(numbuf, state->lexer.curr.lit, state->lexer.curr.len);
-	numbuf[state->lexer.curr.len] = '\0';
+	memcpy(numbuf, tok.lit, tok.len);
+	numbuf[tok.len] = '\0';
 	lexer_next(&state->lexer);
 	int64_t i = atoll(numbuf);
-	if (i <= INT16_MAX) {
-		*(state->code++) = (codeunit_t){ .op = (opcode_t){
-			.ty = opcode_pushimm,
-			.op1ty = unit_i16,
-			.imm16 = i,
-		}};
-		return (valref_t){ .ty = unit_i32, .abs_idx = ++state->stacktop };
-	} else if (i <= UINT16_MAX) {
-		*(state->code++) = (codeunit_t){ .op = (opcode_t){
-			.ty = opcode_pushimm,
-			.op1ty = unit_u16,
-			.umm16 = i,
-		}};
-		return (valref_t){ .ty = unit_i32, .abs_idx = ++state->stacktop };
-	} else if (i <= INT32_MAX) {
-		*(state->code++) = (codeunit_t){ .op = (opcode_t){
-			.ty = opcode_pushimm,
-			.op1ty = unit_i32,
-		}};
-		*(state->code++) = (codeunit_t){ .i32 = i };
-		return (valref_t){ .ty = unit_i32, .abs_idx = ++state->stacktop };
+	if (i <= INT32_MAX) {
+		return parser_add(state, (ast_t){
+			.ty = ast_literal,
+			.tok = tok,
+			.val = (typed_unit_t){
+				.ty = unit_i32,
+				.unit = (unit_t){ .i32 = i },
+			},
+		});
 	} else if (i <= UINT32_MAX) {
-		*(state->code++) = (codeunit_t){ .op = (opcode_t){
-			.ty = opcode_pushimm,
-			.op1ty = unit_u32,
-		}};
-		*(state->code++) = (codeunit_t){ .u32 = i };
-		return (valref_t){ .ty = unit_i32, .abs_idx = ++state->stacktop };
+		return parser_add(state, (ast_t){
+			.ty = ast_literal,
+			.tok = tok,
+			.val = (typed_unit_t){
+				.ty = unit_u32,
+				.unit = (unit_t){ .u32 = i },
+			},
+		});
+	} else if (i <= INT64_MAX) {
+		return parser_add(state, (ast_t){
+			.ty = ast_literal,
+			.tok = tok,
+			.val = (typed_unit_t){
+				.ty = unit_i64,
+				.unit = (unit_t){ .i64 = i },
+			},
+		});
 	} else {
-		*(state->code++) = (codeunit_t){ .op = (opcode_t){
-			.ty = opcode_pushimm,
-			.op1ty = i <= INT64_MAX ? unit_i64 : unit_u64,
-		}};
-		*(state->code++) = (codeunit_t){ .u32 = ((uint32_t *)&i)[0] };
-		*(state->code++) = (codeunit_t){ .u32 = ((uint32_t *)&i)[1] };
-		return (valref_t){ .ty = i <= INT64_MAX ? unit_i64 : unit_u64, .abs_idx = ++state->stacktop };
+		return parser_add(state, (ast_t){
+			.ty = ast_literal,
+			.tok = tok,
+			.val = (typed_unit_t){
+				.ty = unit_u64,
+				.unit = (unit_t){ .u64 = i },
+			},
+		});
 	}
+}
+int parse_ident(parser_t *const state) {
+	lexer_next(&state->lexer);
+	return parser_add(state, (ast_t){
+		.ty = ast_ident,
+		.tok = state->lexer.prev[2],
+	});
+}
+
+static void _dbg_ast_print(const ast_t *const ast, int idx, int tabs) {
+#define TAB for (int i = 0; i < tabs; i++) printf("\t");
+	TAB printf("node: %s\n", tokty_to_str(ast[idx].tok.ty));
+	switch (ast[idx].ty) {
+	case ast_binary:
+		_dbg_ast_print(ast, ast[idx].left, tabs+1);
+		_dbg_ast_print(ast, ast[idx].right, tabs+1);
+		break;
+	case ast_unary:
+		_dbg_ast_print(ast, ast[idx].inner, tabs+1);
+		break;
+	case ast_literal:
+		TAB dbg_typed_unit_print(ast[idx].val);
+		break;
+	case ast_ident:
+		{
+			TAB
+			printf("name: ");
+			for (int i = 0; i < ast[idx].tok.line; i++) printf("%c", ast[idx].tok.lit[i]);
+			printf("\n");
+		}
+		break;
+	default: break;
+	}
+#undef TAB
+}
+void dbg_ast_print(const ast_t *const astbuf, int root) {
+	_dbg_ast_print(astbuf, root, 0);
 }
 

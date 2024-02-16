@@ -3,6 +3,7 @@
 
 #include "lexer.h"
 #include "vm.h"
+#include "parser.h"
 
 typedef struct branchref {
 	codeunit_t *branch;
@@ -20,7 +21,7 @@ typedef struct valref {
 } valref_t;
 
 typedef struct compiler {
-	lexer_t lexer;
+	parser_t parser;
 	codeunit_t *code;
 	const codeunit_t *const code_end;
 	uint8_t *data;
@@ -36,18 +37,13 @@ typedef struct compiler {
 	int btargets_top;
 } compiler_t;
 
-void emit_error(compiler_t *const state, err_t err);
-void eat(compiler_t *const state, const tokty_t tokty, const char *const expect_msg);
-
-compiler_t compiler_init(
-	const char *src,
+compiler_t compile(
+	const parser_t *parser,
 	codeunit_t *code,
 	size_t codelen,
 	uint8_t *dataseg,
 	size_t datalen
 );
-
-void compile(compiler_t *const state);
 
 #endif
 

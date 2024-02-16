@@ -400,7 +400,7 @@ lexer_t lexer_init(const char *script) {
 	return state;
 }
 
-static const char *tokty_to_str(const tokty_t ty) {
+const char *tokty_to_str(const tokty_t ty) {
 	switch (ty) {
 #define enumdef(e) case e: return #e;
 tokty_def

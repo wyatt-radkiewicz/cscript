@@ -3,6 +3,7 @@
 
 #include "common.h"
 #include "compile.h"
+#include "parser.h"
 #include "lexer.h"
 #include "vm.h"
 

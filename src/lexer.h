@@ -114,7 +114,7 @@ typedef struct keyword {
 	tokty_t ty;
 } keyword_t;
 
-typedef struct lexer {
+struct lexer {
 	size_t line, chr, head_line, head_chr;
 	const char *head;
 
@@ -124,7 +124,7 @@ typedef struct lexer {
 		};
 		tok_t toks[7];
 	};
-} lexer_t;
+};
 
 #define make_errtok(state, _ty, _msg) ((tok_t){ \
 	.ty = tok_error, \
@@ -145,6 +145,7 @@ inline static uint32_t ident_hash(const char *str, const size_t len) {
 lexer_t lexer_init(const char *script);
 bool lexer_next(lexer_t *const state);
 
+const char *tokty_to_str(const tokty_t ty);
 void dbg_tok_print(const tok_t tok);
 
 #endif
