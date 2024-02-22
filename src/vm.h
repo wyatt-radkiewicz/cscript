@@ -10,8 +10,10 @@
 	enumdef(unit_u16) \
 	enumdef(unit_i32) \
 	enumdef(unit_u32) \
+	enumdef(unit_f32) \
 	enumdef(unit_i64) \
 	enumdef(unit_u64) \
+	enumdef(unit_f64) \
 	enumdef(unit_ptr) \
 	enumdef(unit_undefined) \
 	enumdef(unit_maxty)
@@ -110,6 +112,8 @@ typed_unit_t interpret(const codeunit_t *code, unit_t *stack, size_t stacklen);
 
 void dbg_typed_unit_print(const typed_unit_t unit);
 void dbg_opcode_print(const codeunit_t *unit);
+
+const char *unitty_to_str(const unitty_t ty);
 
 #endif
 

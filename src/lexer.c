@@ -44,7 +44,7 @@ static const keyword_t _keywords[128] = {
     (keyword_t){ .hash = 0, .len = 0, .psl = 0, .ty = tok_error, .str = NULL },
     (keyword_t){ .hash = 0, .len = 0, .psl = 0, .ty = tok_error, .str = NULL },
     (keyword_t){ .hash = 17573, .len = 5, .psl = 0, .ty = tok_while, .str = "while" },
-    (keyword_t){ .hash = 13221, .len = 6, .psl = 1, .ty = tok_import, .str = "import" },
+    (keyword_t){ .hash = 0, .len = 0, .psl = 0, .ty = tok_error, .str = NULL },
     (keyword_t){ .hash = 0, .len = 0, .psl = 0, .ty = tok_error, .str = NULL },
     (keyword_t){ .hash = 0, .len = 0, .psl = 0, .ty = tok_error, .str = NULL },
     (keyword_t){ .hash = 0, .len = 0, .psl = 0, .ty = tok_error, .str = NULL },
@@ -117,7 +117,7 @@ static const keyword_t _keywords[128] = {
     (keyword_t){ .hash = 0, .len = 0, .psl = 0, .ty = tok_error, .str = NULL },
     (keyword_t){ .hash = 0, .len = 0, .psl = 0, .ty = tok_error, .str = NULL },
     (keyword_t){ .hash = 12526, .len = 4, .psl = 0, .ty = tok_auto, .str = "auto" },
-    (keyword_t){ .hash = 0, .len = 0, .psl = 0, .ty = tok_error, .str = NULL },
+    (keyword_t){ .hash = 17775, .len = 5, .psl = 0, .ty = tok_union, .str = "union" },
     (keyword_t){ .hash = 0, .len = 0, .psl = 0, .ty = tok_error, .str = NULL },
     (keyword_t){ .hash = 0, .len = 0, .psl = 0, .ty = tok_error, .str = NULL },
     (keyword_t){ .hash = 17778, .len = 6, .psl = 0, .ty = tok_typeof, .str = "typeof" },
@@ -171,19 +171,19 @@ inline static void consume_line(lexer_t *const state) {
 inline static bool consume_whitespace(lexer_t *const state) {
 	bool line_start = state->chr == 1;
 	while (isspace(*state->head) || *state->head == '/' || *state->head == '#') {
-		if (*state->head == '/' && *(state->head + 1) == '/') consume_line(state);
-		else if (*state->head == '/') return true;
-		if (*state->head == '#') {
+		char head = *(state->head++);
+		if (head == '/' && *state->head == '/') consume_line(state);
+		else if (head == '/') return true;
+		if (head == '#') {
 			if (line_start) consume_line(state);
 			else return false;
 		}
 		state->head_chr++;
-		if (*state->head == '\n') {
+		if (head == '\n') {
 			line_start = true;
 			state->head_line++;
 			state->head_chr = 1;
 		}
-		state->head++;
 	}
 
 	return true;
@@ -323,7 +323,7 @@ static tok_t _lexer_nexttok(lexer_t *const state) {
 	case '(': return (tok_t){ .ty = tok_lparen, .lit = c, .len = 1, .line = state->line, .chr = state->chr };
 	case ')': return (tok_t){ .ty = tok_rparen, .lit = c, .len = 1, .line = state->line, .chr = state->chr };
 	case '[': return (tok_t){ .ty = tok_lbrack, .lit = c, .len = 1, .line = state->line, .chr = state->chr };
-	case ']': return (tok_t){ .ty = tok_rbrach, .lit = c, .len = 1, .line = state->line, .chr = state->chr };
+	case ']': return (tok_t){ .ty = tok_rbrack, .lit = c, .len = 1, .line = state->line, .chr = state->chr };
 	case '{': return (tok_t){ .ty = tok_lbrace, .lit = c, .len = 1, .line = state->line, .chr = state->chr };
 	case '}': return (tok_t){ .ty = tok_rbrace, .lit = c, .len = 1, .line = state->line, .chr = state->chr };
 	case '*': return (tok_t){ .ty = tok_star, .lit = c, .len = 1, .line = state->line, .chr = state->chr };

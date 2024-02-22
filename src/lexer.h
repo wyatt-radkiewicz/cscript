@@ -38,13 +38,11 @@
 	enumdef(tok_true) \
 	enumdef(tok_typedef) \
 	enumdef(tok_typeof) \
+	enumdef(tok_union) \
 	enumdef(tok_unsigned) \
 	enumdef(tok_void) \
 	enumdef(tok_volatile) \
 	enumdef(tok_while) \
-	\
-	/* New keywords */ \
-	enumdef(tok_import) \
 	\
 	enumdef(tok_max_keywords) \
 	\
@@ -69,7 +67,7 @@
 	enumdef(tok_lparen) \
 	enumdef(tok_rparen) \
 	enumdef(tok_lbrack) \
-	enumdef(tok_rbrach) \
+	enumdef(tok_rbrack) \
 	enumdef(tok_lbrace) \
 	enumdef(tok_rbrace) \
 	enumdef(tok_gt) \

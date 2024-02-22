@@ -278,7 +278,7 @@ static typed_unit_t _interpret(state_t state) {
 	return (typed_unit_t){ .ty = unit_i32, .unit = *(--state.stack) };
 }
 
-static const char *unitty_to_str(const unitty_t ty) {
+const char *unitty_to_str(const unitty_t ty) {
 	switch (ty) {
 #define enumdef(e) case e: return #e;
 unitty_def
