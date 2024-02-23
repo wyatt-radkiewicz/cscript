@@ -1,3 +1,4 @@
+#include <assert.h>
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -178,348 +179,260 @@ parser_t parse(const char *src, ast_t *astbuf, size_t buflen) {
 	return state;
 }
 
-static void parse_decl_data(
-	parser_t *const state,
-	cvrflags_t *const cvrs,
-	lvldata_t *const data
-) {
-	*data = (lvldata_t){
-		.ty = dataty_pod,
-		.pod = unit_i32,
-	};
-	*cvrs = cvr_none;
-
-	int bits = -1, toks = 0;
-	int u = 0, f = 0, l = 0;
+static cvrflags_t parse_cvrflags(parser_t *const state) {
+	cvrflags_t cvrs = cvr_none;
 	while (true) {
 		switch (state->lexer.curr.ty) {
-		case tok_const: *cvrs |= cvr_const; break;
-		case tok_static: *cvrs |= cvr_static; break;
-		case tok_extern: *cvrs |= cvr_extern; break;
-		case tok_volatile: *cvrs |= cvr_volatile; break;
-		case tok_restrict: *cvrs |= cvr_restrict; break;
-		case tok_char:
-			if (bits == -1) bits = 8;
-			else parser_err(state, (err_t){ .ty = err_unexpected, .msg = "char", .line = state->lexer.curr.line, .chr = state->lexer.curr.chr });
-			break;
-		case tok_short:
-			if (bits == -1) bits = 16;
-			else parser_err(state, (err_t){ .ty = err_unexpected, .msg = "short", .line = state->lexer.curr.line, .chr = state->lexer.curr.chr });
-			break;
-		case tok_int:
-			if (bits == -1) bits = 32;
-			else parser_err(state, (err_t){ .ty = err_unexpected, .msg = "int", .line = state->lexer.curr.line, .chr = state->lexer.curr.chr });
-			break;
-		case tok_long:
-			if (bits == -1 || l == 1) {
-				l++;
-				bits = 64;
-			} else {
-				parser_err(state, (err_t){ .ty = err_unexpected, .msg = "long", .line = state->lexer.curr.line, .chr = state->lexer.curr.chr });
-			}
-			break;
-		case tok_unsigned:
-			if (u == 0) u++;
-			else parser_err(state, (err_t){ .ty = err_unexpected, .msg = "unsigned", .line = state->lexer.curr.line, .chr = state->lexer.curr.chr });
-			break;
-		case tok_float:
-			if (f == 0 && bits == -1) {
-				bits = 32;
-				f++;
-			} else {
-				parser_err(state, (err_t){ .ty = err_unexpected, .msg = "unsigned", .line = state->lexer.curr.line, .chr = state->lexer.curr.chr });
-			}
-			break;
-		case tok_double:
-			if (f == 0 && bits == -1) {
-				bits = 64;
-				f++;
-			} else {
-				parser_err(state, (err_t){ .ty = err_unexpected, .msg = "unsigned", .line = state->lexer.curr.line, .chr = state->lexer.curr.chr });
-			}
-		case tok_struct:
-			if (bits != -1 || l != 0 || f != 0 || u != 0) {
-				parser_err(state, (err_t){ .ty = err_unexpected, .msg = "identifier", .line = state->lexer.curr.line, .chr = state->lexer.curr.chr });
-				return;
-			}
-			data->ty = dataty_struct;
-			lexer_next(&state->lexer);
-			data->tyname = state->lexer.curr;
-			lexer_next(&state->lexer);
-			return;
-		case tok_enum:
-			if (bits != -1 || l != 0 || f != 0 || u != 0) {
-				parser_err(state, (err_t){ .ty = err_unexpected, .msg = "identifier", .line = state->lexer.curr.line, .chr = state->lexer.curr.chr });
-				return;
-			}
-			data->ty = dataty_enum;
-			lexer_next(&state->lexer);
-			data->tyname = state->lexer.curr;
-			lexer_next(&state->lexer);
-			return;
-		case tok_union:
-			if (bits != -1 || l != 0 || f != 0 || u != 0) {
-				parser_err(state, (err_t){ .ty = err_unexpected, .msg = "identifier", .line = state->lexer.curr.line, .chr = state->lexer.curr.chr });
-				return;
-			}
-			data->ty = dataty_union;
-			lexer_next(&state->lexer);
-			data->tyname = state->lexer.curr;
-			lexer_next(&state->lexer);
-			return;
-		case tok_void:
-			data->ty = dataty_void;
-			lexer_next(&state->lexer);
-			return;
-		default: // typedef
-			if (toks) goto set_pod;
-			if (bits != -1 || l != 0 || f != 0 || u != 0) {
-				parser_err(state, (err_t){ .ty = err_unexpected, .msg = "identifier", .line = state->lexer.curr.line, .chr = state->lexer.curr.chr });
-				return;
-			}
-			data->ty = dataty_typedef;
-			data->tyname = state->lexer.curr;
-			lexer_next(&state->lexer);
-			return;
+		case tok_static: cvrs |= cvr_static; break;
+		case tok_const: cvrs |= cvr_const; break;
+		case tok_restrict: cvrs |= cvr_restrict; break;
+		case tok_volatile: cvrs |= cvr_volatile; break;
+		case tok_extern: cvrs |= cvr_extern; break;
+		default: return cvrs;
 		}
-
-		toks++;
 		lexer_next(&state->lexer);
-	}
-
-set_pod:
-	switch (bits) {
-	case 8: data->pod = u ? unit_u8 : unit_i8; break;
-	case 16: data->pod = u ? unit_u16 : unit_i16; break;
-	case 32: data->pod = f ? unit_f32 : (u ? unit_u32 : unit_i32); break;
-	case 64: data->pod = f ? unit_f64 : (u ? unit_u64 : unit_i64); break;
-	default: break;
 	}
 }
-static void _parse_decl(parser_t *const state, metadecl_t *const meta, size_t *const ndecls, decl_t *decl) {
-	cvrflags_t final_cvrs;
-	lvldata_t final_data;
-	parse_decl_data(state, &final_cvrs, &final_data);
 
-	tok_t buf[32];
-	int top = -1;
-	while (state->lexer.curr.ty != tok_ident) {
-		if (final_data.ty == dataty_void && state->lexer.curr.ty == tok_rparen) {
-			// this is a void parameter
-			*decl = (decl_t){
-				.lvls = {
-					[0] = (declvl_t){
-						.ty = lvlty_data,
-						.cvr = final_cvrs,
-						.data = final_data,
-					},
-				},
-				.nlvls = 1,
-				.ident = (tok_t){ .ty = tok_undefined },
-			};
-			return;
-		}
-		buf[++top] = state->lexer.curr;
-		lexer_next(&state->lexer);
-	}
-	tok_t ident = state->lexer.curr;
-	lexer_next(&state->lexer);
-
-	*decl = (decl_t){
-		.nlvls = 0,
-		.ident = ident,
-	};
-
-	int *last_func_ret = NULL;
-	while (true) {
-		bool parened = false, isfunc = false;
-		// Arrays and functions
-		while (state->lexer.curr.ty == tok_lparen
-			|| state->lexer.curr.ty == tok_lbrack) {
+static int parse_decl(parser_t *const state, const bool multi_decl);
+int parse_decl_not_arr_ptr_func(parser_t *const state) {
+	cvrflags_t cvrs = parse_cvrflags(state);
+	switch (state->lexer.curr.ty) {
+	case tok_struct:
+		{
 			lexer_next(&state->lexer);
-			if (state->lexer.prev[2].ty == tok_lbrack) {
-				decl->lvls[decl->nlvls].ty = lvlty_array;
-
-				cvrflags_t cvrs = cvr_none;
-				while (state->lexer.curr.ty != tok_rbrack) {
-					if (state->lexer.curr.ty == tok_semicol || state->lexer.curr.ty == tok_eof) {
-						parser_err(state, (err_t){ .ty = err_expected, .msg = "array things", .line = state->lexer.curr.line, .chr = state->lexer.curr.chr });
-					}
-
-					if (state->lexer.curr.ty == tok_const) cvrs |= cvr_const;
-					if (state->lexer.curr.ty == tok_static) cvrs |= cvr_static;
-					if (state->lexer.curr.ty == tok_volatile) cvrs |= cvr_volatile;
-					if (state->lexer.curr.ty == tok_restrict) cvrs |= cvr_restrict;
-
-					if (state->lexer.curr.ty == tok_integer) {
-						decl->lvls[decl->nlvls].array_len = parse_number(state).unit.u64;
-					} else {
-						lexer_next(&state->lexer);
-					}
+			tok_t tyname = state->lexer.curr;
+			lexer_next(&state->lexer);
+			int members = AST_SENTINAL;
+			if (state->lexer.curr.ty == tok_lbrace) { // structure definition
+				lexer_next(&state->lexer); // parse members
+				int *last = &members;
+				while (state->lexer.curr.ty != tok_rbrace) {
+					int member = parse_decl(state, true);
+					*last = member;
+					while (state->buf[member].next != AST_SENTINAL) member = state->buf[member].next;
+					last = &state->buf[member].next;
+					parser_eat(state, tok_semicol, "\";\"");
 				}
 				lexer_next(&state->lexer);
-				decl->lvls[decl->nlvls].cvr = cvrs;
-				decl->nlvls++;
-			} else {
-				decl->lvls[decl->nlvls].ty = lvlty_func;
-				isfunc = true;
 			}
+			return parser_add(state, (ast_t){
+				.ty = ast_decl,
+				.tok = (tok_t){ .ty = tok_undefined },
+				.next = AST_SENTINAL,
+				.info.decl = {
+					.ty = decl_struct,
+					.tyname = tyname,
+					.cvrs = cvrs,
+					.inner = members,
+				},
+			});
+			break;
 		}
-		if (!isfunc && state->lexer.curr.ty == tok_rparen) {
-			parened = true;
-		}
-	
-		// Return for function
-		decl_t *ret = NULL;
-		if (isfunc) {
-			ret = meta->decls + (*ndecls)++;
-			*ret = (decl_t){
-				.nlvls = 0,
-				.ident = (tok_t){ .ty = tok_undefined, .lit = "", .len = 0, .line = decl->ident.line, .chr = decl->ident.chr },
-			};
-		}
-
-		// Pointers
-		decl_t *const ptr_decl = isfunc ? ret : decl;
-		cvrflags_t cvrs = cvr_none;
-		while (top >= 0) {
-			if (buf[top].ty == tok_lparen) {
-				if (parened) top--;
-				break;
-			}
-			if (buf[top].ty == tok_const) cvrs |= cvr_const;
-			if (buf[top].ty == tok_volatile) cvrs |= cvr_volatile;
-			if (buf[top].ty == tok_restrict) cvrs |= cvr_restrict;
-			if (buf[top].ty == tok_star) {
-				ptr_decl->lvls[ptr_decl->nlvls].cvr = cvrs;
-				ptr_decl->lvls[ptr_decl->nlvls].ty = lvlty_pointer;
-				cvrs = cvr_none;
-				ptr_decl->nlvls++;
-			}
-			top--;
-		}
-		
-		if ((state->lexer.peek[0].ty == tok_lparen || state->lexer.peek[0].ty == tok_lbrack) && parened) {
-			lexer_next(&state->lexer);
-			continue;
-		}
-		if (top < 0 && !isfunc) break;
-
-		// Parse parameters
-		decl->lvls[decl->nlvls].func.ret = ret - meta->decls;
-		last_func_ret = &decl->lvls[decl->nlvls].func.ret;
-		decl->lvls[decl->nlvls].func.nparams = 0;
-		while (state->lexer.curr.ty != tok_rparen) {
-			const size_t mi = (*ndecls)++;
-			_parse_decl(state, meta, ndecls, meta->decls + mi);
-			decl->lvls[decl->nlvls].func.params[decl->lvls[decl->nlvls].func.nparams++] = mi;
-
-			if (state->lexer.curr.ty == tok_comma) lexer_next(&state->lexer);
-			else break;
-		}
-		decl->nlvls++;
-		decl = ret;
-		parser_eat(state, tok_rparen, "\")\"");
+	case tok_enum: assert(false && "unimplemented");
+	case tok_union: assert(false && "unimplemented");
+	case tok_ident: assert(false && "unimplemented");
+	case tok_void:
+		lexer_next(&state->lexer);
+		return parser_add(state, (ast_t){
+			.ty = ast_decl,
+			.tok = (tok_t){ .ty = tok_undefined },
+			.next = AST_SENTINAL,
+			.info.decl = {
+				.ty = decl_void,
+				.cvrs = cvrs,
+			},
+		});
+	default: break; // we are parsing a POD
 	}
 
-	// Add 1 more
-	if (last_func_ret) {
-		meta->decls[*last_func_ret].lvls[meta->decls[*last_func_ret].nlvls++] = (declvl_t){
-			.ty = lvlty_data,
-			.cvr = final_cvrs,
-			.data = final_data,
-		};
-	} else {
-		decl->lvls[decl->nlvls++] = (declvl_t){
-			.ty = lvlty_data,
-			.cvr = final_cvrs,
-			.data = final_data,
-		};
+	int bits = 32;
+	int f = 0, i = 0, u = 0, l = 0;
+	while (true) {
+		switch (state->lexer.curr.ty) {
+		case tok_unsigned: u++; break;
+		case tok_char: i++; bits = 8; break;
+		case tok_short: i++; bits = 16; break;
+		case tok_int: i++; bits = 32; break;
+		case tok_long: l++; bits = 64; break;
+		case tok_float: f++; bits = 32; break;
+		case tok_double: f++; bits = 64; break;
+		default: goto construct_pod;
+		}
+		lexer_next(&state->lexer);
 	}
-}
-static metadecl_t parse_decl(parser_t *const state) {
-	metadecl_t meta;
-	size_t ndecls = 1;
-	_parse_decl(state, &meta, &ndecls, &meta.root);
-	return meta;
-}
-static int parse_decl_ast(parser_t *const state) {
-	const metadecl_t decl = parse_decl(state);
+construct_pod:
+	if ((u > 1 || f > 1 || l > 2)
+		|| (u && f)
+		|| (i && f)
+		|| (l && f)) {
+		parser_err(state, (err_t){ .ty = err_unexpected, .msg = "incorrect type spec info", .line = state->lexer.curr.line, .chr = state->lexer.curr.chr });
+	}
+	unitty_t pod;
+	switch (bits) {
+	case 8: pod = u ? unit_u8 : unit_i8; break;
+	case 16: pod = u ? unit_u16 : unit_i16; break;
+	case 32: pod = f ? unit_f32 : (u ? unit_u32 : unit_i32); break;
+	case 64: pod = f ? unit_f64 : (u ? unit_u64 : unit_i64); break;
+	default: pod = unit_undefined; break;
+	}
+
 	return parser_add(state, (ast_t){
 		.ty = ast_decl,
-		.tok = decl.root.ident,
-		.info.decl = decl,
+		.tok = (tok_t){ .ty = tok_undefined },
 		.next = AST_SENTINAL,
+		.info.decl = {
+			.ty = decl_pod,
+			.cvrs = cvrs,
+			.pod = pod,
+		},
 	});
 }
-static int parse_struct(parser_t *const state) {
-	parser_eat(state, tok_struct, "struct keyword");
-	ast_t *const struct_ast = state->buf + parser_add(state, (ast_t){
-		.ty = ast_struct,
-		.tok = parser_eat(state, tok_ident, "identifier"),
-		.next = AST_SENTINAL,
-	});
-	parser_eat(state, tok_lbrace, "\"{\"");
-	int *last = &struct_ast->info.struct_members;
 
-	while (state->lexer.curr.ty != tok_rbrace) {
-		const int val = parse_decl_ast(state);
-		parser_eat(state, tok_semicol, "\";\"");
-		*last = val;
-		last = &state->buf[val].next;
+// Multi decl's are for stuff like "int a, b, c;" (not including semicolon)
+// Obviously, function parameters are a situation where you would not want
+// multi_decl
+static int _parse_decl(parser_t *const state, const bool multi_decl, const int tyspec) {
+	int curr_node = tyspec; // currnode is the child
+							// tyspec is always child of curr_node
+	int root = tyspec;		// root of declaration
+	int *parent = &root;	// parent child pointer of curr_node
+	
+	// Collect tokens before the ident, then store ident for later?
+	tok_t before[32];
+	int btop = -1;
+	tok_t ident = (tok_t){ .ty = tok_undefined };
+	while (state->lexer.curr.ty == tok_star // Check for anything for pointer wise
+		|| state->lexer.curr.ty == tok_lparen
+		|| state->lexer.curr.ty == tok_const
+		|| state->lexer.curr.ty == tok_static
+		|| state->lexer.curr.ty == tok_extern
+		|| state->lexer.curr.ty == tok_restrict
+		|| state->lexer.curr.ty == tok_volatile) {
+		before[++btop] = state->lexer.curr;
+		lexer_next(&state->lexer);
+	}
+	if (state->lexer.curr.ty == tok_ident) { // Get identifier if we can
+		ident = state->lexer.curr;
+		lexer_next(&state->lexer);
+	} // If not its undefined identifier
+
+	// Now parse functions, pointers, and arrays
+	while (true) {
+		// If function/array is here then do it!
+		while (state->lexer.curr.ty == tok_lbrack
+			|| state->lexer.curr.ty == tok_lparen) {
+			if (state->lexer.curr.ty == tok_lbrack) {
+				lexer_next(&state->lexer);
+				const cvrflags_t cvrs = parse_cvrflags(state);
+				curr_node = parser_add(state, (ast_t){
+					.ty = ast_decl,
+					.tok = (tok_t){ .ty = tok_undefined },
+					.info.decl = {
+						.ty = decl_array_of,
+						.cvrs = cvrs,
+						.arrlen = parse_expression(state, prec_full),
+						.inner = tyspec,
+					},
+					.next = AST_SENTINAL,
+				});
+
+				*parent = curr_node;
+				parent = &state->buf[curr_node].info.decl.inner;
+			} else { // function
+				lexer_next(&state->lexer);
+				int params = AST_SENTINAL;
+				int *last = &params;
+				while (state->lexer.curr.ty != tok_rparen) {
+					int param = parse_decl(state, false);
+					*last = param;
+					last = &state->buf[param].next;
+					if (state->lexer.curr.ty == tok_comma) lexer_next(&state->lexer);
+					else break;
+				}
+				parser_eat(state, tok_rparen, "\")\"");
+				curr_node = parser_add(state, (ast_t){
+					.ty = ast_decl,
+					.tok = (tok_t){ .ty = tok_undefined },
+					.info.decl = {
+						.ty = decl_function,
+						.cvrs = state->buf[root].info.decl.cvrs,
+						.inner = tyspec,
+						.funcparams = params,
+					},
+					.next = AST_SENTINAL,
+				});
+
+				*parent = curr_node;
+				parent = &state->buf[curr_node].info.decl.inner;
+			}
+		}
+
+		const bool parened = state->lexer.curr.ty == tok_rparen && btop >= 0;
+		if (parened) lexer_next(&state->lexer);
+
+		// Get pointers and remove parenthases
+		cvrflags_t cvrs = cvr_none;
+		while (btop >= 0 && before[btop].ty != tok_lparen) {
+			switch (before[btop].ty) {
+			case tok_static: cvrs |= cvr_static; break;
+			case tok_const: cvrs |= cvr_const; break;
+			case tok_restrict: cvrs |= cvr_restrict; break;
+			case tok_volatile: cvrs |= cvr_volatile; break;
+			case tok_extern: cvrs |= cvr_extern; break;
+			case tok_star:
+				curr_node = parser_add(state, (ast_t){
+					.ty = ast_decl,
+					.next = AST_SENTINAL,
+					.tok = (tok_t){ .ty = tok_undefined },
+					.info.decl = {
+						.ty = decl_pointer_to,
+						.cvrs = cvrs,
+						.inner = tyspec,
+					},
+				});
+
+				*parent = curr_node;
+				parent = &state->buf[curr_node].info.decl.inner;
+				cvrs = cvr_none;
+				break;
+			default: assert(false && "implement error handling");
+			}
+			btop--;
+		}
+		btop--;
+
+		if (!parened) break;
 	}
 
-	parser_eat(state, tok_rbrace, "\"}\"");
-	parser_eat(state, tok_semicol, "\";\"");
+	state->buf[root].tok = ident;
 
-	return state->buf - struct_ast;
+	if (multi_decl && state->lexer.curr.ty == tok_comma) {
+		lexer_next(&state->lexer);
+		int shallow_copy = parser_add(state, state->buf[tyspec]);
+		state->buf[shallow_copy].info.decl.inner = AST_SENTINAL;
+		state->buf[shallow_copy].next = AST_SENTINAL;
+		state->buf[root].next = _parse_decl(state, true, shallow_copy);
+	}
+
+	return root;
 }
-static int parse_union(parser_t *const state) {
-	lexer_next(&state->lexer);
-	return AST_SENTINAL;
-}
-static int parse_enum(parser_t *const state) {
-	lexer_next(&state->lexer);
-	return AST_SENTINAL;
-}
-static int parse_typedef(parser_t *const state) {
-	lexer_next(&state->lexer);
-	return AST_SENTINAL;
-}
-static int parse_function(parser_t *const state) {
-	lexer_next(&state->lexer);
-	return AST_SENTINAL;
+
+static int parse_decl(parser_t *const state, const bool multi_decl) {
+	// Type specifier (can be a whole struct definition!!!!!!)
+	const int tyspec = parse_decl_not_arr_ptr_func(state);
+	// Now parse pointers, functions, and arrays (and get identifier)
+	return _parse_decl(state, multi_decl, tyspec);
 }
 
 void parse_toplevels(parser_t *const state) {
 	int *last = &state->root;
 	while (state->lexer.curr.ty != tok_eof) {
-		int node = AST_SENTINAL;
-		switch (state->lexer.curr.ty) {
-		case tok_union:
-			node = parse_union(state);
-			break;
-		case tok_enum:
-			node = parse_enum(state);
-			break;
-		case tok_struct:
-			node = parse_struct(state);
-			break;
-		case tok_typedef:
-			node = parse_typedef(state);
-			break;
-		case tok_const: case tok_static: case tok_extern: case tok_volatile:
-		case tok_int: case tok_unsigned: case tok_signed:
-		case tok_char: case tok_short: case tok_long:
-		case tok_float: case tok_double:
-			node = parse_function(state);
-			break;
-		default:
-			parser_err(state, (err_t){ .ty = err_unexpected, .msg = "not top level", .line = state->lexer.curr.line, .chr = state->lexer.curr.chr });
-			break;
-		}
+		int node = parse_decl(state, true);
 		if (last) *last = node;
+		while (state->buf[node].next != AST_SENTINAL) node = state->buf[node].next;
 		last = node == AST_SENTINAL ? NULL : &state->buf[node].next;
+		parser_eat(state, tok_semicol, "\";\"");
 	}
 }
 
@@ -601,76 +514,17 @@ int parse_ident(parser_t *const state) {
 	});
 }
 
-static void _dbg_decl_print(const decl_t *const decl, const metadecl_t *const meta) {
-#define LENPRINT(lit, len) for (int _i = 0; _i < (len); _i++) printf("%c", (lit)[_i]);
-	for (int i = 0; i < decl->nlvls; i++) {
-		if (decl->lvls[i].cvr & cvr_const) printf("const ");
-		if (decl->lvls[i].cvr & cvr_extern) printf("extern ");
-		if (decl->lvls[i].cvr & cvr_static) printf("static ");
-		if (decl->lvls[i].cvr & cvr_restrict) printf("restrict ");
-		if (decl->lvls[i].cvr & cvr_volatile) printf("volatile ");
-
-		switch (decl->lvls[i].ty) {
-		case lvlty_data:
-			switch (decl->lvls[i].data.ty) {
-			case dataty_pod:
-				printf("%s ", unitty_to_str(decl->lvls[i].data.pod));
-				break;
-			case dataty_struct:
-				printf("struct ");
-				LENPRINT(decl->lvls[i].data.tyname.lit, decl->lvls[i].data.tyname.len)
-				printf(" ");
-				break;
-			case dataty_typedef:
-				LENPRINT(decl->lvls[i].data.tyname.lit, decl->lvls[i].data.tyname.len)
-				printf(" ");
-				break;
-			case dataty_union:
-				printf("union ");
-				LENPRINT(decl->lvls[i].data.tyname.lit, decl->lvls[i].data.tyname.len)
-				printf(" ");
-				break;
-			case dataty_enum:
-				printf("enum ");
-				LENPRINT(decl->lvls[i].data.tyname.lit, decl->lvls[i].data.tyname.len)
-				printf(" ");
-				break;
-			case dataty_void:
-				printf("void ");
-				break;
-			default:
-				printf("unknown ");
-				break;
-			}
-			break;
-		case lvlty_pointer:
-			printf("pointer to ");
-			break;
-		case lvlty_array:
-			if (decl->lvls[i].array_len) printf("array of %zu ", decl->lvls[i].array_len);
-			else printf("array of ");
-			break;
-		case lvlty_func:
-			printf("function returning ");
-			_dbg_decl_print(&meta->decls[decl->lvls[i].func.ret], meta);
-			printf("which takes (");
-			for (int j = 0; j < decl->lvls[i].func.nparams; j++) {
-				_dbg_decl_print(&meta->decls[decl->lvls[i].func.params[j]], meta);
-				if (j + 1 < decl->lvls[i].func.nparams) printf(", ");
-			}
-			printf(") ");
-			break;
-		default:
-			printf("unimplemented ");
-			break;
-		}
-	}
-	LENPRINT(decl->ident.lit, decl->ident.len)
+static void _dbg_cvr_print(cvrflags_t cvrs) {
+	if (cvrs & cvr_extern) printf("extern ");
+	if (cvrs & cvr_volatile) printf("volatile ");
+	if (cvrs & cvr_const) printf("const ");
+	if (cvrs & cvr_static) printf("static ");
+	if (cvrs & cvr_restrict) printf("restrict ");
 }
-
 static void _dbg_ast_print(const ast_t *const ast, int idx, int tabs) {
-	if (idx == AST_SENTINAL) return;
 #define TAB for (int i = 0; i < tabs; i++) printf("\t");
+#define LENPRINT(lit, len) for (int _i = 0; _i < (len); _i++) printf("%c", (lit)[_i]);
+	if (idx == AST_SENTINAL) return;
 	switch (ast[idx].ty) {
 	case ast_binary:
 		TAB printf("node: %s\n", tokty_to_str(ast[idx].tok.ty));
@@ -693,16 +547,47 @@ static void _dbg_ast_print(const ast_t *const ast, int idx, int tabs) {
 			printf("\n");
 		}
 		break;
-	case ast_struct:
-		TAB printf("struct ");
-		LENPRINT(ast[idx].tok.lit, ast[idx].tok.len)
-		printf("\n");
-		_dbg_ast_print(ast, ast[idx].info.struct_members, tabs + 1);
-		break;
 	case ast_decl:
-		TAB _dbg_decl_print(&ast[idx].info.decl.root, &ast[idx].info.decl);
-		printf("\n");
-		break;
+		{
+			TAB
+			printf("decl ");
+			const ast_t *node = ast + idx;
+			_dbg_cvr_print(node->info.decl.cvrs);
+			switch (node->info.decl.ty) {
+			case decl_void: printf("void "); break;
+			case decl_function:
+				printf("function returns\n");
+				_dbg_ast_print(ast, node->info.decl.inner, tabs+1);
+				TAB printf("and takes\n");
+				_dbg_ast_print(ast, node->info.decl.funcparams, tabs+1);
+				break;
+			case decl_pointer_to: printf("pointer to\n"); _dbg_ast_print(ast, node->info.decl.inner, tabs + 1); TAB break;
+			case decl_array_of: 
+				if (node->info.decl.arrlen != AST_SENTINAL) {
+					printf("array ");
+					_dbg_ast_print(ast, node->info.decl.inner, tabs+1);
+					TAB printf("of ");
+				} else {
+					printf("array of \n");
+					_dbg_ast_print(ast, node->info.decl.inner, tabs + 1); 
+				}
+				break;
+			case decl_pod: printf("%s ", unitty_to_str(node->info.decl.pod)); break;
+			case decl_struct:
+				printf("struct ");
+				LENPRINT(node->info.decl.tyname.lit, node->info.decl.tyname.len)
+				printf(" {\n");
+				if (node->info.decl.inner != AST_SENTINAL) {
+					_dbg_ast_print(ast, node->info.decl.inner, tabs+1);
+				}
+				TAB printf("} ");
+				break;
+			default: printf("undefined "); break;
+			}
+			LENPRINT(node->tok.lit, node->tok.len)
+			printf("\n");
+			break;
+		}
 	default: break;
 	}
 	_dbg_ast_print(ast, ast[idx].next, tabs);
