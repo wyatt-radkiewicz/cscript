@@ -201,7 +201,7 @@ int parse_decl_not_arr_ptr_func(parser_t *const state) {
 	case tok_struct:
 		{
 			lexer_next(&state->lexer);
-			tok_t tyname = state->lexer.curr;
+			const tok_t tyname = state->lexer.curr;
 			lexer_next(&state->lexer);
 			int members = AST_SENTINAL;
 			if (state->lexer.curr.ty == tok_lbrace) { // structure definition
@@ -227,9 +227,53 @@ int parse_decl_not_arr_ptr_func(parser_t *const state) {
 					.inner = members,
 				},
 			});
-			break;
 		}
-	case tok_enum: assert(false && "unimplemented");
+		break;
+	case tok_enum:
+		{
+			lexer_next(&state->lexer);
+			const tok_t tyname = state->lexer.curr;
+			lexer_next(&state->lexer);
+
+			int fields = AST_SENTINAL;
+			if (state->lexer.curr.ty == tok_lbrace) { // enum definition
+				lexer_next(&state->lexer); // parse fields
+				int *last = &fields;
+				while (state->lexer.curr.ty != tok_rbrace && state->lexer.curr.ty != tok_eof) {
+					const tok_t field_name = state->lexer.curr;
+					int value = AST_SENTINAL;
+
+					lexer_next(&state->lexer);
+					if (state->lexer.curr.ty == tok_eq) {
+						lexer_next(&state->lexer);
+						value = parse_expression(state, prec_full);
+					}
+					if (state->lexer.curr.ty == tok_comma) lexer_next(&state->lexer);
+
+					const int field = parser_add(state, (ast_t){
+						.ty = ast_enum_field,
+						.next = AST_SENTINAL,
+						.tok = field_name,
+						.info.inner = value,
+					});
+					*last = field;
+					last = &state->buf[field].next;
+				}
+				lexer_next(&state->lexer);
+			}
+			return parser_add(state, (ast_t){
+				.ty = ast_decl,
+				.tok = (tok_t){ .ty = tok_undefined },
+				.next = AST_SENTINAL,
+				.info.decl = {
+					.ty = decl_enum,
+					.tyname = tyname,
+					.cvrs = cvrs,
+					.inner = fields,
+				},
+			});
+		}
+		break;
 	case tok_union: assert(false && "unimplemented");
 	case tok_ident: assert(false && "unimplemented");
 	case tok_void:
@@ -547,6 +591,15 @@ static void _dbg_ast_print(const ast_t *const ast, int idx, int tabs) {
 			printf("\n");
 		}
 		break;
+	case ast_enum_field:
+		TAB LENPRINT(ast[idx].tok.lit, ast[idx].tok.len)
+		if (ast[idx].info.inner != AST_SENTINAL) {
+			printf(" = \n");
+			_dbg_ast_print(ast, ast[idx].info.inner, tabs+1);
+		} else {
+			printf(",\n");
+		}
+		break;
 	case ast_decl:
 		{
 			TAB
@@ -573,8 +626,10 @@ static void _dbg_ast_print(const ast_t *const ast, int idx, int tabs) {
 				}
 				break;
 			case decl_pod: printf("%s ", unitty_to_str(node->info.decl.pod)); break;
+			case decl_enum:
 			case decl_struct:
-				printf("struct ");
+				if (node->info.decl.ty == decl_struct) printf("struct ");
+				else printf("enum ");
 				if (node->info.decl.inner != AST_SENTINAL) {
 					LENPRINT(node->info.decl.tyname.lit, node->info.decl.tyname.len)
 					printf(" {\n");
