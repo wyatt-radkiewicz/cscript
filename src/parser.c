@@ -658,13 +658,14 @@ static void _dbg_ast_print(const ast_t *const ast, int idx, int tabs) {
 			case decl_pointer_to: printf("pointer to\n"); _dbg_ast_print(ast, node->info.decl.inner, tabs + 1); TAB break;
 			case decl_array_of: 
 				if (node->info.decl.arrlen != AST_SENTINAL) {
-					printf("array ");
-					_dbg_ast_print(ast, node->info.decl.inner, tabs+1);
-					TAB printf("of ");
+					printf("array [\n");
+					_dbg_ast_print(ast, node->info.decl.arrlen, tabs+1);
+					TAB printf("] of \n");
 				} else {
 					printf("array of \n");
-					_dbg_ast_print(ast, node->info.decl.inner, tabs + 1); 
 				}
+				_dbg_ast_print(ast, node->info.decl.inner, tabs + 1); 
+				TAB
 				break;
 			case decl_pod: printf("%s ", unitty_to_str(node->info.decl.pod)); break;
 			case decl_enum:

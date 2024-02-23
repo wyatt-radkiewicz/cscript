@@ -6,8 +6,9 @@ enum enum_test {
 };
 enum enum_test *const b;
 typedef struct tok {
-	enum enum_test e;
+	enum enum_test e[5 + 5];
 } tok_t, tok_a;
+extern int arr[];
 
 extern tok_t token;
 
