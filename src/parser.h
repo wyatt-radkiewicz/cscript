@@ -56,13 +56,13 @@ typedef enum astty {
 	ast_ident,
 	ast_decl,
 	ast_enum_field,
+	ast_typedef,
 	ast_error,
 } astty_t;
 
 typedef enum declty {
 	decl_pointer_to,
 	decl_array_of,
-	decl_typedef_of,
 	decl_void,
 	decl_pod,
 	decl_struct,

@@ -198,8 +198,10 @@ static int parse_decl(parser_t *const state, const bool multi_decl);
 int parse_decl_not_arr_ptr_func(parser_t *const state) {
 	cvrflags_t cvrs = parse_cvrflags(state);
 	switch (state->lexer.curr.ty) {
+	case tok_union:
 	case tok_struct:
 		{
+			const bool is_struct = state->lexer.curr.ty == tok_struct;
 			lexer_next(&state->lexer);
 			const tok_t tyname = state->lexer.curr;
 			lexer_next(&state->lexer);
@@ -221,7 +223,7 @@ int parse_decl_not_arr_ptr_func(parser_t *const state) {
 				.tok = (tok_t){ .ty = tok_undefined },
 				.next = AST_SENTINAL,
 				.info.decl = {
-					.ty = decl_struct,
+					.ty = is_struct ? decl_struct : decl_union,
 					.tyname = tyname,
 					.cvrs = cvrs,
 					.inner = members,
@@ -274,8 +276,22 @@ int parse_decl_not_arr_ptr_func(parser_t *const state) {
 			});
 		}
 		break;
-	case tok_union: assert(false && "unimplemented");
-	case tok_ident: assert(false && "unimplemented");
+	case tok_ident: // Using an already made typedef
+		{
+			const tok_t tyname = state->lexer.curr;
+			lexer_next(&state->lexer);
+			return parser_add(state, (ast_t){
+				.ty = ast_decl,
+				.tok = (tok_t){ .ty = tok_undefined },
+				.next = AST_SENTINAL,
+				.info.decl = {
+					.ty = decl_typedef,
+					.cvrs = cvrs,
+					.tyname = tyname,
+				},
+			});
+		}
+		break;
 	case tok_void:
 		lexer_next(&state->lexer);
 		return parser_add(state, (ast_t){
@@ -463,10 +479,26 @@ static int _parse_decl(parser_t *const state, const bool multi_decl, const int t
 }
 
 static int parse_decl(parser_t *const state, const bool multi_decl) {
+	bool is_typedef = false;
+	if (state->lexer.curr.ty == tok_typedef) {
+		is_typedef = true;
+		lexer_next(&state->lexer);
+	}
 	// Type specifier (can be a whole struct definition!!!!!!)
 	const int tyspec = parse_decl_not_arr_ptr_func(state);
 	// Now parse pointers, functions, and arrays (and get identifier)
-	return _parse_decl(state, multi_decl, tyspec);
+	const int decl = _parse_decl(state, multi_decl, tyspec);
+
+	if (is_typedef) {
+		return parser_add(state, (ast_t){
+			.ty = ast_typedef,
+			.tok = (tok_t){ .ty = tok_undefined },
+			.next = AST_SENTINAL,
+			.info.inner = decl,
+		});
+	} else {
+		return decl;
+	}
 }
 
 void parse_toplevels(parser_t *const state) {
@@ -591,6 +623,10 @@ static void _dbg_ast_print(const ast_t *const ast, int idx, int tabs) {
 			printf("\n");
 		}
 		break;
+	case ast_typedef:
+		TAB printf("decl typedef\n");
+		_dbg_ast_print(ast, ast[idx].info.inner, tabs+1);
+		break;
 	case ast_enum_field:
 		TAB LENPRINT(ast[idx].tok.lit, ast[idx].tok.len)
 		if (ast[idx].info.inner != AST_SENTINAL) {
@@ -607,6 +643,11 @@ static void _dbg_ast_print(const ast_t *const ast, int idx, int tabs) {
 			const ast_t *node = ast + idx;
 			_dbg_cvr_print(node->info.decl.cvrs);
 			switch (node->info.decl.ty) {
+			case decl_typedef:
+				printf("typedef ");
+				LENPRINT(node->info.decl.tyname.lit, node->info.decl.tyname.len)
+				printf(" ");
+				break;
 			case decl_void: printf("void "); break;
 			case decl_function:
 				printf("function returns\n");
@@ -628,8 +669,10 @@ static void _dbg_ast_print(const ast_t *const ast, int idx, int tabs) {
 			case decl_pod: printf("%s ", unitty_to_str(node->info.decl.pod)); break;
 			case decl_enum:
 			case decl_struct:
+			case decl_union:
 				if (node->info.decl.ty == decl_struct) printf("struct ");
-				else printf("enum ");
+				else if (node->info.decl.ty == decl_enum) printf("enum ");
+				else printf("union ");
 				if (node->info.decl.inner != AST_SENTINAL) {
 					LENPRINT(node->info.decl.tyname.lit, node->info.decl.tyname.len)
 					printf(" {\n");
