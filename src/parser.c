@@ -207,7 +207,7 @@ int parse_decl_not_arr_ptr_func(parser_t *const state) {
 			if (state->lexer.curr.ty == tok_lbrace) { // structure definition
 				lexer_next(&state->lexer); // parse members
 				int *last = &members;
-				while (state->lexer.curr.ty != tok_rbrace) {
+				while (state->lexer.curr.ty != tok_rbrace && state->lexer.curr.ty != tok_eof) {
 					int member = parse_decl(state, true);
 					*last = member;
 					while (state->buf[member].next != AST_SENTINAL) member = state->buf[member].next;
@@ -575,12 +575,17 @@ static void _dbg_ast_print(const ast_t *const ast, int idx, int tabs) {
 			case decl_pod: printf("%s ", unitty_to_str(node->info.decl.pod)); break;
 			case decl_struct:
 				printf("struct ");
-				LENPRINT(node->info.decl.tyname.lit, node->info.decl.tyname.len)
-				printf(" {\n");
 				if (node->info.decl.inner != AST_SENTINAL) {
-					_dbg_ast_print(ast, node->info.decl.inner, tabs+1);
+					LENPRINT(node->info.decl.tyname.lit, node->info.decl.tyname.len)
+					printf(" {\n");
+					if (node->info.decl.inner != AST_SENTINAL) {
+						_dbg_ast_print(ast, node->info.decl.inner, tabs+1);
+					}
+					TAB printf("} ");
+				} else {
+					LENPRINT(node->info.decl.tyname.lit, node->info.decl.tyname.len)
+					printf(" ");
 				}
-				TAB printf("} ");
 				break;
 			default: printf("undefined "); break;
 			}

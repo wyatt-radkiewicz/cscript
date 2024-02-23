@@ -6,6 +6,8 @@ int (*const (*pfn_pfn)(void))(int a);
 int foo_func(int a, int b);
 int *ptr, i, *const consti;
 struct foo {
-	int a;
-	int b;
+	unsigned int a;
+	unsigned long long b;
 };
+
+struct foo using_it_again;
