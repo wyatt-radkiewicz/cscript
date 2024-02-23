@@ -384,7 +384,7 @@ static void _parse_decl(parser_t *const state, metadecl_t *const meta, size_t *c
 		cvrflags_t cvrs = cvr_none;
 		while (top >= 0) {
 			if (buf[top].ty == tok_lparen) {
-				if (!parened) top--;
+				if (parened) top--;
 				break;
 			}
 			if (buf[top].ty == tok_const) cvrs |= cvr_const;
@@ -399,7 +399,7 @@ static void _parse_decl(parser_t *const state, metadecl_t *const meta, size_t *c
 			top--;
 		}
 		
-		if (top >= 0 && parened) {
+		if ((state->lexer.peek[0].ty == tok_lparen || state->lexer.peek[0].ty == tok_lbrack) && parened) {
 			lexer_next(&state->lexer);
 			continue;
 		}
@@ -602,7 +602,7 @@ int parse_ident(parser_t *const state) {
 }
 
 static void _dbg_decl_print(const decl_t *const decl, const metadecl_t *const meta) {
-#define LENPRINT(lit, len) for (int i = 0; i < (len); i++) printf("%c", (lit)[i]);
+#define LENPRINT(lit, len) for (int _i = 0; _i < (len); _i++) printf("%c", (lit)[_i]);
 	for (int i = 0; i < decl->nlvls; i++) {
 		if (decl->lvls[i].cvr & cvr_const) printf("const ");
 		if (decl->lvls[i].cvr & cvr_extern) printf("extern ");

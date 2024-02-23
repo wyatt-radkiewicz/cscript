@@ -1,9 +1,9 @@
 struct foo {
-	int (*(*pfn2)(void))(int a);
+	struct bar strct;
+	int *(*(*pfn2)(void))(int a);
+	float *(*gigachad)[static 5];
 	const short *(*pfn)(int a);
-	//float *(*gigachad)[static 5];
 	const char *const a;
-	int *const * iptr;
-	//unsigned char deeznuts;
-	//struct bar strct;
+	int *const *iptr;
+	unsigned char deeznuts;
 };
