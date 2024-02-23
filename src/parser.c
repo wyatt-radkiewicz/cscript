@@ -618,8 +618,8 @@ static void _dbg_ast_print(const ast_t *const ast, int idx, int tabs) {
 	case ast_ident:
 		{
 			TAB printf("node: %s\n", tokty_to_str(ast[idx].tok.ty));
-			TAB LENPRINT(ast[idx].tok.lit, ast[idx].tok.len)
-			printf("name: ");
+			TAB printf("name: ");
+			LENPRINT(ast[idx].tok.lit, ast[idx].tok.len)
 			printf("\n");
 		}
 		break;
