@@ -404,13 +404,12 @@ static int _parse_decl(parser_t *const state, const bool multi_decl, const int t
 				int params = AST_SENTINAL;
 				int *last = &params;
 				while (state->lexer.curr.ty != tok_rparen) {
-					int param = parse_decl(state, false);
+					int param = parse_decl(state, false); // This will eat the last rparen, but not commas
 					*last = param;
 					last = &state->buf[param].next;
 					if (state->lexer.curr.ty == tok_comma) lexer_next(&state->lexer);
 					else break;
 				}
-				parser_eat(state, tok_rparen, "\")\"");
 				curr_node = parser_add(state, (ast_t){
 					.ty = ast_decl,
 					.tok = (tok_t){ .ty = tok_undefined },
