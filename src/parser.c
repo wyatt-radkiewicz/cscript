@@ -124,11 +124,14 @@ static const parse_rule_t _rules[] = {
 };
 
 bool parser_is_typedef(parser_t *const state, const tok_t *const tok) {
-	for (int i = 0; i < state->ntypedefs; i++) {
-		if (tok->len == state->typedef_names[i].len &&
-			memcmp(tok->lit, state->typedef_names[i].lit, tok->len) == 0) {
+	int i = ident_hash(tok->lit, tok->len) % arrlen(state->tymap), psl = 0;
+	while (psl <= state->tymap[i].psl) {
+		if (state->tymap[i].len == tok->len && memcmp(state->tymap[i].str, tok->lit, tok->len) == 0) {
 			return true;
 		}
+
+		psl++;
+		i = (i + 1) % arrlen(state->tymap);
 	}
 
 	return false;
@@ -166,6 +169,7 @@ static bool parser_eat(parser_t *const state, const tokty_t tokty, const char *c
 
 static int _parse_cast(parser_t *const state, const int type) {
 	parser_eat(state, tok_rparen, "\")\"");
+	const int line = state->lexer.curr.line, chr = state->lexer.curr.chr;
 	int init = state->lexer.curr.ty == tok_lbrace ? parse_initializer(state, false) : AST_SENTINAL;
 	if (init == AST_SENTINAL) {
 		const int expr = parse_expression(state, prec_2);
@@ -178,6 +182,8 @@ static int _parse_cast(parser_t *const state, const int type) {
 					.type = type,
 					.expr = expr,
 				},
+				.line = line,
+				.chr = chr,
 			});
 		} else {
 			return type;
@@ -194,6 +200,8 @@ static int _parse_cast(parser_t *const state, const int type) {
 					.init = init,
 				},
 			},
+			.line = line,
+			.chr = chr,
 		});
 	}
 }
@@ -220,6 +228,8 @@ static int parse_unary(parser_t *const state) {
 		.tok = tok,
 		.info.inner = val,
 		.next = AST_SENTINAL,
+		.line = tok.line,
+		.chr = tok.chr,
 	});
 }
 
@@ -236,6 +246,8 @@ static int parse_comma(
 		.next = AST_SENTINAL,
 		.info.comma.expr = left,
 		.info.comma.next = parse_expression(state, prec_comma-1),
+		.line = tok.line,
+		.chr = tok.chr,
 	});
 }
 
@@ -244,6 +256,7 @@ static int parse_call(
 	const prec_t prec,
 	int left
 ) {
+	const int line = state->lexer.curr.line, chr = state->lexer.curr.chr;
 	lexer_next(&state->lexer);
 	int params = AST_SENTINAL;
 	int *last = &params;
@@ -263,6 +276,8 @@ static int parse_call(
 			.info.func_call.func = left,
 			.info.func_call.params = params,
 			.next = AST_SENTINAL,
+			.line = line,
+			.chr = chr,
 		}
 	);
 }
@@ -283,6 +298,8 @@ static int parse_eq(
 			.info.binary.left = left,
 			.info.binary.right = right,
 			.next = AST_SENTINAL,
+			.line = tok.line,
+			.chr = tok.chr,
 		}
 	);
 }
@@ -303,6 +320,8 @@ static int parse_binary(
 			.info.binary.left = left,
 			.info.binary.right = right,
 			.next = AST_SENTINAL,
+			.line = tok.line,
+			.chr = tok.chr,
 		}
 	);
 }
@@ -322,6 +341,8 @@ static int parse_access_prefix(parser_t *const state) {
 				.accessing = arridx,
 			},
 			.next = AST_SENTINAL,
+			.line = tok.line,
+			.chr = tok.chr,
 		});
 	} else {
 		const int inner = parse_expression(state, prec_2);
@@ -330,6 +351,8 @@ static int parse_access_prefix(parser_t *const state) {
 			.tok = tok,
 			.info.inner = inner,
 			.next = AST_SENTINAL,
+			.line = tok.line,
+			.chr = tok.chr,
 		});
 	}
 }
@@ -350,6 +373,8 @@ static int parse_access_post(
 				.accessing = right,
 			},
 			.next = AST_SENTINAL,
+			.line = tok.line,
+			.chr = tok.chr,
 		});
 	} else {
 		const int arridx = parse_expression(state, prec_full);
@@ -362,6 +387,8 @@ static int parse_access_post(
 				.accessing = arridx,
 			},
 			.next = AST_SENTINAL,
+			.line = tok.line,
+			.chr = tok.chr,
 		});
 	}
 }
@@ -372,6 +399,8 @@ static int parse_ident(parser_t *const state) {
 		.ty = ast_ident,
 		.tok = name,
 		.next = AST_SENTINAL,
+		.line = name.line,
+		.chr = name.chr,
 	});
 }
 
@@ -383,6 +412,7 @@ parser_t parse(const char *src, ast_t *astbuf, size_t buflen) {
 		.lexer = lexer_init(src),
 		.nerrs = 0,
 		.root = AST_SENTINAL,
+		.tymap = {{0}},
 		.ntypedefs = 0,
 	};
 	lexer_next(&state.lexer);
@@ -406,6 +436,7 @@ static cvrflags_t parse_cvrflags(parser_t *const state) {
 }
 
 static int parse_type_not_arr_ptr_func(parser_t *const state) {
+	const int line = state->lexer.curr.line, chr = state->lexer.curr.chr;
 	cvrflags_t cvrs = parse_cvrflags(state);
 	switch (state->lexer.curr.ty) {
 	case tok_union:
@@ -437,6 +468,8 @@ static int parse_type_not_arr_ptr_func(parser_t *const state) {
 					.cvrs = cvrs,
 					.inner = members,
 				},
+				.line = line,
+				.chr = chr,
 			});
 		}
 		break;
@@ -450,6 +483,7 @@ static int parse_type_not_arr_ptr_func(parser_t *const state) {
 				lexer_next(&state->lexer); // parse fields
 				int *last = &fields;
 				while (state->lexer.curr.ty != tok_rbrace && state->lexer.curr.ty != tok_eof && state->lexer.curr.ty != tok_error) {
+					const int line = state->lexer.curr.line, chr = state->lexer.curr.chr;
 					const tok_t field_name = state->lexer.curr;
 					int value = AST_SENTINAL;
 
@@ -465,6 +499,8 @@ static int parse_type_not_arr_ptr_func(parser_t *const state) {
 						.next = AST_SENTINAL,
 						.tok = field_name,
 						.info.inner = value,
+						.line = line,
+						.chr = chr,
 					});
 					*last = field;
 					last = &state->buf[field].next;
@@ -481,6 +517,8 @@ static int parse_type_not_arr_ptr_func(parser_t *const state) {
 					.cvrs = cvrs,
 					.inner = fields,
 				},
+				.line = line,
+				.chr = chr,
 			});
 		}
 		break;
@@ -498,6 +536,8 @@ static int parse_type_not_arr_ptr_func(parser_t *const state) {
 					.cvrs = cvrs,
 					.tyname = tyname,
 				},
+				.line = line,
+				.chr = chr,
 			});
 		}
 		break;
@@ -511,6 +551,8 @@ static int parse_type_not_arr_ptr_func(parser_t *const state) {
 				.ty = decl_void,
 				.cvrs = cvrs,
 			},
+			.line = line,
+			.chr = chr,
 		});
 	default: break; // we are parsing a POD
 	}
@@ -555,12 +597,15 @@ construct_pod:
 			.cvrs = cvrs,
 			.pod = pod,
 		},
+		.line = line,
+		.chr = chr,
 	});
 }
 
 // Parse initializer
 // Could return either expression, or ast_init_list
 static int parse_initializer(parser_t *const state, const bool allow_desginator) {
+	const int line = state->lexer.curr.line, chr = state->lexer.curr.chr;
 	if ((state->lexer.curr.ty == tok_dot || state->lexer.curr.ty == tok_lbrack) && allow_desginator) {
 		if (state->lexer.curr.ty == tok_dot) lexer_next(&state->lexer);
 		const int accessor = parse_expression(state, prec_2);
@@ -574,6 +619,8 @@ static int parse_initializer(parser_t *const state, const bool allow_desginator)
 				.accessor = accessor,
 				.init = init,
 			},
+			.line = line,
+			.chr = chr,
 		});
 	}
 	if (state->lexer.curr.ty != tok_lbrace) return parse_expression(state, prec_assign);
@@ -595,6 +642,8 @@ static int parse_initializer(parser_t *const state, const bool allow_desginator)
 		.tok = (tok_t){ .ty = tok_undefined },
 		.next = AST_SENTINAL,
 		.info.inner = list,
+		.line = line,
+		.chr = chr,
 	});
 }
 
@@ -602,6 +651,7 @@ static int parse_initializer(parser_t *const state, const bool allow_desginator)
 // Obviously, function parameters are a situation where you would not want
 // multi_decl
 static int _parse_type(parser_t *const state, const bool multi_decl, const bool allow_idents, const int tyspec) {
+	const int line = state->lexer.curr.line, chr = state->lexer.curr.chr;
 	int curr_node = tyspec; // currnode is the child
 							// tyspec is always child of curr_node
 	int root = tyspec;		// root of declaration
@@ -651,6 +701,8 @@ static int _parse_type(parser_t *const state, const bool multi_decl, const bool 
 						.inner = tyspec,
 					},
 					.next = AST_SENTINAL,
+					.line = line,
+					.chr = chr,
 				});
 				parser_eat(state, tok_rbrack, "\"]\"");
 
@@ -678,6 +730,8 @@ static int _parse_type(parser_t *const state, const bool multi_decl, const bool 
 						.funcparams = params,
 					},
 					.next = AST_SENTINAL,
+					.line = line,
+					.chr = chr,
 				});
 
 				*parent = curr_node;
@@ -738,6 +792,8 @@ static int _parse_type(parser_t *const state, const bool multi_decl, const bool 
 			},
 			.tok = ident,
 			.next = AST_SENTINAL,
+			.line = line,
+			.chr = chr,
 		});
 	}
 
@@ -766,8 +822,28 @@ static int parse_type(parser_t *const state, const bool multi_decl, const bool a
 
 	if (is_typedef) {
 		// Add the typedef to the list
-		if (state->ntypedefs < arrlen(state->typedef_names)) {
-			state->typedef_names[state->ntypedefs++] = state->buf[decl].tok;
+		if (state->ntypedefs < arrlen(state->tymap)) {
+			state->ntypedefs++;
+			struct parser_tymap_ent ent = (struct parser_tymap_ent){
+				.str = state->buf[decl].tok.lit,
+				.len = state->buf[decl].tok.len,
+				.psl = 0,
+			};
+
+			int i = ident_hash(ent.str, ent.len) % arrlen(state->tymap);
+			while (state->tymap[i].str) {
+				if (ent.psl > state->tymap[i].psl) {
+					// swap
+					const struct parser_tymap_ent tmp = state->tymap[i];
+					state->tymap[i] = ent;
+					ent = tmp;
+				}
+
+				i = (i + 1) % arrlen(state->tymap);
+				ent.psl++;
+			}
+
+			state->tymap[i] = ent;
 		}
 
 		return parser_add(state, (ast_t){
@@ -775,6 +851,8 @@ static int parse_type(parser_t *const state, const bool multi_decl, const bool a
 			.tok = (tok_t){ .ty = tok_undefined },
 			.next = AST_SENTINAL,
 			.info.inner = decl,
+			.line = state->buf[decl].line,
+			.chr = state->buf[decl].chr,
 		});
 	} else {
 		return decl;
@@ -782,6 +860,8 @@ static int parse_type(parser_t *const state, const bool multi_decl, const bool a
 }
 
 static int parse_compound_stmt(parser_t *const state) {
+	const int line = state->lexer.curr.line, chr = state->lexer.curr.chr;
+
 	lexer_next(&state->lexer);
 	int stmts = AST_SENTINAL;
 	int *last = &stmts;
@@ -799,6 +879,8 @@ static int parse_compound_stmt(parser_t *const state) {
 		},
 		.tok = (tok_t){ .ty = tok_undefined },
 		.next = AST_SENTINAL,
+		.line = line,
+		.chr = chr,
 	});
 }
 
@@ -825,6 +907,8 @@ static void parse_label(parser_t *const state, labelty_t *const ty, int *const l
 }
 
 static int parse_ifelse_stmt(parser_t *const state) {
+	const int line = state->lexer.curr.line, chr = state->lexer.curr.chr;
+
 	lexer_next(&state->lexer);
 	parser_eat(state, tok_lparen, "\"(\"");
 	const int cond = parse_expression(state, prec_full);
@@ -847,9 +931,13 @@ static int parse_ifelse_stmt(parser_t *const state) {
 		},
 		.tok = (tok_t){ .ty = tok_undefined },
 		.next = AST_SENTINAL,
+		.line = line,
+		.chr = chr,
 	});
 }
 static int parse_switch_stmt(parser_t *const state) {
+	const int line = state->lexer.curr.line, chr = state->lexer.curr.chr;
+
 	lexer_next(&state->lexer);
 	parser_eat(state, tok_lparen, "\"(\"");
 	const int cond = parse_expression(state, prec_full);
@@ -866,9 +954,13 @@ static int parse_switch_stmt(parser_t *const state) {
 		},
 		.tok = (tok_t){ .ty = tok_undefined },
 		.next = AST_SENTINAL,
+		.line = line,
+		.chr = chr,
 	});
 }
 static int parse_while_stmt(parser_t *const state) {
+	const int line = state->lexer.curr.line, chr = state->lexer.curr.chr;
+
 	lexer_next(&state->lexer);
 	parser_eat(state, tok_lparen, "\"(\"");
 	const int cond = parse_expression(state, prec_full);
@@ -885,9 +977,13 @@ static int parse_while_stmt(parser_t *const state) {
 		},
 		.tok = (tok_t){ .ty = tok_undefined },
 		.next = AST_SENTINAL,
+		.line = line,
+		.chr = chr,
 	});
 }
 static int parse_dowhile_stmt(parser_t *const state) {
+	const int line = state->lexer.curr.line, chr = state->lexer.curr.chr;
+
 	lexer_next(&state->lexer);
 	const int inner = parse_statement(state);
 	parser_eat(state, tok_while, "\"while\"");
@@ -906,9 +1002,13 @@ static int parse_dowhile_stmt(parser_t *const state) {
 		},
 		.tok = (tok_t){ .ty = tok_undefined },
 		.next = AST_SENTINAL,
+		.line = line,
+		.chr = chr,
 	});
 }
 static int parse_for_stmt(parser_t *const state) {
+	const int line = state->lexer.curr.line, chr = state->lexer.curr.chr;
+
 	lexer_next(&state->lexer);
 	parser_eat(state, tok_lparen, "\"(\"");
 	int init_clause = parse_expression(state, prec_full);
@@ -934,9 +1034,13 @@ static int parse_for_stmt(parser_t *const state) {
 		},
 		.tok = (tok_t){ .ty = tok_undefined },
 		.next = AST_SENTINAL,
+		.line = line,
+		.chr = chr,
 	});
 }
 static int parse_ret_stmt(parser_t *const state) {
+	const int line = state->lexer.curr.line, chr = state->lexer.curr.chr;
+
 	lexer_next(&state->lexer);
 	const int expr = parse_expression(state, prec_full);
 	parser_eat(state, tok_semicol, "\";\"");
@@ -948,9 +1052,13 @@ static int parse_ret_stmt(parser_t *const state) {
 		},
 		.tok = (tok_t){ .ty = tok_undefined },
 		.next = AST_SENTINAL,
+		.line = line,
+		.chr = chr,
 	});
 }
 static int parse_goto_stmt(parser_t *const state) {
+	const int line = state->lexer.curr.line, chr = state->lexer.curr.chr;
+
 	lexer_next(&state->lexer);
 	const int label = parse_ident(state);
 	parser_eat(state, tok_semicol, "\";\"");
@@ -962,9 +1070,13 @@ static int parse_goto_stmt(parser_t *const state) {
 		},
 		.tok = (tok_t){ .ty = tok_undefined },
 		.next = AST_SENTINAL,
+		.line = line,
+		.chr = chr,
 	});
 }
 static int parse_expr_decldef_stmt(parser_t *const state) {
+	const int line = state->lexer.curr.line, chr = state->lexer.curr.chr;
+
 	const int decl = parse_type(state, true, true);
 	if (decl != AST_SENTINAL) {
 		parser_eat(state, tok_semicol, "\";\"");
@@ -976,6 +1088,8 @@ static int parse_expr_decldef_stmt(parser_t *const state) {
 			},
 			.tok = (tok_t){ .ty = tok_undefined },
 			.next = AST_SENTINAL,
+			.line = line,
+			.chr = chr,
 		});
 	}
 	const int expr = parse_expression(state, prec_full);
@@ -989,12 +1103,16 @@ static int parse_expr_decldef_stmt(parser_t *const state) {
 			},
 			.tok = (tok_t){ .ty = tok_undefined },
 			.next = AST_SENTINAL,
+			.line = line,
+			.chr = chr,
 		});
 	}
 	return AST_SENTINAL;
 }
 
 static int parse_statement(parser_t *const state) {
+	const int line = state->lexer.curr.line, chr = state->lexer.curr.chr;
+
 	labelty_t labelty;
 	int label;
 	parse_label(state, &labelty, &label);
@@ -1014,6 +1132,8 @@ static int parse_statement(parser_t *const state) {
 			.info.stmt = { .ty = stmt_break, },
 			.tok = (tok_t){ .ty = tok_undefined },
 			.next = AST_SENTINAL,
+			.line = line,
+			.chr = chr,
 		});
 		break;
 	case tok_continue:
@@ -1023,6 +1143,8 @@ static int parse_statement(parser_t *const state) {
 			.info.stmt = { .ty = stmt_cont, },
 			.tok = (tok_t){ .ty = tok_undefined },
 			.next = AST_SENTINAL,
+			.line = line,
+			.chr = chr,
 		});
 		break;
 	case tok_return: stmt = parse_ret_stmt(state); break;
@@ -1034,6 +1156,8 @@ static int parse_statement(parser_t *const state) {
 			.info.stmt = { .ty = stmt_null, },
 			.tok = (tok_t){ .ty = tok_undefined },
 			.next = AST_SENTINAL,
+			.line = line,
+			.chr = chr,
 		});
 		break;
 	default: stmt = parse_expr_decldef_stmt(state); break;
@@ -1096,6 +1220,8 @@ static int parse_expression(
 				.onfalse = right,
 			},
 			.next = AST_SENTINAL,
+			.line = tok.line,
+			.chr = tok.chr,
 		});
 	} else if (state->lexer.curr.ty == tok_colon) {
 		return left;
@@ -1162,6 +1288,8 @@ static int parse_string_lit(parser_t *const state) {
 			.val.lit = tok,
 		},
 		.next = AST_SENTINAL,
+		.line = tok.line,
+		.chr = tok.chr,
 	});
 }
 static int parse_number_lit(parser_t *const state) {
@@ -1174,6 +1302,8 @@ static int parse_number_lit(parser_t *const state) {
 			.val.pod = parse_number(state),
 		},
 		.next = AST_SENTINAL,
+		.line = tok.line,
+		.chr = tok.chr,
 	});
 }
 
@@ -1304,7 +1434,6 @@ static void _dbg_ast_print(const ast_t *const ast, int idx, int tabs) {
 			case decl_typedef:
 				printf("typedef:\n");
 				_dbg_ast_print(ast, node->info.type.tyname, tabs+1);
-				printf("\n");
 				break;
 			case decl_void: printf("void\n"); break;
 			case decl_function:

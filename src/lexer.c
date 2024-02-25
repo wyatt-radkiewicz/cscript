@@ -405,7 +405,11 @@ static tok_t _lexer_nexttok(lexer_t *const state) {
 			return (tok_t){ .ty = tok_char_lit, .lit = c, .len = 3, .line = state->line, .chr = state->chr };
 		}
 	case '.':
-		if (isdigit(*state->head)) {
+		if (*state->head == '.' && *(state->head + 1) == '.') {
+			state->head += 2;
+			state->head_chr += 2;
+			return (tok_t){ .ty = tok_elipses, .lit = c, .len = 3, .line = state->line, .chr = state->chr };
+		} else if (isdigit(*state->head)) {
 			state->head--;
 			state->head_chr--;
 			return consume_number(state);
