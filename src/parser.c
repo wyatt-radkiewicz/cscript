@@ -8,6 +8,7 @@
 // Will parse the type and either return
 // just the ast_type with type info
 // or the ast_decl with type info and identifier
+static int parse_statement(parser_t *const state);
 static int parse_initializer(parser_t *const state, const bool allow_desginator);
 static int parse_type(parser_t *const state, const bool multi_decl, const bool allow_idents);
 static typed_unit_t parse_number(parser_t *const state);
@@ -761,19 +762,34 @@ static int parse_type(parser_t *const state, const bool multi_decl, const bool a
 	}
 }
 
+static int parse_statement(parser_t *const state) {
+	parser_eat(state, tok_lbrace, "\"{\"");
+	parser_eat(state, tok_rbrace, "\"}\"");
+	return AST_SENTINAL;
+}
+
 static void parse_decl_toplvl(parser_t *const state, int *const first_def, int *const last_def) {
 	int node = parse_type(state, true, true);
-	if (first_def) *first_def = node;
-	while (state->buf[node].next != AST_SENTINAL) node = state->buf[node].next;
-	if (last_def) *last_def = node;
 
 	if (state->buf[node].info.type.ty == decl_function && state->lexer.curr.ty == tok_lbrace) {
-		lexer_next(&state->lexer);
-		// PARSE FUNCTION!!!!
-		lexer_next(&state->lexer);
+		const tok_t ident = state->buf[node].tok;
+		state->buf[node].tok = (tok_t){ .ty = tok_undefined };
+		node = parser_add(state, (ast_t){
+			.ty = ast_def,
+			.info.def = {
+				.def = parse_statement(state),
+				.type = node,
+			},
+			.tok = ident,
+			.next = AST_SENTINAL,
+		});
 	} else {
 		parser_eat(state, tok_semicol, "\";\"");
 	}
+
+	if (first_def) *first_def = node;
+	while (state->buf[node].next != AST_SENTINAL) node = state->buf[node].next;
+	if (last_def) *last_def = node;
 }
 
 static void parse_toplevels(parser_t *const state) {
@@ -1010,6 +1026,7 @@ static void _dbg_ast_print(const ast_t *const ast, int idx, int tabs) {
 			if (node->tok.ty != tok_undefined) printf("decl ");
 			else printf("type ");
 			_dbg_cvr_print(node->info.type.cvrs);
+			bool print_tok = true;
 			switch (node->info.type.ty) {
 			case decl_typedef:
 				printf("typedef ");
@@ -1022,8 +1039,14 @@ static void _dbg_ast_print(const ast_t *const ast, int idx, int tabs) {
 				_dbg_ast_print(ast, node->info.type.inner, tabs+1);
 				TAB printf("and takes\n");
 				_dbg_ast_print(ast, node->info.type.funcparams, tabs+1);
+				print_tok = false;
 				break;
-			case decl_pointer_to: printf("pointer to\n"); _dbg_ast_print(ast, node->info.type.inner, tabs + 1); TAB break;
+			case decl_pointer_to:
+				printf("pointer to\n");
+				_dbg_ast_print(ast, node->info.type.inner, tabs + 1);
+				if (node->tok.ty != tok_undefined) TAB
+				else print_tok = false;
+				break;
 			case decl_array_of: 
 				if (node->info.type.arrlen != AST_SENTINAL) {
 					printf("array [\n");
@@ -1033,7 +1056,7 @@ static void _dbg_ast_print(const ast_t *const ast, int idx, int tabs) {
 					printf("array of \n");
 				}
 				_dbg_ast_print(ast, node->info.type.inner, tabs + 1); 
-				TAB
+				print_tok = false;
 				break;
 			case decl_pod: printf("%s ", unitty_to_str(node->info.type.pod)); break;
 			case decl_enum:
@@ -1056,8 +1079,10 @@ static void _dbg_ast_print(const ast_t *const ast, int idx, int tabs) {
 				break;
 			default: printf("undefined "); break;
 			}
-			LENPRINT(node->tok.lit, node->tok.len)
-			printf("\n");
+			if (print_tok) {
+				LENPRINT(node->tok.lit, node->tok.len)
+				printf("\n");
+			}
 			break;
 		}
 	case ast_def:
