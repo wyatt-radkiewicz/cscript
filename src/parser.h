@@ -70,6 +70,7 @@ typedef enum astty {
 	ast_init_designator,
 	ast_func_call,
 	ast_cast,
+	ast_stmt,
 } astty_t;
 
 typedef enum declty {
@@ -83,6 +84,29 @@ typedef enum declty {
 	decl_enum,
 	decl_function,
 } declty_t;
+
+typedef enum stmtty {
+	stmt_compound,
+	stmt_expr,
+	stmt_decldef,
+	stmt_ifelse,
+	stmt_switch,
+	stmt_while,
+	stmt_dowhile,
+	stmt_for,
+	stmt_break,
+	stmt_cont,
+	stmt_return,
+	stmt_goto,
+	stmt_null,
+} stmtty_t;
+
+typedef enum labelty {
+	label_none,
+	label_norm,
+	label_case,
+	label_default,
+} labelty_t;
 
 typedef enum cvrflags {
 	cvr_none		= 0,
@@ -104,15 +128,27 @@ typedef struct ast {
 	astty_t ty;
 	tok_t tok;
 	union {
+		struct {
+			stmtty_t ty;
+			labelty_t labelty;
+			int label;
+			union {
+				int inner;
+				struct {
+					int cond, on_true, on_false;
+				} ifelse;
+				struct {
+					int cond, inner;
+				} cond;
+				struct {
+					int init_clause;
+					int cond_expr, iter_expr;
+					int stmt;
+				} forinfo;
+			};
+		} stmt;
 		struct { int left, right; } binary;
 		struct { int cond, ontrue, onfalse; } ternary;
-		struct {
-			int cond;
-			union {
-				struct { int true_stmt, false_stmt; };
-				struct { int stmt; };
-			};
-		} cond;
 		struct {
 			int expr, next;
 		} comma;
@@ -137,7 +173,7 @@ typedef struct ast {
 				unitty_t pod;
 				int funcparams;
 				int arrlen;
-				tok_t tyname; // name of declaration type
+				int tyname; // identifier of declaration type
 			};
 		} type;
 		struct {
