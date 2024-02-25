@@ -204,6 +204,8 @@ struct parser {
 	err_t errs[32];
 	size_t nerrs;
 	int root;
+	tok_t typedef_names[512]; // Used for ambiguity with regular variables
+	size_t ntypedefs;
 };
 
 int parser_add(parser_t *const state, ast_t newnode);

@@ -123,6 +123,17 @@ static const parse_rule_t _rules[] = {
 	[tok_colon] = (parse_rule_t){ .prefix = NULL, .infix = NULL, .prec = prec_null },
 };
 
+bool parser_is_typedef(parser_t *const state, const tok_t *const tok) {
+	for (int i = 0; i < state->ntypedefs; i++) {
+		if (tok->len == state->typedef_names[i].len &&
+			memcmp(tok->lit, state->typedef_names[i].lit, tok->len) == 0) {
+			return true;
+		}
+	}
+
+	return false;
+}
+
 void parser_err(
 	parser_t *const state,
 	err_t err
@@ -153,8 +164,7 @@ static bool parser_eat(parser_t *const state, const tokty_t tokty, const char *c
 	}
 }
 
-static int _parse_cast(parser_t *const state) {
-	const int type = parse_type(state, false, false);
+static int _parse_cast(parser_t *const state, const int type) {
 	parser_eat(state, tok_rparen, "\")\"");
 	int init = state->lexer.curr.ty == tok_lbrace ? parse_initializer(state, false) : AST_SENTINAL;
 	if (init == AST_SENTINAL) {
@@ -194,12 +204,13 @@ static int parse_unary(parser_t *const state) {
 	lexer_next(&state->lexer);
 	switch (tok.ty) {
 	case tok_lparen:
-		val = parse_expression(state, prec_assign);
-		if (val == AST_SENTINAL) {
-			return _parse_cast(state);
+		{
+			const int type = parse_type(state, false, false);
+			if (type != AST_SENTINAL) return _parse_cast(state, type);
+			val = parse_expression(state, prec_assign);
+			parser_eat(state, tok_rparen, "right paren");
+			break;
 		}
-		parser_eat(state, tok_rparen, "right paren");
-		break;
 	default:
 		val = parse_expression(state, prec_grouping);
 		break;
@@ -372,6 +383,7 @@ parser_t parse(const char *src, ast_t *astbuf, size_t buflen) {
 		.lexer = lexer_init(src),
 		.nerrs = 0,
 		.root = AST_SENTINAL,
+		.ntypedefs = 0,
 	};
 	lexer_next(&state.lexer);
 	parse_toplevels(&state);
@@ -474,6 +486,8 @@ static int parse_type_not_arr_ptr_func(parser_t *const state) {
 		break;
 	case tok_ident: // Using an already made typedef
 		{
+			if (!parser_is_typedef(state, &state->lexer.curr)) return AST_SENTINAL;
+
 			const int tyname = parse_ident(state);
 			return parser_add(state, (ast_t){
 				.ty = ast_type,
@@ -746,10 +760,16 @@ static int parse_type(parser_t *const state, const bool multi_decl, const bool a
 	}
 	// Type specifier (can be a whole struct definition!!!!!!)
 	const int tyspec = parse_type_not_arr_ptr_func(state);
+	if (tyspec == AST_SENTINAL) return AST_SENTINAL;
 	// Now parse pointers, functions, and arrays (and get identifier)
 	const int decl = _parse_type(state, multi_decl, allow_idents, tyspec);
 
 	if (is_typedef) {
+		// Add the typedef to the list
+		if (state->ntypedefs < arrlen(state->typedef_names)) {
+			state->typedef_names[state->ntypedefs++] = state->buf[decl].tok;
+		}
+
 		return parser_add(state, (ast_t){
 			.ty = ast_typedef,
 			.tok = (tok_t){ .ty = tok_undefined },
@@ -944,20 +964,6 @@ static int parse_goto_stmt(parser_t *const state) {
 	});
 }
 static int parse_expr_decldef_stmt(parser_t *const state) {
-	const int expr = parse_expression(state, prec_full);
-	if (expr != AST_SENTINAL) {
-		parser_eat(state, tok_semicol, "\";\"");
-		return parser_add(state, (ast_t){
-			.ty = ast_stmt,
-			.info.stmt = {
-				.ty = stmt_expr,
-				.inner = expr,
-			},
-			.tok = (tok_t){ .ty = tok_undefined },
-			.next = AST_SENTINAL,
-		});
-	}
-
 	const int decl = parse_type(state, true, true);
 	if (decl != AST_SENTINAL) {
 		parser_eat(state, tok_semicol, "\";\"");
@@ -971,7 +977,19 @@ static int parse_expr_decldef_stmt(parser_t *const state) {
 			.next = AST_SENTINAL,
 		});
 	}
-
+	const int expr = parse_expression(state, prec_full);
+	if (expr != AST_SENTINAL) {
+		parser_eat(state, tok_semicol, "\";\"");
+		return parser_add(state, (ast_t){
+			.ty = ast_stmt,
+			.info.stmt = {
+				.ty = stmt_expr,
+				.inner = expr,
+			},
+			.tok = (tok_t){ .ty = tok_undefined },
+			.next = AST_SENTINAL,
+		});
+	}
 	return AST_SENTINAL;
 }
 
@@ -1030,7 +1048,8 @@ static int parse_statement(parser_t *const state) {
 static void parse_decl_toplvl(parser_t *const state, int *const first_def, int *const last_def) {
 	int node = parse_type(state, true, true);
 
-	if (state->buf[node].ty == ast_decldef
+	if (node != AST_SENTINAL
+		&& state->buf[node].ty == ast_decldef
 		&& state->buf[node].info.decldef.def == AST_SENTINAL
 		&& state->lexer.curr.ty == tok_lbrace) {
 		state->buf[node].info.decldef.def = parse_statement(state);
@@ -1039,7 +1058,7 @@ static void parse_decl_toplvl(parser_t *const state, int *const first_def, int *
 	}
 
 	if (first_def) *first_def = node;
-	while (state->buf[node].next != AST_SENTINAL) node = state->buf[node].next;
+	while (node != AST_SENTINAL && state->buf[node].next != AST_SENTINAL) node = state->buf[node].next;
 	if (last_def) *last_def = node;
 }
 
@@ -1214,10 +1233,10 @@ static void _dbg_ast_print(const ast_t *const ast, int idx, int tabs) {
 			break;
 		case lit_compound:
 			TAB printf("compound literal:\n");
-			TAB printf("type:\n");
-			_dbg_ast_print(ast, ast[idx].info.literal.val.compound.type, tabs+1);
-			TAB printf("initialized to:\n");
-			_dbg_ast_print(ast, ast[idx].info.literal.val.compound.init, tabs+1);
+			TAB printf("  type:\n");
+			_dbg_ast_print(ast, ast[idx].info.literal.val.compound.type, tabs+2);
+			TAB printf("  initialized to:\n");
+			_dbg_ast_print(ast, ast[idx].info.literal.val.compound.init, tabs+2);
 			break;
 		}
 		break;
