@@ -55,18 +55,22 @@
 	enumdef(tok_minusminus) \
 	enumdef(tok_minuseq) \
 	enumdef(tok_star) \
+	enumdef(tok_stareq) \
 	enumdef(tok_dot) \
 	enumdef(tok_arrow) \
 	enumdef(tok_eq) \
 	enumdef(tok_eqeq) \
 	enumdef(tok_bitand) \
+	enumdef(tok_bitandeq) \
 	enumdef(tok_and) \
 	enumdef(tok_bitor) \
+	enumdef(tok_bitoreq) \
 	enumdef(tok_or) \
 	enumdef(tok_bitnot) \
 	enumdef(tok_not) \
 	enumdef(tok_noteq) \
 	enumdef(tok_xor) \
+	enumdef(tok_xoreq) \
 	enumdef(tok_lparen) \
 	enumdef(tok_rparen) \
 	enumdef(tok_lbrack) \
@@ -76,14 +80,18 @@
 	enumdef(tok_gt) \
 	enumdef(tok_ge) \
 	enumdef(tok_shr) \
+	enumdef(tok_shreq) \
 	enumdef(tok_lt) \
 	enumdef(tok_le) \
 	enumdef(tok_shl) \
+	enumdef(tok_shleq) \
 	enumdef(tok_comma) \
 	enumdef(tok_char_lit) \
 	enumdef(tok_semicol) \
 	enumdef(tok_slash) \
+	enumdef(tok_slasheq) \
 	enumdef(tok_percent) \
+	enumdef(tok_percenteq) \
 	\
 	/* Misc tokens */ \
 	enumdef(tok_string) \

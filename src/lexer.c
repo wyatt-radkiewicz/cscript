@@ -283,7 +283,11 @@ static tok_t _lexer_nexttok(lexer_t *const state) {
 			return (tok_t){ .ty = tok_eq, .lit = c, .len = 1, .line = state->line, .chr = state->chr };
 		}
 	case '&':
-		if (*state->head == '&') {
+		if (*state->head == '=') {
+			state->head++;
+			state->head_chr++;
+			return (tok_t){ .ty = tok_bitandeq, .lit = c, .len = 2, .line = state->line, .chr = state->chr };
+		} else if (*state->head == '&') {
 			state->head++;
 			state->head_chr++;
 			return (tok_t){ .ty = tok_and, .lit = c, .len = 2, .line = state->line, .chr = state->chr };
@@ -291,7 +295,11 @@ static tok_t _lexer_nexttok(lexer_t *const state) {
 			return (tok_t){ .ty = tok_bitand, .lit = c, .len = 1, .line = state->line, .chr = state->chr };
 		}
 	case '|':
-		if (*state->head == '|') {
+		if (*state->head == '=') {
+			state->head++;
+			state->head_chr++;
+			return (tok_t){ .ty = tok_bitoreq, .lit = c, .len = 2, .line = state->line, .chr = state->chr };
+		} else if (*state->head == '|') {
 			state->head++;
 			state->head_chr++;
 			return (tok_t){ .ty = tok_or, .lit = c, .len = 2, .line = state->line, .chr = state->chr };
@@ -314,7 +322,13 @@ static tok_t _lexer_nexttok(lexer_t *const state) {
 		} if (*state->head == '>') {
 			state->head++;
 			state->head_chr++;
-			return (tok_t){ .ty = tok_shr, .lit = c, .len = 2, .line = state->line, .chr = state->chr };
+			if (*state->head == '=') {
+				state->head++;
+				state->head_chr++;
+				return (tok_t){ .ty = tok_shreq, .lit = c, .len = 3, .line = state->line, .chr = state->chr };
+			} else {
+				return (tok_t){ .ty = tok_shr, .lit = c, .len = 2, .line = state->line, .chr = state->chr };
+			}
 		} else {
 			return (tok_t){ .ty = tok_gt, .lit = c, .len = 1, .line = state->line, .chr = state->chr };
 		}
@@ -326,23 +340,57 @@ static tok_t _lexer_nexttok(lexer_t *const state) {
 		} if (*state->head == '<') {
 			state->head++;
 			state->head_chr++;
-			return (tok_t){ .ty = tok_shl, .lit = c, .len = 2, .line = state->line, .chr = state->chr };
+			if (*state->head == '=') {
+				state->head++;
+				state->head_chr++;
+				return (tok_t){ .ty = tok_shleq, .lit = c, .len = 3, .line = state->line, .chr = state->chr };
+			} else {
+				return (tok_t){ .ty = tok_shl, .lit = c, .len = 2, .line = state->line, .chr = state->chr };
+			}
 		} else {
 			return (tok_t){ .ty = tok_lt, .lit = c, .len = 1, .line = state->line, .chr = state->chr };
 		}
 	case '~': return (tok_t){ .ty = tok_bitnot, .lit = c, .len = 1, .line = state->line, .chr = state->chr };
-	case '^': return (tok_t){ .ty = tok_xor, .lit = c, .len = 1, .line = state->line, .chr = state->chr };
+	case '^':
+		if (*state->head == '=') {
+			state->head++;
+			state->head_chr++;
+			return (tok_t){ .ty = tok_xoreq, .lit = c, .len = 2, .line = state->line, .chr = state->chr };
+		} else {
+			return (tok_t){ .ty = tok_xor, .lit = c, .len = 1, .line = state->line, .chr = state->chr };
+		}
 	case '(': return (tok_t){ .ty = tok_lparen, .lit = c, .len = 1, .line = state->line, .chr = state->chr };
 	case ')': return (tok_t){ .ty = tok_rparen, .lit = c, .len = 1, .line = state->line, .chr = state->chr };
 	case '[': return (tok_t){ .ty = tok_lbrack, .lit = c, .len = 1, .line = state->line, .chr = state->chr };
 	case ']': return (tok_t){ .ty = tok_rbrack, .lit = c, .len = 1, .line = state->line, .chr = state->chr };
 	case '{': return (tok_t){ .ty = tok_lbrace, .lit = c, .len = 1, .line = state->line, .chr = state->chr };
 	case '}': return (tok_t){ .ty = tok_rbrace, .lit = c, .len = 1, .line = state->line, .chr = state->chr };
-	case '*': return (tok_t){ .ty = tok_star, .lit = c, .len = 1, .line = state->line, .chr = state->chr };
+	case '*':
+		if (*state->head == '=') {
+			state->head++;
+			state->head_chr++;
+			return (tok_t){ .ty = tok_stareq, .lit = c, .len = 2, .line = state->line, .chr = state->chr };
+		} else {
+			return (tok_t){ .ty = tok_star, .lit = c, .len = 1, .line = state->line, .chr = state->chr };
+		}
 	case ',': return (tok_t){ .ty = tok_comma, .lit = c, .len = 1, .line = state->line, .chr = state->chr };
 	case ';': return (tok_t){ .ty = tok_semicol, .lit = c, .len = 1, .line = state->line, .chr = state->chr };
-	case '/': return (tok_t){ .ty = tok_slash, .lit = c, .len = 1, .line = state->line, .chr = state->chr };
-	case '%': return (tok_t){ .ty = tok_percent, .lit = c, .len = 1, .line = state->line, .chr = state->chr };
+	case '/':
+		if (*state->head == '=') {
+			state->head++;
+			state->head_chr++;
+			return (tok_t){ .ty = tok_slasheq, .lit = c, .len = 2, .line = state->line, .chr = state->chr };
+		} else {
+			return (tok_t){ .ty = tok_slash, .lit = c, .len = 1, .line = state->line, .chr = state->chr };
+		}
+	case '%':
+		if (*state->head == '=') {
+			state->head++;
+			state->head_chr++;
+			return (tok_t){ .ty = tok_percenteq, .lit = c, .len = 2, .line = state->line, .chr = state->chr };
+		} else {
+			return (tok_t){ .ty = tok_percent, .lit = c, .len = 1, .line = state->line, .chr = state->chr };
+		}
 	case '\'':
 		if (*state->head == '\\') {
 			state->head += 3;
