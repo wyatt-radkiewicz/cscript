@@ -397,7 +397,7 @@ static tok_t _lexer_nexttok(lexer_t *const state) {
 		if (*state->head == '\\') {
 			state->head += 3;
 			state->head_chr += 3;
-			if (*state->head != tok_char_lit) return make_errtok(state, err_expected, "'");
+			if (*(state->head - 1) != '\'') return make_errtok(state, err_expected, "'");
 			return (tok_t){ .ty = tok_char_lit, .lit = c, .len = 4, .line = state->line, .chr = state->chr };
 		} else {
 			state->head += 2;

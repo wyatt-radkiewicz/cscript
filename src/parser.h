@@ -121,6 +121,7 @@ typedef enum literalty {
 	lit_pod,
 	lit_str,
 	lit_compound,
+	lit_char,
 } literalty_t;
 
 #define AST_SENTINAL (-1)
@@ -190,7 +191,7 @@ typedef struct ast {
 					int type, init;
 				} compound;
 				typed_unit_t pod;
-				tok_t str;
+				tok_t lit;
 			} val;
 		} literal;
 	} info;

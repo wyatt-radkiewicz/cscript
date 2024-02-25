@@ -106,13 +106,13 @@ static const parse_rule_t _rules[] = {
 	[tok_le] = (parse_rule_t){ .prefix = NULL, .infix = parse_binary, .prec = prec_relational },
 	[tok_shl] = (parse_rule_t){ .prefix = NULL, .infix = parse_binary, .prec = prec_bitshifting },
 	[tok_comma] = (parse_rule_t){ .prefix = NULL, .infix = parse_comma, .prec = prec_comma },
-	[tok_char_lit] = (parse_rule_t){ .prefix = NULL, .infix = NULL, .prec = prec_null },
 	[tok_semicol] = (parse_rule_t){ .prefix = NULL, .infix = NULL, .prec = prec_null },
 	[tok_slash] = (parse_rule_t){ .prefix = NULL, .infix = parse_binary, .prec = prec_multiplicative },
 	[tok_percent] = (parse_rule_t){ .prefix = NULL, .infix = parse_binary, .prec = prec_multiplicative },
 
 	// Misc tokens
 	[tok_string] = (parse_rule_t){ .prefix = parse_string_lit, .infix = NULL, .prec = prec_null },
+	[tok_char_lit] = (parse_rule_t){ .prefix = parse_string_lit, .infix = NULL, .prec = prec_null },
 	[tok_integer] = (parse_rule_t){ .prefix = parse_number_lit, .infix = NULL, .prec = prec_null },
 	[tok_floating] = (parse_rule_t){ .prefix = parse_number_lit, .infix = NULL, .prec = prec_null },
 	[tok_ident] = (parse_rule_t){ .prefix = parse_ident, .infix = NULL, .prec = prec_null },
@@ -247,7 +247,7 @@ static int parse_call(
 	lexer_next(&state->lexer);
 	int params = AST_SENTINAL;
 	int *last = &params;
-	while (state->lexer.curr.ty != tok_eof) {
+	while (state->lexer.curr.ty != tok_eof && state->lexer.curr.ty != tok_error) {
 		const int param = parse_expression(state, prec_ternary);
 		*last = param;
 		last = &state->buf[param].next;
@@ -418,7 +418,7 @@ static int parse_type_not_arr_ptr_func(parser_t *const state) {
 			if (state->lexer.curr.ty == tok_lbrace) { // structure definition
 				lexer_next(&state->lexer); // parse members
 				int *last = &members;
-				while (state->lexer.curr.ty != tok_rbrace && state->lexer.curr.ty != tok_eof) {
+				while (state->lexer.curr.ty != tok_rbrace && state->lexer.curr.ty != tok_eof && state->lexer.curr.ty != tok_error) {
 					int member = parse_type(state, true, true);
 					*last = member;
 					while (state->buf[member].next != AST_SENTINAL) member = state->buf[member].next;
@@ -449,7 +449,7 @@ static int parse_type_not_arr_ptr_func(parser_t *const state) {
 			if (state->lexer.curr.ty == tok_lbrace) { // enum definition
 				lexer_next(&state->lexer); // parse fields
 				int *last = &fields;
-				while (state->lexer.curr.ty != tok_rbrace && state->lexer.curr.ty != tok_eof) {
+				while (state->lexer.curr.ty != tok_rbrace && state->lexer.curr.ty != tok_eof && state->lexer.curr.ty != tok_error) {
 					const tok_t field_name = state->lexer.curr;
 					int value = AST_SENTINAL;
 
@@ -581,7 +581,7 @@ static int parse_initializer(parser_t *const state, const bool allow_desginator)
 
 	int list = AST_SENTINAL;
 	int *last = &list;
-	while (state->lexer.curr.ty != tok_rbrace && state->lexer.curr.ty != tok_eof) {
+	while (state->lexer.curr.ty != tok_rbrace && state->lexer.curr.ty != tok_eof && state->lexer.curr.ty != tok_error) {
 		const int node = parse_initializer(state, true);
 		*last = node;
 		last = &state->buf[node].next;
@@ -785,7 +785,7 @@ static int parse_compound_stmt(parser_t *const state) {
 	lexer_next(&state->lexer);
 	int stmts = AST_SENTINAL;
 	int *last = &stmts;
-	while (last && state->lexer.curr.ty != tok_rbrace && state->lexer.curr.ty != tok_eof) {
+	while (last && state->lexer.curr.ty != tok_rbrace && state->lexer.curr.ty != tok_eof && state->lexer.curr.ty != tok_error) {
 		int stmt = parse_statement(state);
 		*last = stmt;
 		last = stmt == AST_SENTINAL ? NULL : &state->buf[stmt].next;
@@ -832,6 +832,7 @@ static int parse_ifelse_stmt(parser_t *const state) {
 	const int on_true = parse_statement(state);
 	int on_false = AST_SENTINAL;
 	if (state->lexer.curr.ty == tok_else) {
+		lexer_next(&state->lexer);
 		on_false = parse_statement(state);
 	}
 	return parser_add(state, (ast_t){
@@ -1064,7 +1065,7 @@ static void parse_decl_toplvl(parser_t *const state, int *const first_def, int *
 
 static void parse_toplevels(parser_t *const state) {
 	int *last = &state->root;
-	while (state->lexer.curr.ty != tok_eof) {
+	while (state->lexer.curr.ty != tok_eof && state->lexer.curr.ty != tok_error) {
 		int node = AST_SENTINAL;
 		parse_decl_toplvl(state, last, &node);
 		last = node == AST_SENTINAL ? NULL : &state->buf[node].next;
@@ -1157,8 +1158,8 @@ static int parse_string_lit(parser_t *const state) {
 		.ty = ast_literal,
 		.tok = tok,
 		.info.literal = {
-			.ty = lit_str,
-			.val.str = tok,
+			.ty = tok.ty == tok_string ? lit_str : lit_char,
+			.val.lit = tok,
 		},
 		.next = AST_SENTINAL,
 	});
@@ -1229,7 +1230,11 @@ static void _dbg_ast_print(const ast_t *const ast, int idx, int tabs) {
 			break;
 		case lit_str:
 			TAB printf("string literal:\n");
-			TAB printf("  "); LENPRINT(ast[idx].info.literal.val.str.lit, ast[idx].info.literal.val.str.len) printf("\n");
+			TAB printf("  "); LENPRINT(ast[idx].info.literal.val.lit.lit, ast[idx].info.literal.val.lit.len) printf("\n");
+			break;
+		case lit_char:
+			TAB printf("character literal:\n");
+			TAB printf("  "); LENPRINT(ast[idx].info.literal.val.lit.lit, ast[idx].info.literal.val.lit.len) printf("\n");
 			break;
 		case lit_compound:
 			TAB printf("compound literal:\n");
