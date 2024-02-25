@@ -57,6 +57,7 @@ typedef enum astty {
 	ast_binary,
 	ast_unary,
 	ast_comma,
+	ast_eq,
 	ast_literal,
 	ast_type,
 	ast_def,

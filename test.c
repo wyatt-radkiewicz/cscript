@@ -1,4 +1,4 @@
-int a = b = c = d;
+int a = b = c = d == 5;
 //  a = (b = (c = d));
 //int a = sizeof(((float){ .a[2]->ptr = 5 }++).a[2]);
 

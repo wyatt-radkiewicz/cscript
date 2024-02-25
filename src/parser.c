@@ -266,7 +266,7 @@ static int parse_eq(
 	return parser_add(
 		state,
 		(ast_t){
-			.ty = ast_binary,
+			.ty = ast_eq,
 			.tok = tok,
 			.info.binary.left = left,
 			.info.binary.right = right,
@@ -902,8 +902,12 @@ static void _dbg_ast_print(const ast_t *const ast, int idx, int tabs) {
 #define LENPRINT(lit, len) for (int _i = 0; _i < (len); _i++) printf("%c", (lit)[_i]);
 	if (idx == AST_SENTINAL) return;
 	switch (ast[idx].ty) {
-	case ast_binary:
-		TAB printf("binary: %s\n", tokty_to_str(ast[idx].tok.ty));
+	case ast_binary: TAB printf("binary");
+	case ast_eq:
+		if (ast[idx].ty == ast_eq) {
+			TAB printf("equal");
+		}
+		printf(": %s\n", tokty_to_str(ast[idx].tok.ty));
 		_dbg_ast_print(ast, ast[idx].info.binary.left, tabs+1);
 		_dbg_ast_print(ast, ast[idx].info.binary.right, tabs+1);
 		break;
