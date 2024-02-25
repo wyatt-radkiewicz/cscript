@@ -4,6 +4,7 @@ int main(int argc, char **argv) {
 
 }
 //  a = (b = (c = d));
-//int a = sizeof(((float){ .a[2]->ptr = 5 }++).a[2]);
+int isz = sizeof(int);
+int a = sizeof(((float){ .a[2]->ptr = 5 }++).a[2]);
 
 //(1 ? "t" : ("f" ? "5" : "6"))
