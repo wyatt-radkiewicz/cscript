@@ -713,15 +713,19 @@ static int _parse_type(parser_t *const state, const bool multi_decl, const bool 
 	}
 
 	// Add the definition onto it now
+	int def = AST_SENTINAL;
 	if (state->lexer.curr.ty == tok_eq && allow_idents) {
 		lexer_next(&state->lexer);
+		def = parse_initializer(state, false);
+	}
+	if (allow_idents && ident.ty != tok_undefined) {
 		root = parser_add(state, (ast_t){
-			.ty = ast_def,
-			.info.def = {
+			.ty = ast_decldef,
+			.info.decldef = {
 				.type = root,
-				.def = parse_initializer(state, false),
+				.def = def,
 			},
-			.tok = (tok_t){ .ty = tok_undefined },
+			.tok = ident,
 			.next = AST_SENTINAL,
 		});
 	}
@@ -733,8 +737,6 @@ static int _parse_type(parser_t *const state, const bool multi_decl, const bool 
 		state->buf[shallow_copy].next = AST_SENTINAL;
 		state->buf[root].next = _parse_type(state, true, true, shallow_copy);
 	}
-
-	if (allow_idents) state->buf[root].tok = ident;
 
 	return root;
 }
@@ -771,18 +773,10 @@ static int parse_statement(parser_t *const state) {
 static void parse_decl_toplvl(parser_t *const state, int *const first_def, int *const last_def) {
 	int node = parse_type(state, true, true);
 
-	if (state->buf[node].info.type.ty == decl_function && state->lexer.curr.ty == tok_lbrace) {
-		const tok_t ident = state->buf[node].tok;
-		state->buf[node].tok = (tok_t){ .ty = tok_undefined };
-		node = parser_add(state, (ast_t){
-			.ty = ast_def,
-			.info.def = {
-				.def = parse_statement(state),
-				.type = node,
-			},
-			.tok = ident,
-			.next = AST_SENTINAL,
-		});
+	if (state->buf[node].ty == ast_decldef
+		&& state->buf[node].info.decldef.def == AST_SENTINAL
+		&& state->lexer.curr.ty == tok_lbrace) {
+		state->buf[node].info.decldef.def = parse_statement(state);
 	} else {
 		parser_eat(state, tok_semicol, "\";\"");
 	}
@@ -1023,15 +1017,13 @@ static void _dbg_ast_print(const ast_t *const ast, int idx, int tabs) {
 		{
 			TAB
 			const ast_t *node = ast + idx;
-			if (node->tok.ty != tok_undefined) printf("decl ");
-			else printf("type ");
+			printf("type ");
 			_dbg_cvr_print(node->info.type.cvrs);
-			bool print_tok = true;
 			switch (node->info.type.ty) {
 			case decl_typedef:
 				printf("typedef ");
 				LENPRINT(node->info.type.tyname.lit, node->info.type.tyname.len)
-				printf(" ");
+				printf("\n");
 				break;
 			case decl_void: printf("void "); break;
 			case decl_function:
@@ -1039,13 +1031,10 @@ static void _dbg_ast_print(const ast_t *const ast, int idx, int tabs) {
 				_dbg_ast_print(ast, node->info.type.inner, tabs+1);
 				TAB printf("and takes\n");
 				_dbg_ast_print(ast, node->info.type.funcparams, tabs+1);
-				print_tok = false;
 				break;
 			case decl_pointer_to:
 				printf("pointer to\n");
 				_dbg_ast_print(ast, node->info.type.inner, tabs + 1);
-				if (node->tok.ty != tok_undefined) TAB
-				else print_tok = false;
 				break;
 			case decl_array_of: 
 				if (node->info.type.arrlen != AST_SENTINAL) {
@@ -1056,9 +1045,8 @@ static void _dbg_ast_print(const ast_t *const ast, int idx, int tabs) {
 					printf("array of \n");
 				}
 				_dbg_ast_print(ast, node->info.type.inner, tabs + 1); 
-				print_tok = false;
 				break;
-			case decl_pod: printf("%s ", unitty_to_str(node->info.type.pod)); break;
+			case decl_pod: printf("%s\n", unitty_to_str(node->info.type.pod)); break;
 			case decl_enum:
 			case decl_struct:
 			case decl_union:
@@ -1071,27 +1059,27 @@ static void _dbg_ast_print(const ast_t *const ast, int idx, int tabs) {
 					if (node->info.type.inner != AST_SENTINAL) {
 						_dbg_ast_print(ast, node->info.type.inner, tabs+1);
 					}
-					TAB printf("} ");
+					TAB printf("}\n");
 				} else {
 					LENPRINT(node->info.type.tyname.lit, node->info.type.tyname.len)
-					printf(" ");
+					printf("\n");
 				}
 				break;
-			default: printf("undefined "); break;
-			}
-			if (print_tok) {
-				LENPRINT(node->tok.lit, node->tok.len)
-				printf("\n");
+			default: printf("undefined\n"); break;
 			}
 			break;
 		}
-	case ast_def:
-		TAB printf("define ");
+	case ast_decldef:
+		TAB
+		if (ast[idx].info.decldef.def != AST_SENTINAL) printf("define ");
+		else printf("declare ");
 		LENPRINT(ast[idx].tok.lit, ast[idx].tok.len);
 		printf(": \n");
-		_dbg_ast_print(ast, ast[idx].info.def.type, tabs + 1);
-		TAB printf("as: \n");
-		_dbg_ast_print(ast, ast[idx].info.def.def, tabs + 1);
+		_dbg_ast_print(ast, ast[idx].info.decldef.type, tabs + 1);
+		if (ast[idx].info.decldef.def != AST_SENTINAL) {
+			TAB printf("as: \n");
+			_dbg_ast_print(ast, ast[idx].info.decldef.def, tabs + 1);
+		}
 		break;
 	case ast_init_list:
 		TAB printf("{\n");

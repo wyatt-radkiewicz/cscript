@@ -1,5 +1,5 @@
-//int a = b = c = d == 5;
-//int f(void), *fip(), (*pfi)(), *ap[3];
+int a = b = c = d == 5;
+int f(void), *fip(), (*pfi)(), *ap[3] = {0, .r = { [5] = 6 }};
 int main(int argc, char **argv) {
 
 }

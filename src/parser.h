@@ -60,7 +60,7 @@ typedef enum astty {
 	ast_eq,
 	ast_literal,
 	ast_type,
-	ast_def,
+	ast_decldef,
 	ast_enum_field,
 	ast_typedef,
 	ast_error,
@@ -124,7 +124,7 @@ typedef struct ast {
 		} func_call;
 		struct {
 			int type, def;
-		} def;
+		} decldef;
 		struct {
 			int type, expr;
 		} cast;
