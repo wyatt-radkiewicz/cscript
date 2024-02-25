@@ -92,6 +92,8 @@
 	enumdef(tok_slasheq) \
 	enumdef(tok_percent) \
 	enumdef(tok_percenteq) \
+	enumdef(tok_qmark) \
+	enumdef(tok_colon) \
 	\
 	/* Misc tokens */ \
 	enumdef(tok_string) \

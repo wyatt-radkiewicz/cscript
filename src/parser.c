@@ -117,6 +117,8 @@ static const parse_rule_t _rules[] = {
 	[tok_error] = (parse_rule_t){ .prefix = NULL, .infix = NULL, .prec = prec_null },
 	[tok_undefined] = (parse_rule_t){ .prefix = NULL, .infix = NULL, .prec = prec_null },
 	[tok_sizeof] = (parse_rule_t){ .prefix = parse_unary, .infix = NULL, .prec = prec_2 },
+	[tok_qmark] = (parse_rule_t){ .prefix = NULL, .infix = NULL, .prec = prec_null },
+	[tok_colon] = (parse_rule_t){ .prefix = NULL, .infix = NULL, .prec = prec_null },
 };
 
 void parser_err(
@@ -216,11 +218,11 @@ static int parse_comma(
 	const tok_t tok = state->lexer.curr;
 	lexer_next(&state->lexer);
 	return parser_add(state, (ast_t){
-		.ty = ast_binary,
+		.ty = ast_comma,
 		.tok = tok,
 		.next = AST_SENTINAL,
-		.info.binary.left = left,
-		.info.binary.right = parse_expression(state, prec_comma),
+		.info.comma.expr = left,
+		.info.comma.next = parse_expression(state, prec_comma-1),
 	});
 }
 
@@ -767,16 +769,35 @@ static int parse_expression(
 	const prec_t prec
 ) {
 	const parse_unary_pfn prefix = _rules[state->lexer.curr.ty].prefix;
-	if (!prefix) {
-		//parser_err(state, (err_t){ .ty = err_expected, .msg = "unary expression", .line = state->lexer.curr.line, .chr = state->lexer.curr.chr });
-		return AST_SENTINAL;
-	}
+	if (!prefix) return AST_SENTINAL;
 	int left = prefix(state);
 
-	while (_rules[state->lexer.curr.ty].prec <= prec) {
+	// Support for (ONLY ternay operator)
+	if (state->lexer.curr.ty == tok_qmark && prec >= prec_ternary) {
+		const tok_t tok = state->lexer.curr;
+		lexer_next(&state->lexer);
+		const int middle = parse_expression(state, prec_ternary);
+		parser_eat(state, tok_colon, "\":\"");
+		const int right = parse_expression(state, prec_ternary);
+		left = parser_add(state, (ast_t){
+			.ty = ast_ternary,
+			.tok = tok,
+			.info.ternary = {
+				.cond = left,
+				.ontrue = middle,
+				.onfalse = right,
+			},
+			.next = AST_SENTINAL,
+		});
+	} else if (state->lexer.curr.ty == tok_colon) {
+		return left;
+	}
+
+	while (prec >= _rules[state->lexer.curr.ty].prec) {
 		const parse_binary_pfn infix = _rules[state->lexer.curr.ty].infix;
 		left = infix(state, _rules[state->lexer.curr.ty].prec, left);
 	}
+
 	return left;
 }
 
@@ -864,6 +885,20 @@ static void _dbg_ast_print(const ast_t *const ast, int idx, int tabs) {
 		TAB printf("binary: %s\n", tokty_to_str(ast[idx].tok.ty));
 		_dbg_ast_print(ast, ast[idx].info.binary.left, tabs+1);
 		_dbg_ast_print(ast, ast[idx].info.binary.right, tabs+1);
+		break;
+	case ast_comma:
+		TAB printf("comma expr: \n");
+		_dbg_ast_print(ast, ast[idx].info.comma.expr, tabs+1);
+		TAB printf("comma next: \n");
+		_dbg_ast_print(ast, ast[idx].info.comma.next, tabs+1);
+		break;
+	case ast_ternary:
+		TAB printf("ternary cond: \n");
+		_dbg_ast_print(ast, ast[idx].info.ternary.cond, tabs+1);
+		TAB printf("ternary on true: \n");
+		_dbg_ast_print(ast, ast[idx].info.ternary.ontrue, tabs+1);
+		TAB printf("ternary on false: \n");
+		_dbg_ast_print(ast, ast[idx].info.ternary.onfalse, tabs+1);
 		break;
 	case ast_func_call:
 		TAB printf("calling function:\n");

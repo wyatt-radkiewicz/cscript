@@ -53,8 +53,10 @@ typedef struct parse_rule {
 } parse_rule_t;
 
 typedef enum astty {
+	ast_ternary,
 	ast_binary,
 	ast_unary,
+	ast_comma,
 	ast_literal,
 	ast_type,
 	ast_def,
@@ -102,6 +104,7 @@ typedef struct ast {
 	tok_t tok;
 	union {
 		struct { int left, right; } binary;
+		struct { int cond, ontrue, onfalse; } ternary;
 		struct {
 			int cond;
 			union {
@@ -109,6 +112,9 @@ typedef struct ast {
 				struct { int stmt; };
 			};
 		} cond;
+		struct {
+			int expr, next;
+		} comma;
 		struct {
 			int ret, params, body;
 		} func;

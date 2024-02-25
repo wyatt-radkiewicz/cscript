@@ -375,6 +375,8 @@ static tok_t _lexer_nexttok(lexer_t *const state) {
 		}
 	case ',': return (tok_t){ .ty = tok_comma, .lit = c, .len = 1, .line = state->line, .chr = state->chr };
 	case ';': return (tok_t){ .ty = tok_semicol, .lit = c, .len = 1, .line = state->line, .chr = state->chr };
+	case '?': return (tok_t){ .ty = tok_qmark, .lit = c, .len = 1, .line = state->line, .chr = state->chr };
+	case ':': return (tok_t){ .ty = tok_colon, .lit = c, .len = 1, .line = state->line, .chr = state->chr };
 	case '/':
 		if (*state->head == '=') {
 			state->head++;
