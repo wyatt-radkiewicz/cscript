@@ -1,1 +1,1 @@
-int main(int argc, char **argv);
+int a = sizeof(((float){ .a[2]->ptr = 5 }++).a[2]);

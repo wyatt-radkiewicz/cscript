@@ -49,11 +49,14 @@
 	/* Tokens (first and second chars) */ \
 	enumdef(tok_eof) \
 	enumdef(tok_plus) \
+	enumdef(tok_plusplus) \
 	enumdef(tok_pluseq) \
 	enumdef(tok_minus) \
+	enumdef(tok_minusminus) \
 	enumdef(tok_minuseq) \
 	enumdef(tok_star) \
 	enumdef(tok_dot) \
+	enumdef(tok_arrow) \
 	enumdef(tok_eq) \
 	enumdef(tok_eqeq) \
 	enumdef(tok_bitand) \
@@ -118,9 +121,9 @@ struct lexer {
 
 	union {
 		struct {
-			tok_t prev[3], curr, peek[3];
+			tok_t prev, curr, peek;
 		};
-		tok_t toks[7];
+		tok_t toks[3];
 	};
 };
 

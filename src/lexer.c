@@ -247,7 +247,11 @@ static tok_t _lexer_nexttok(lexer_t *const state) {
 	switch (*c) {
 	case '\0': return (tok_t){ .ty = tok_eof, .lit = c, .len = 1, .line = state->line, .chr = state->chr };
 	case '+':
-		if (*state->head == '=') {
+		if (*state->head == '+') {
+			state->head++;
+			state->head_chr++;
+			return (tok_t){ .ty = tok_plusplus, .lit = c, .len = 2, .line = state->line, .chr = state->chr };
+		} else if (*state->head == '=') {
 			state->head++;
 			state->head_chr++;
 			return (tok_t){ .ty = tok_pluseq, .lit = c, .len = 2, .line = state->line, .chr = state->chr };
@@ -255,7 +259,15 @@ static tok_t _lexer_nexttok(lexer_t *const state) {
 			return (tok_t){ .ty = tok_plus, .lit = c, .len = 1, .line = state->line, .chr = state->chr };
 		}
 	case '-':
-		if (*state->head == '=') {
+		if (*state->head == '-') {
+			state->head++;
+			state->head_chr++;
+			return (tok_t){ .ty = tok_minusminus, .lit = c, .len = 2, .line = state->line, .chr = state->chr };
+		} else if (*state->head == '>') {
+			state->head++;
+			state->head_chr++;
+			return (tok_t){ .ty = tok_arrow, .lit = c, .len = 2, .line = state->line, .chr = state->chr };
+		} else if (*state->head == '=') {
 			state->head++;
 			state->head_chr++;
 			return (tok_t){ .ty = tok_minuseq, .lit = c, .len = 2, .line = state->line, .chr = state->chr };
@@ -387,16 +399,8 @@ lexer_t lexer_init(const char *script) {
 		.head_chr = 1,
 		.curr = (tok_t){ .ty = tok_undefined },
 	};
-	for (size_t i = 0; i < arrlen(state.prev); i++) {
-		state.prev[i] = (tok_t){ .ty = tok_undefined };
-	}
-	for (size_t i = 0; i < arrlen(state.peek); i++) {
-		if (i == 0 || (state.peek[i - 1].ty != tok_error && state.peek[i - 1].ty != tok_eof)) {
-			state.peek[i] = _lexer_nexttok(&state);
-		} else {
-			state.peek[i] = state.peek[i - 1];
-		}
-	}
+	state.prev = (tok_t){ .ty = tok_undefined };
+	state.peek = _lexer_nexttok(&state);
 	return state;
 }
 

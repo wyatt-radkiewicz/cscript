@@ -5,6 +5,9 @@
 #include "lexer.h"
 
 typedef enum prec {
+	// Lowest prec (only literals and idents)
+	prec_lowest,
+
 	// Left to Right
 	prec_grouping,
 
@@ -53,11 +56,17 @@ typedef enum astty {
 	ast_binary,
 	ast_unary,
 	ast_literal,
-	ast_ident,
-	ast_decl,
+	ast_type,
+	ast_def,
 	ast_enum_field,
 	ast_typedef,
 	ast_error,
+	ast_init_list,
+	ast_accessor,
+	ast_ident,
+	ast_init_designator,
+	ast_func_call,
+	ast_cast,
 } astty_t;
 
 typedef enum declty {
@@ -81,6 +90,12 @@ typedef enum cvrflags {
 	cvr_extern		= 1 << 4,
 } cvrflags_t;
 
+typedef enum literalty {
+	lit_pod,
+	lit_str,
+	lit_compound,
+} literalty_t;
+
 #define AST_SENTINAL (-1)
 typedef struct ast {
 	astty_t ty;
@@ -98,6 +113,15 @@ typedef struct ast {
 			int ret, params, body;
 		} func;
 		struct {
+			int func, params;
+		} func_call;
+		struct {
+			int type, def;
+		} def;
+		struct {
+			int type, expr;
+		} cast;
+		struct {
 			cvrflags_t cvrs;
 			declty_t ty;
 			// array of X, pointer to X, struct members, func return
@@ -108,9 +132,24 @@ typedef struct ast {
 				int arrlen;
 				tok_t tyname; // name of declaration type
 			};
-		} decl;
+		} type;
+		struct {
+			int accessor, init;
+		} designator;
+		struct {
+			int access_from, accessing;
+		} accessor;
 		int inner;
-		typed_unit_t val;
+		struct {
+			literalty_t ty;
+			union {
+				struct {
+					int type, init;
+				} compound;
+				typed_unit_t pod;
+				tok_t str;
+			} val;
+		} literal;
 	} info;
 	int next;
 } ast_t;
@@ -126,12 +165,6 @@ struct parser {
 
 int parser_add(parser_t *const state, ast_t newnode);
 parser_t parse(const char *src, ast_t *astbuf, size_t buflen);
-parse_unary_fn parse_number_lit;
-parse_unary_fn parse_ident;
-parse_unary_fn parse_unary;
-parse_binary_fn parse_binary;
-void parse_toplevels(parser_t *const state);
-int parse_expression(parser_t *const state, const prec_t prec);
 void dbg_ast_print(const ast_t *const ast, int root);
 
 #endif
