@@ -146,15 +146,20 @@ static int _parse_cast(parser_t *const state) {
 	parser_eat(state, tok_rparen, "\")\"");
 	int init = state->lexer.curr.ty == tok_lbrace ? parse_initializer(state, false) : AST_SENTINAL;
 	if (init == AST_SENTINAL) {
-		return parser_add(state, (ast_t){
-			.ty = ast_cast,
-			.tok = (tok_t){ .ty = tok_undefined },
-			.next = AST_SENTINAL,
-			.info.cast = {
-				.type = type,
-				.expr = parse_expression(state, prec_2),
-			},
-		});
+		const int expr = parse_expression(state, prec_2);
+		if (expr != AST_SENTINAL) {
+			return parser_add(state, (ast_t){
+				.ty = ast_cast,
+				.tok = (tok_t){ .ty = tok_undefined },
+				.next = AST_SENTINAL,
+				.info.cast = {
+					.type = type,
+					.expr = expr,
+				},
+			});
+		} else {
+			return type;
+		}
 	} else {
 		return parser_add(state, (ast_t){
 			.ty = ast_literal,
