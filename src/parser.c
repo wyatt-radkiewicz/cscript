@@ -766,6 +766,7 @@ static int parse_type(parser_t *const state, const bool multi_decl, const bool a
 
 static int parse_statement(parser_t *const state) {
 	parser_eat(state, tok_lbrace, "\"{\"");
+
 	parser_eat(state, tok_rbrace, "\"}\"");
 	return AST_SENTINAL;
 }
@@ -1025,7 +1026,7 @@ static void _dbg_ast_print(const ast_t *const ast, int idx, int tabs) {
 				LENPRINT(node->info.type.tyname.lit, node->info.type.tyname.len)
 				printf("\n");
 				break;
-			case decl_void: printf("void "); break;
+			case decl_void: printf("void\n"); break;
 			case decl_function:
 				printf("function returns\n");
 				_dbg_ast_print(ast, node->info.type.inner, tabs+1);
