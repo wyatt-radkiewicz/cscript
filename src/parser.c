@@ -21,6 +21,7 @@ static parse_unary_fn parse_string_lit;
 static parse_unary_fn parse_unary;
 static parse_binary_fn parse_binary;
 static parse_binary_fn parse_call;
+static parse_binary_fn parse_comma;
 
 static const parse_rule_t _rules[] = {
 	// Keywords
@@ -95,7 +96,7 @@ static const parse_rule_t _rules[] = {
 	[tok_lt] = (parse_rule_t){ .prefix = NULL, .infix = parse_binary, .prec = prec_relational },
 	[tok_le] = (parse_rule_t){ .prefix = NULL, .infix = parse_binary, .prec = prec_relational },
 	[tok_shl] = (parse_rule_t){ .prefix = NULL, .infix = parse_binary, .prec = prec_bitshifting },
-	[tok_comma] = (parse_rule_t){ .prefix = NULL, .infix = NULL, .prec = prec_null },
+	[tok_comma] = (parse_rule_t){ .prefix = NULL, .infix = parse_comma, .prec = prec_comma },
 	[tok_char_lit] = (parse_rule_t){ .prefix = NULL, .infix = NULL, .prec = prec_null },
 	[tok_semicol] = (parse_rule_t){ .prefix = NULL, .infix = NULL, .prec = prec_null },
 	[tok_slash] = (parse_rule_t){ .prefix = NULL, .infix = parse_binary, .prec = prec_multiplicative },
@@ -200,6 +201,22 @@ static int parse_unary(parser_t *const state) {
 	});
 }
 
+static int parse_comma(
+	parser_t *const state,
+	const prec_t prec,
+	int left
+) {
+	const tok_t tok = state->lexer.curr;
+	lexer_next(&state->lexer);
+	return parser_add(state, (ast_t){
+		.ty = ast_binary,
+		.tok = tok,
+		.next = AST_SENTINAL,
+		.info.binary.left = left,
+		.info.binary.right = parse_expression(state, prec_comma),
+	});
+}
+
 static int parse_call(
 	parser_t *const state,
 	const prec_t prec,
@@ -209,7 +226,7 @@ static int parse_call(
 	int params = AST_SENTINAL;
 	int *last = &params;
 	while (state->lexer.curr.ty != tok_eof) {
-		const int param = parse_expression(state, prec_full);
+		const int param = parse_expression(state, prec_ternary);
 		*last = param;
 		last = &state->buf[param].next;
 		if (state->lexer.curr.ty == tok_comma) lexer_next(&state->lexer);
@@ -398,7 +415,7 @@ static int parse_type_not_arr_ptr_func(parser_t *const state) {
 					lexer_next(&state->lexer);
 					if (state->lexer.curr.ty == tok_eq) {
 						lexer_next(&state->lexer);
-						value = parse_expression(state, prec_full);
+						value = parse_expression(state, prec_ternary);
 					}
 					if (state->lexer.curr.ty == tok_comma) lexer_next(&state->lexer);
 
@@ -517,7 +534,7 @@ static int parse_initializer(parser_t *const state, const bool allow_desginator)
 			},
 		});
 	}
-	if (state->lexer.curr.ty != tok_lbrace) return parse_expression(state, prec_full);
+	if (state->lexer.curr.ty != tok_lbrace) return parse_expression(state, prec_ternary);
 	lexer_next(&state->lexer);
 
 	int list = AST_SENTINAL;

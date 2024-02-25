@@ -32,7 +32,7 @@ typedef enum prec {
 
 	// Left to Right
 	prec_comma,
-	prec_full,
+	prec_full = prec_comma,
 	prec_null,
 } prec_t;
 
