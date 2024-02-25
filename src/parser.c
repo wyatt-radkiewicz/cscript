@@ -22,6 +22,7 @@ static parse_unary_fn parse_unary;
 static parse_binary_fn parse_binary;
 static parse_binary_fn parse_call;
 static parse_binary_fn parse_comma;
+static parse_binary_fn parse_eq;
 
 static const parse_rule_t _rules[] = {
 	// Keywords
@@ -72,16 +73,16 @@ static const parse_rule_t _rules[] = {
 	[tok_star] = (parse_rule_t){ .prefix = parse_access_prefix, .infix = parse_binary, .prec = prec_multiplicative },
 	[tok_dot] = (parse_rule_t){ .prefix = NULL, .infix = parse_access_post, .prec = prec_grouping },
 	[tok_arrow] = (parse_rule_t){ .prefix = NULL, .infix = parse_access_post, .prec = prec_grouping },
-	[tok_eq] = (parse_rule_t){ .prefix = NULL, .infix = parse_binary, .prec = prec_assign },
-	[tok_pluseq] = (parse_rule_t){ .prefix = NULL, .infix = parse_binary, .prec = prec_assign },
-	[tok_minuseq] = (parse_rule_t){ .prefix = NULL, .infix = parse_binary, .prec = prec_assign },
-	[tok_stareq] = (parse_rule_t){ .prefix = NULL, .infix = parse_binary, .prec = prec_assign },
-	[tok_slasheq] = (parse_rule_t){ .prefix = NULL, .infix = parse_binary, .prec = prec_assign },
-	[tok_bitandeq] = (parse_rule_t){ .prefix = NULL, .infix = parse_binary, .prec = prec_assign },
-	[tok_bitoreq] = (parse_rule_t){ .prefix = NULL, .infix = parse_binary, .prec = prec_assign },
-	[tok_xoreq] = (parse_rule_t){ .prefix = NULL, .infix = parse_binary, .prec = prec_assign },
-	[tok_shreq] = (parse_rule_t){ .prefix = NULL, .infix = parse_binary, .prec = prec_assign },
-	[tok_shleq] = (parse_rule_t){ .prefix = NULL, .infix = parse_binary, .prec = prec_assign },
+	[tok_eq] = (parse_rule_t){ .prefix = NULL, .infix = parse_eq, .prec = prec_assign },
+	[tok_pluseq] = (parse_rule_t){ .prefix = NULL, .infix = parse_eq, .prec = prec_assign },
+	[tok_minuseq] = (parse_rule_t){ .prefix = NULL, .infix = parse_eq, .prec = prec_assign },
+	[tok_stareq] = (parse_rule_t){ .prefix = NULL, .infix = parse_eq, .prec = prec_assign },
+	[tok_slasheq] = (parse_rule_t){ .prefix = NULL, .infix = parse_eq, .prec = prec_assign },
+	[tok_bitandeq] = (parse_rule_t){ .prefix = NULL, .infix = parse_eq, .prec = prec_assign },
+	[tok_bitoreq] = (parse_rule_t){ .prefix = NULL, .infix = parse_eq, .prec = prec_assign },
+	[tok_xoreq] = (parse_rule_t){ .prefix = NULL, .infix = parse_eq, .prec = prec_assign },
+	[tok_shreq] = (parse_rule_t){ .prefix = NULL, .infix = parse_eq, .prec = prec_assign },
+	[tok_shleq] = (parse_rule_t){ .prefix = NULL, .infix = parse_eq, .prec = prec_assign },
 	[tok_eqeq] = (parse_rule_t){ .prefix = NULL, .infix = parse_binary, .prec = prec_eqeq },
 	[tok_bitand] = (parse_rule_t){ .prefix = parse_access_prefix, .infix = parse_binary, .prec = prec_bitand },
 	[tok_and] = (parse_rule_t){ .prefix = NULL, .infix = parse_binary, .prec = prec_and },
@@ -249,6 +250,26 @@ static int parse_call(
 			.tok = (tok_t){ .ty = tok_undefined },
 			.info.func_call.func = left,
 			.info.func_call.params = params,
+			.next = AST_SENTINAL,
+		}
+	);
+}
+
+static int parse_eq(
+	parser_t *const state,
+	const prec_t prec,
+	int left
+) {
+	const tok_t tok = state->lexer.curr;
+	lexer_next(&state->lexer);
+	const int right = parse_expression(state, prec);
+	return parser_add(
+		state,
+		(ast_t){
+			.ty = ast_binary,
+			.tok = tok,
+			.info.binary.left = left,
+			.info.binary.right = right,
 			.next = AST_SENTINAL,
 		}
 	);
@@ -543,7 +564,7 @@ static int parse_initializer(parser_t *const state, const bool allow_desginator)
 			},
 		});
 	}
-	if (state->lexer.curr.ty != tok_lbrace) return parse_expression(state, prec_ternary);
+	if (state->lexer.curr.ty != tok_lbrace) return parse_expression(state, prec_assign);
 	lexer_next(&state->lexer);
 
 	int list = AST_SENTINAL;
