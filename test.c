@@ -1,6 +1,7 @@
-//#define AST_SENTINAL -1
-typedef struct parser parser_t;
-parser_t a = b = c = d == AST_SENTINAL;
+#define AST_SENTINAL x * 1100
+#define MAC + "asat"
+//typedef struct parser parser_t;
+int a = AST_SENTINAL MAC;
 //int f(void), *fip(), (*pfi)(), *ap[3] = {0, .r = { [5] = 6 }};
 
 //typedef struct tok tok_t;

@@ -136,7 +136,7 @@ static const keyword_t _keywords[128] = {
     (keyword_t){ .hash = 0, .len = 0, .psl = 0, .ty = tok_error, .str = NULL },
 };
 
-static tok_t getkeyword(const lexer_t *const state, const char *const keyword, size_t len) {
+static tok_t getkeyword(const lexer_t *const state, const lexerlvl_t *lvl, const char *const keyword, size_t len) {
 	const uint32_t hash = ident_hash(keyword, len);
 	int i = hash % arrlen(_keywords), psl = 0;
 	while (psl <= _keywords[i].psl) {
@@ -145,8 +145,8 @@ static tok_t getkeyword(const lexer_t *const state, const char *const keyword, s
 				.ty = _keywords[i].ty,
 				.lit = keyword,
 				.len = len,
-				.line = lexlvl(*state).line,
-				.chr = lexlvl(*state).chr,
+				.line = lvl->line,
+				.chr = lvl->chr,
 			};
 		}
 
@@ -158,315 +158,399 @@ static tok_t getkeyword(const lexer_t *const state, const char *const keyword, s
 		.ty = tok_ident,
 		.lit = keyword,
 		.len = len,
-		.line = lexlvl(*state).line,
-		.chr = lexlvl(*state).chr,
+		.line = lvl->line,
+		.chr = lvl->chr,
 	};
 }
 
+static tok_t _lexer_nexttok(lexer_t *const state, lexerlvl_t *const lvl, bool preprocess, bool expand_macros);
+
+inline static bool is_multiline(const char *const head) {
+	return *(head - ((*head - 2) == '\r' ? 3 : 2)) == '\\';
+}
 // Returns true if there is a \ at the end of the line
-inline static bool consume_line(lexer_t *const state) {
-	while (*(lexlvl(*state).head++) != '\n');
-	lexlvl(*state).head_line++;
-	lexlvl(*state).head_chr = 1;
-	return *(lexlvl(*state).head - (*(lexlvl(*state).head - 2) == '\r' ? 3 : 2)) == '\\';
+inline static bool consume_line(lexer_t *const state, lexerlvl_t *const lvl) {
+	while (*(lvl->head++) != '\n');
+	lvl->head_line++;
+	lvl->head_chr = 1;
+	return is_multiline(lvl->head);
 }
 
 // More lexing
-inline static bool consume_whitespace(lexer_t *const state) {
-	while (isspace(*lexlvl(*state).head) || *lexlvl(*state).head == '/') {
-		char head = *(lexlvl(*state).head++);
-		if (head == '/' && *lexlvl(*state).head == '/') consume_line(state);
+inline static bool consume_whitespace(lexer_t *const state, lexerlvl_t *const lvl) {
+	while (isspace(*lvl->head) || *lvl->head == '/') {
+		char head = *(lvl->head++);
+		if (head == '/' && *lvl->head == '/') consume_line(state, lvl);
 		else if (head == '/') return true;
-		lexlvl(*state).head_chr++;
+		lvl->head_chr++;
 		if (head == '\n') {
-			lexlvl(*state).head_line++;
-			lexlvl(*state).head_chr = 1;
+			lvl->head_line++;
+			lvl->head_chr = 1;
 		}
 	}
 
 	return true;
 }
-static tok_t consume_ident(lexer_t *const state) {
-	const char *keyword = lexlvl(*state).head;
-	size_t len = 0;
-	while (isalnum(*lexlvl(*state).head) || *lexlvl(*state).head == '_') {
-		len++;
-		lexlvl(*state).head++;
-		lexlvl(*state).head_chr++;
-		if (*lexlvl(*state).head == '\0') return make_errtok(state, err_unexpected, "EOF");
-	}
-	return getkeyword(state, keyword, len);
+static tok_t lexer_start_macro_exp(lexer_t *const state, lexerlvl_t *lvl, const int macro_idx) {
+	const macro_t *const macro = state->macros + macro_idx;
+	//if (macro->nparams) {
+		//
+	//}
+
+	state->lvls[++state->lvl] = (lexerlvl_t){
+		.head = macro->start,
+		.end = macro->start + macro->len,
+		.chr = macro->start_chr,
+		.line = macro->start_chr,
+		.head_line = macro->start_chr,
+		.head_chr = macro->start_chr,
+		.macro_exp = macro_idx,
+	};
+	lvl = state->lvls + state->lvl;
+	return _lexer_nexttok(state, lvl, false, true);
 }
-static tok_t consume_string(lexer_t *const state) {
-	tok_t tok = (tok_t){ .ty = tok_string, .lit = lexlvl(*state).head, .len = 0, .line = lexlvl(*state).line, .chr = lexlvl(*state).chr };
+static tok_t consume_ident(lexer_t *const state, lexerlvl_t *const lvl, const bool expand_macros) {
+	const char *keyword = lvl->head;
+	size_t len = 0;
+	while (isalnum(*lvl->head) || *lvl->head == '_') {
+		len++;
+		lvl->head++;
+		lvl->head_chr++;
+		if (*lvl->head == '\0') return make_errtok(state, lvl, err_unexpected, "EOF");
+	}
+	int *macro_idx = NULL;
+	if (expand_macros && ident_map_get(&state->map, keyword, len, &macro_idx)) {
+		return lexer_start_macro_exp(state, lvl, *macro_idx);
+	}
+	return getkeyword(state, lvl, keyword, len);
+}
+static tok_t consume_string(lexer_t *const state, lexerlvl_t *const lvl) {
+	tok_t tok = (tok_t){ .ty = tok_string, .lit = lvl->head, .len = 0, .line = lvl->line, .chr = lvl->chr };
 	do {
-		lexlvl(*state).head++;
-		lexlvl(*state).head_chr++;
+		lvl->head++;
+		lvl->head_chr++;
 		tok.len++;
-		if (*lexlvl(*state).head == '\0') return make_errtok(state, err_unexpected, "EOF");
-		if (*lexlvl(*state).head == '\n') return make_errtok(state, err_unexpected, "EOF");
-	} while (*lexlvl(*state).head != '\"');
-	lexlvl(*state).head++;
-	lexlvl(*state).head_chr++;
+		if (*lvl->head == '\0') return make_errtok(state, lvl, err_unexpected, "EOF");
+		if (*lvl->head == '\n') return make_errtok(state, lvl, err_unexpected, "EOF");
+	} while (*lvl->head != '\"');
+	lvl->head++;
+	lvl->head_chr++;
 	tok.len++;
 	return tok;
 }
-static tok_t consume_number(lexer_t *const state) {
-	tok_t tok = (tok_t){ .ty = tok_integer, .lit = lexlvl(*state).head, .len = 0, .line = lexlvl(*state).line, .chr = lexlvl(*state).chr };
-	while (isdigit(*lexlvl(*state).head) || *lexlvl(*state).head == '.'
-		|| *lexlvl(*state).head == 'x' || *lexlvl(*state).head == 'b'
-		|| *lexlvl(*state).head == 'X' || *lexlvl(*state).head == 'e') {
-		if (*lexlvl(*state).head == '.') tok.ty = tok_floating;
-		lexlvl(*state).head++;
+static tok_t consume_number(lexer_t *const state, lexerlvl_t *const lvl) {
+	tok_t tok = (tok_t){ .ty = tok_integer, .lit = lvl->head, .len = 0, .line = lvl->line, .chr = lvl->chr };
+	while (isdigit(*lvl->head) || *lvl->head == '.'
+		|| *lvl->head == 'x' || *lvl->head == 'b'
+		|| *lvl->head == 'X' || *lvl->head == 'e') {
+		if (*lvl->head == '.') tok.ty = tok_floating;
+		lvl->head++;
 		tok.len++;
 	}
-	if (*lexlvl(*state).head == '\0') return make_errtok(state, err_unexpected, "EOF");
-	if (isalpha(*lexlvl(*state).head)) {
-		const char c = *lexlvl(*state).head;
-		if (c != 'u' && c != 'l' && c != 'U' && c != 'L') return make_errtok(state, err_expected, "'u' or 'l'");
-		lexlvl(*state).head++;
-		lexlvl(*state).head_chr++;
+	if (*lvl->head == '\0') return make_errtok(state, lvl, err_unexpected, "EOF");
+	if (isalpha(*lvl->head)) {
+		const char c = *lvl->head;
+		if (c != 'u' && c != 'l' && c != 'U' && c != 'L') return make_errtok(state, lvl, err_expected, "'u' or 'l'");
+		lvl->head++;
+		lvl->head_chr++;
 		tok.len++;
-		if ((c == 'l' || c == 'L' || c == 'u' || c == 'U') && (*lexlvl(*state).head == 'l' || *lexlvl(*state).head == 'L')) {
-			lexlvl(*state).head++;
-			lexlvl(*state).head_chr++;
+		if ((c == 'l' || c == 'L' || c == 'u' || c == 'U') && (*lvl->head == 'l' || *lvl->head == 'L')) {
+			lvl->head++;
+			lvl->head_chr++;
 			tok.len++;
 		}
 	}
 	return tok;
 }
 
-static tok_t _lexer_nexttok(lexer_t *const state) {
-	if (!consume_whitespace(state)) return make_errtok(state, err_unexpected, "");
-	lexlvl(*state).line = lexlvl(*state).head_line;
-	lexlvl(*state).chr = lexlvl(*state).head_chr;
-	const char *c = lexlvl(*state).head++;
-	lexlvl(*state).head_chr++;
+static tok_t lexer_parse_macro_def(lexer_t *const state, lexerlvl_t *const lvl) {
+	const tok_t name = _lexer_nexttok(state, lvl, false, false);
+	macro_t macro = (macro_t){
+		.name = name.lit,
+		.namelen = name.len,
+		.nparams = 0,
+	};
+	if (*lvl->head == tok_lparen) {
+		_lexer_nexttok(state, lvl, false, false);
+		tok_t tok = _lexer_nexttok(state, lvl, false, false);
+		while (tok.ty != tok_rparen && macro.nparams < arrlen(macro.params)) {
+			macro.params[macro.nparams].name = tok.lit;
+			macro.params[macro.nparams].len = tok.len;
+			tok = _lexer_nexttok(state, lvl, false, false);
+		}
+	}
+	macro.start = lvl->head;
+	macro.start_chr = lvl->head_chr;
+	macro.start_line = lvl->head_line;
+	while (consume_line(state, lvl));
+	macro.len = lvl->head - macro.start;
+	state->macros[state->map.len] = macro;
+	ident_map_add(&state->map, macro.name, macro.namelen, state->map.len);
+	return _lexer_nexttok(state, lvl, true, true);
+}
+static tok_t lexer_parse_macro_inc(lexer_t *const state, lexerlvl_t *const lvl) {
+	return make_errtok(state, lvl, err_expected, "unimplemented");
+}
+static tok_t lexer_parse_macro_cond(lexer_t *const state, lexerlvl_t *const lvl) {
+	return make_errtok(state, lvl, err_expected, "unimplemented");
+}
+static tok_t lexer_parse_macro(lexer_t *const state, lexerlvl_t *const lvl) {
+	const tok_t macroty = _lexer_nexttok(state, lvl, false, false);
+	if (macroty.len == 6 && memcmp(macroty.lit, "define", 6) == 0) return lexer_parse_macro_def(state, lvl);
+	else if (macroty.len == 7 && memcmp(macroty.lit, "include", 7) == 0) return lexer_parse_macro_inc(state, lvl);
+	else if (macroty.len == 2 && memcmp(macroty.lit, "if", 2) == 0) return lexer_parse_macro_cond(state, lvl);
+	else if (macroty.len == 4 && memcmp(macroty.lit, "else", 4) == 0) return lexer_parse_macro_cond(state, lvl);
+	else if (macroty.len == 4 && memcmp(macroty.lit, "elif", 4) == 0) return lexer_parse_macro_cond(state, lvl);
+	else if (macroty.len == 5 && memcmp(macroty.lit, "endif", 5) == 0) return lexer_parse_macro_cond(state, lvl);
+	else return make_errtok(state, lvl, err_expected, "macro type");
+}
+
+static tok_t __lexer_nexttok(lexer_t *const state, lexerlvl_t *lvl, const bool preprocess, const bool expand_macros) {
+	if (!consume_whitespace(state, lvl)) return make_errtok(state, lvl, err_unexpected, "");
+	lvl->line = lvl->head_line;
+	lvl->chr = lvl->head_chr;
+	const char *c = lvl->head++;
+	lvl->head_chr++;
 	switch (*c) {
 	case '#':
-		if (*lexlvl(*state).head == '#') {
-			lexlvl(*state).head++;
-			lexlvl(*state).head_chr++;
-			return (tok_t){ .ty = tok_doublehash, .lit = c, .len = 2, .line = lexlvl(*state).line, .chr = lexlvl(*state).chr };
+		if (*lvl->head == '#') {
+			lvl->head++;
+			lvl->head_chr++;
+			return (tok_t){ .ty = tok_doublehash, .lit = c, .len = 2, .line = lvl->line, .chr = lvl->chr };
 		} else {
-			return (tok_t){ .ty = tok_hash, .lit = c, .len = 1, .line = lexlvl(*state).line, .chr = lexlvl(*state).chr };
+			if (lvl->head_chr == 2 && preprocess) {
+				return lexer_parse_macro(state, lvl);
+			} else {
+				return (tok_t){ .ty = tok_hash, .lit = c, .len = 1, .line = lvl->line, .chr = lvl->chr };
+			}
 		}
-	case '\0': return (tok_t){ .ty = tok_eof, .lit = c, .len = 1, .line = lexlvl(*state).line, .chr = lexlvl(*state).chr };
+	case '\0': return (tok_t){ .ty = tok_eof, .lit = c, .len = 1, .line = lvl->line, .chr = lvl->chr };
 	case '+':
-		if (*lexlvl(*state).head == '+') {
-			lexlvl(*state).head++;
-			lexlvl(*state).head_chr++;
-			return (tok_t){ .ty = tok_plusplus, .lit = c, .len = 2, .line = lexlvl(*state).line, .chr = lexlvl(*state).chr };
-		} else if (*lexlvl(*state).head == '=') {
-			lexlvl(*state).head++;
-			lexlvl(*state).head_chr++;
-			return (tok_t){ .ty = tok_pluseq, .lit = c, .len = 2, .line = lexlvl(*state).line, .chr = lexlvl(*state).chr };
+		if (*lvl->head == '+') {
+			lvl->head++;
+			lvl->head_chr++;
+			return (tok_t){ .ty = tok_plusplus, .lit = c, .len = 2, .line = lvl->line, .chr = lvl->chr };
+		} else if (*lvl->head == '=') {
+			lvl->head++;
+			lvl->head_chr++;
+			return (tok_t){ .ty = tok_pluseq, .lit = c, .len = 2, .line = lvl->line, .chr = lvl->chr };
 		} else {
-			return (tok_t){ .ty = tok_plus, .lit = c, .len = 1, .line = lexlvl(*state).line, .chr = lexlvl(*state).chr };
+			return (tok_t){ .ty = tok_plus, .lit = c, .len = 1, .line = lvl->line, .chr = lvl->chr };
 		}
 	case '-':
-		if (*lexlvl(*state).head == '-') {
-			lexlvl(*state).head++;
-			lexlvl(*state).head_chr++;
-			return (tok_t){ .ty = tok_minusminus, .lit = c, .len = 2, .line = lexlvl(*state).line, .chr = lexlvl(*state).chr };
-		} else if (*lexlvl(*state).head == '>') {
-			lexlvl(*state).head++;
-			lexlvl(*state).head_chr++;
-			return (tok_t){ .ty = tok_arrow, .lit = c, .len = 2, .line = lexlvl(*state).line, .chr = lexlvl(*state).chr };
-		} else if (*lexlvl(*state).head == '=') {
-			lexlvl(*state).head++;
-			lexlvl(*state).head_chr++;
-			return (tok_t){ .ty = tok_minuseq, .lit = c, .len = 2, .line = lexlvl(*state).line, .chr = lexlvl(*state).chr };
+		if (*lvl->head == '-') {
+			lvl->head++;
+			lvl->head_chr++;
+			return (tok_t){ .ty = tok_minusminus, .lit = c, .len = 2, .line = lvl->line, .chr = lvl->chr };
+		} else if (*lvl->head == '>') {
+			lvl->head++;
+			lvl->head_chr++;
+			return (tok_t){ .ty = tok_arrow, .lit = c, .len = 2, .line = lvl->line, .chr = lvl->chr };
+		} else if (*lvl->head == '=') {
+			lvl->head++;
+			lvl->head_chr++;
+			return (tok_t){ .ty = tok_minuseq, .lit = c, .len = 2, .line = lvl->line, .chr = lvl->chr };
 		} else {
-			return (tok_t){ .ty = tok_minus, .lit = c, .len = 1, .line = lexlvl(*state).line, .chr = lexlvl(*state).chr };
+			return (tok_t){ .ty = tok_minus, .lit = c, .len = 1, .line = lvl->line, .chr = lvl->chr };
 		}
 	case '=':
-		if (*lexlvl(*state).head == '=') {
-			lexlvl(*state).head++;
-			lexlvl(*state).head_chr++;
-			return (tok_t){ .ty = tok_eqeq, .lit = c, .len = 2, .line = lexlvl(*state).line, .chr = lexlvl(*state).chr };
+		if (*lvl->head == '=') {
+			lvl->head++;
+			lvl->head_chr++;
+			return (tok_t){ .ty = tok_eqeq, .lit = c, .len = 2, .line = lvl->line, .chr = lvl->chr };
 		} else {
-			return (tok_t){ .ty = tok_eq, .lit = c, .len = 1, .line = lexlvl(*state).line, .chr = lexlvl(*state).chr };
+			return (tok_t){ .ty = tok_eq, .lit = c, .len = 1, .line = lvl->line, .chr = lvl->chr };
 		}
 	case '&':
-		if (*lexlvl(*state).head == '=') {
-			lexlvl(*state).head++;
-			lexlvl(*state).head_chr++;
-			return (tok_t){ .ty = tok_bitandeq, .lit = c, .len = 2, .line = lexlvl(*state).line, .chr = lexlvl(*state).chr };
-		} else if (*lexlvl(*state).head == '&') {
-			lexlvl(*state).head++;
-			lexlvl(*state).head_chr++;
-			return (tok_t){ .ty = tok_and, .lit = c, .len = 2, .line = lexlvl(*state).line, .chr = lexlvl(*state).chr };
+		if (*lvl->head == '=') {
+			lvl->head++;
+			lvl->head_chr++;
+			return (tok_t){ .ty = tok_bitandeq, .lit = c, .len = 2, .line = lvl->line, .chr = lvl->chr };
+		} else if (*lvl->head == '&') {
+			lvl->head++;
+			lvl->head_chr++;
+			return (tok_t){ .ty = tok_and, .lit = c, .len = 2, .line = lvl->line, .chr = lvl->chr };
 		} else {
-			return (tok_t){ .ty = tok_bitand, .lit = c, .len = 1, .line = lexlvl(*state).line, .chr = lexlvl(*state).chr };
+			return (tok_t){ .ty = tok_bitand, .lit = c, .len = 1, .line = lvl->line, .chr = lvl->chr };
 		}
 	case '|':
-		if (*lexlvl(*state).head == '=') {
-			lexlvl(*state).head++;
-			lexlvl(*state).head_chr++;
-			return (tok_t){ .ty = tok_bitoreq, .lit = c, .len = 2, .line = lexlvl(*state).line, .chr = lexlvl(*state).chr };
-		} else if (*lexlvl(*state).head == '|') {
-			lexlvl(*state).head++;
-			lexlvl(*state).head_chr++;
-			return (tok_t){ .ty = tok_or, .lit = c, .len = 2, .line = lexlvl(*state).line, .chr = lexlvl(*state).chr };
+		if (*lvl->head == '=') {
+			lvl->head++;
+			lvl->head_chr++;
+			return (tok_t){ .ty = tok_bitoreq, .lit = c, .len = 2, .line = lvl->line, .chr = lvl->chr };
+		} else if (*lvl->head == '|') {
+			lvl->head++;
+			lvl->head_chr++;
+			return (tok_t){ .ty = tok_or, .lit = c, .len = 2, .line = lvl->line, .chr = lvl->chr };
 		} else {
-			return (tok_t){ .ty = tok_bitor, .lit = c, .len = 1, .line = lexlvl(*state).line, .chr = lexlvl(*state).chr };
+			return (tok_t){ .ty = tok_bitor, .lit = c, .len = 1, .line = lvl->line, .chr = lvl->chr };
 		}
 	case '!':
-		if (*lexlvl(*state).head == '=') {
-			lexlvl(*state).head++;
-			lexlvl(*state).head_chr++;
-			return (tok_t){ .ty = tok_noteq, .lit = c, .len = 2, .line = lexlvl(*state).line, .chr = lexlvl(*state).chr };
+		if (*lvl->head == '=') {
+			lvl->head++;
+			lvl->head_chr++;
+			return (tok_t){ .ty = tok_noteq, .lit = c, .len = 2, .line = lvl->line, .chr = lvl->chr };
 		} else {
-			return (tok_t){ .ty = tok_not, .lit = c, .len = 1, .line = lexlvl(*state).line, .chr = lexlvl(*state).chr };
+			return (tok_t){ .ty = tok_not, .lit = c, .len = 1, .line = lvl->line, .chr = lvl->chr };
 		}
 	case '>':
-		if (*lexlvl(*state).head == '=') {
-			lexlvl(*state).head++;
-			lexlvl(*state).head_chr++;
-			return (tok_t){ .ty = tok_ge, .lit = c, .len = 2, .line = lexlvl(*state).line, .chr = lexlvl(*state).chr };
-		} if (*lexlvl(*state).head == '>') {
-			lexlvl(*state).head++;
-			lexlvl(*state).head_chr++;
-			if (*lexlvl(*state).head == '=') {
-				lexlvl(*state).head++;
-				lexlvl(*state).head_chr++;
-				return (tok_t){ .ty = tok_shreq, .lit = c, .len = 3, .line = lexlvl(*state).line, .chr = lexlvl(*state).chr };
+		if (*lvl->head == '=') {
+			lvl->head++;
+			lvl->head_chr++;
+			return (tok_t){ .ty = tok_ge, .lit = c, .len = 2, .line = lvl->line, .chr = lvl->chr };
+		} if (*lvl->head == '>') {
+			lvl->head++;
+			lvl->head_chr++;
+			if (*lvl->head == '=') {
+				lvl->head++;
+				lvl->head_chr++;
+				return (tok_t){ .ty = tok_shreq, .lit = c, .len = 3, .line = lvl->line, .chr = lvl->chr };
 			} else {
-				return (tok_t){ .ty = tok_shr, .lit = c, .len = 2, .line = lexlvl(*state).line, .chr = lexlvl(*state).chr };
+				return (tok_t){ .ty = tok_shr, .lit = c, .len = 2, .line = lvl->line, .chr = lvl->chr };
 			}
 		} else {
-			return (tok_t){ .ty = tok_gt, .lit = c, .len = 1, .line = lexlvl(*state).line, .chr = lexlvl(*state).chr };
+			return (tok_t){ .ty = tok_gt, .lit = c, .len = 1, .line = lvl->line, .chr = lvl->chr };
 		}
 	case '<':
-		if (*lexlvl(*state).head == '=') {
-			lexlvl(*state).head++;
-			lexlvl(*state).head_chr++;
-			return (tok_t){ .ty = tok_le, .lit = c, .len = 2, .line = lexlvl(*state).line, .chr = lexlvl(*state).chr };
-		} if (*lexlvl(*state).head == '<') {
-			lexlvl(*state).head++;
-			lexlvl(*state).head_chr++;
-			if (*lexlvl(*state).head == '=') {
-				lexlvl(*state).head++;
-				lexlvl(*state).head_chr++;
-				return (tok_t){ .ty = tok_shleq, .lit = c, .len = 3, .line = lexlvl(*state).line, .chr = lexlvl(*state).chr };
+		if (*lvl->head == '=') {
+			lvl->head++;
+			lvl->head_chr++;
+			return (tok_t){ .ty = tok_le, .lit = c, .len = 2, .line = lvl->line, .chr = lvl->chr };
+		} if (*lvl->head == '<') {
+			lvl->head++;
+			lvl->head_chr++;
+			if (*lvl->head == '=') {
+				lvl->head++;
+				lvl->head_chr++;
+				return (tok_t){ .ty = tok_shleq, .lit = c, .len = 3, .line = lvl->line, .chr = lvl->chr };
 			} else {
-				return (tok_t){ .ty = tok_shl, .lit = c, .len = 2, .line = lexlvl(*state).line, .chr = lexlvl(*state).chr };
+				return (tok_t){ .ty = tok_shl, .lit = c, .len = 2, .line = lvl->line, .chr = lvl->chr };
 			}
 		} else {
-			return (tok_t){ .ty = tok_lt, .lit = c, .len = 1, .line = lexlvl(*state).line, .chr = lexlvl(*state).chr };
+			return (tok_t){ .ty = tok_lt, .lit = c, .len = 1, .line = lvl->line, .chr = lvl->chr };
 		}
-	case '~': return (tok_t){ .ty = tok_bitnot, .lit = c, .len = 1, .line = lexlvl(*state).line, .chr = lexlvl(*state).chr };
+	case '~': return (tok_t){ .ty = tok_bitnot, .lit = c, .len = 1, .line = lvl->line, .chr = lvl->chr };
 	case '^':
-		if (*lexlvl(*state).head == '=') {
-			lexlvl(*state).head++;
-			lexlvl(*state).head_chr++;
-			return (tok_t){ .ty = tok_xoreq, .lit = c, .len = 2, .line = lexlvl(*state).line, .chr = lexlvl(*state).chr };
+		if (*lvl->head == '=') {
+			lvl->head++;
+			lvl->head_chr++;
+			return (tok_t){ .ty = tok_xoreq, .lit = c, .len = 2, .line = lvl->line, .chr = lvl->chr };
 		} else {
-			return (tok_t){ .ty = tok_xor, .lit = c, .len = 1, .line = lexlvl(*state).line, .chr = lexlvl(*state).chr };
+			return (tok_t){ .ty = tok_xor, .lit = c, .len = 1, .line = lvl->line, .chr = lvl->chr };
 		}
-	case '(': return (tok_t){ .ty = tok_lparen, .lit = c, .len = 1, .line = lexlvl(*state).line, .chr = lexlvl(*state).chr };
-	case ')': return (tok_t){ .ty = tok_rparen, .lit = c, .len = 1, .line = lexlvl(*state).line, .chr = lexlvl(*state).chr };
-	case '[': return (tok_t){ .ty = tok_lbrack, .lit = c, .len = 1, .line = lexlvl(*state).line, .chr = lexlvl(*state).chr };
-	case ']': return (tok_t){ .ty = tok_rbrack, .lit = c, .len = 1, .line = lexlvl(*state).line, .chr = lexlvl(*state).chr };
-	case '{': return (tok_t){ .ty = tok_lbrace, .lit = c, .len = 1, .line = lexlvl(*state).line, .chr = lexlvl(*state).chr };
-	case '}': return (tok_t){ .ty = tok_rbrace, .lit = c, .len = 1, .line = lexlvl(*state).line, .chr = lexlvl(*state).chr };
+	case '(': return (tok_t){ .ty = tok_lparen, .lit = c, .len = 1, .line = lvl->line, .chr = lvl->chr };
+	case ')': return (tok_t){ .ty = tok_rparen, .lit = c, .len = 1, .line = lvl->line, .chr = lvl->chr };
+	case '[': return (tok_t){ .ty = tok_lbrack, .lit = c, .len = 1, .line = lvl->line, .chr = lvl->chr };
+	case ']': return (tok_t){ .ty = tok_rbrack, .lit = c, .len = 1, .line = lvl->line, .chr = lvl->chr };
+	case '{': return (tok_t){ .ty = tok_lbrace, .lit = c, .len = 1, .line = lvl->line, .chr = lvl->chr };
+	case '}': return (tok_t){ .ty = tok_rbrace, .lit = c, .len = 1, .line = lvl->line, .chr = lvl->chr };
 	case '*':
-		if (*lexlvl(*state).head == '=') {
-			lexlvl(*state).head++;
-			lexlvl(*state).head_chr++;
-			return (tok_t){ .ty = tok_stareq, .lit = c, .len = 2, .line = lexlvl(*state).line, .chr = lexlvl(*state).chr };
+		if (*lvl->head == '=') {
+			lvl->head++;
+			lvl->head_chr++;
+			return (tok_t){ .ty = tok_stareq, .lit = c, .len = 2, .line = lvl->line, .chr = lvl->chr };
 		} else {
-			return (tok_t){ .ty = tok_star, .lit = c, .len = 1, .line = lexlvl(*state).line, .chr = lexlvl(*state).chr };
+			return (tok_t){ .ty = tok_star, .lit = c, .len = 1, .line = lvl->line, .chr = lvl->chr };
 		}
-	case ',': return (tok_t){ .ty = tok_comma, .lit = c, .len = 1, .line = lexlvl(*state).line, .chr = lexlvl(*state).chr };
-	case ';': return (tok_t){ .ty = tok_semicol, .lit = c, .len = 1, .line = lexlvl(*state).line, .chr = lexlvl(*state).chr };
-	case '?': return (tok_t){ .ty = tok_qmark, .lit = c, .len = 1, .line = lexlvl(*state).line, .chr = lexlvl(*state).chr };
-	case ':': return (tok_t){ .ty = tok_colon, .lit = c, .len = 1, .line = lexlvl(*state).line, .chr = lexlvl(*state).chr };
+	case ',': return (tok_t){ .ty = tok_comma, .lit = c, .len = 1, .line = lvl->line, .chr = lvl->chr };
+	case ';': return (tok_t){ .ty = tok_semicol, .lit = c, .len = 1, .line = lvl->line, .chr = lvl->chr };
+	case '?': return (tok_t){ .ty = tok_qmark, .lit = c, .len = 1, .line = lvl->line, .chr = lvl->chr };
+	case ':': return (tok_t){ .ty = tok_colon, .lit = c, .len = 1, .line = lvl->line, .chr = lvl->chr };
 	case '/':
-		if (*lexlvl(*state).head == '=') {
-			lexlvl(*state).head++;
-			lexlvl(*state).head_chr++;
-			return (tok_t){ .ty = tok_slasheq, .lit = c, .len = 2, .line = lexlvl(*state).line, .chr = lexlvl(*state).chr };
+		if (*lvl->head == '=') {
+			lvl->head++;
+			lvl->head_chr++;
+			return (tok_t){ .ty = tok_slasheq, .lit = c, .len = 2, .line = lvl->line, .chr = lvl->chr };
 		} else {
-			return (tok_t){ .ty = tok_slash, .lit = c, .len = 1, .line = lexlvl(*state).line, .chr = lexlvl(*state).chr };
+			return (tok_t){ .ty = tok_slash, .lit = c, .len = 1, .line = lvl->line, .chr = lvl->chr };
 		}
 	case '%':
-		if (*lexlvl(*state).head == '=') {
-			lexlvl(*state).head++;
-			lexlvl(*state).head_chr++;
-			return (tok_t){ .ty = tok_percenteq, .lit = c, .len = 2, .line = lexlvl(*state).line, .chr = lexlvl(*state).chr };
+		if (*lvl->head == '=') {
+			lvl->head++;
+			lvl->head_chr++;
+			return (tok_t){ .ty = tok_percenteq, .lit = c, .len = 2, .line = lvl->line, .chr = lvl->chr };
 		} else {
-			return (tok_t){ .ty = tok_percent, .lit = c, .len = 1, .line = lexlvl(*state).line, .chr = lexlvl(*state).chr };
+			return (tok_t){ .ty = tok_percent, .lit = c, .len = 1, .line = lvl->line, .chr = lvl->chr };
 		}
 	case '\'':
-		if (*lexlvl(*state).head == '\\') {
-			lexlvl(*state).head += 3;
-			lexlvl(*state).head_chr += 3;
-			if (*(lexlvl(*state).head - 1) != '\'') return make_errtok(state, err_expected, "'");
-			return (tok_t){ .ty = tok_char_lit, .lit = c, .len = 4, .line = lexlvl(*state).line, .chr = lexlvl(*state).chr };
+		if (*lvl->head == '\\') {
+			lvl->head += 3;
+			lvl->head_chr += 3;
+			if (*(lvl->head - 1) != '\'') return make_errtok(state, lvl, err_expected, "'");
+			return (tok_t){ .ty = tok_char_lit, .lit = c, .len = 4, .line = lvl->line, .chr = lvl->chr };
 		} else {
-			lexlvl(*state).head += 2;
-			lexlvl(*state).head_chr += 2;
-			return (tok_t){ .ty = tok_char_lit, .lit = c, .len = 3, .line = lexlvl(*state).line, .chr = lexlvl(*state).chr };
+			lvl->head += 2;
+			lvl->head_chr += 2;
+			return (tok_t){ .ty = tok_char_lit, .lit = c, .len = 3, .line = lvl->line, .chr = lvl->chr };
 		}
 	case '.':
-		if (*lexlvl(*state).head == '.' && *(lexlvl(*state).head + 1) == '.') {
-			lexlvl(*state).head += 2;
-			lexlvl(*state).head_chr += 2;
-			return (tok_t){ .ty = tok_elipses, .lit = c, .len = 3, .line = lexlvl(*state).line, .chr = lexlvl(*state).chr };
-		} else if (isdigit(*lexlvl(*state).head)) {
-			lexlvl(*state).head--;
-			lexlvl(*state).head_chr--;
-			return consume_number(state);
+		if (*lvl->head == '.' && *(lvl->head + 1) == '.') {
+			lvl->head += 2;
+			lvl->head_chr += 2;
+			return (tok_t){ .ty = tok_elipses, .lit = c, .len = 3, .line = lvl->line, .chr = lvl->chr };
+		} else if (isdigit(*lvl->head)) {
+			lvl->head--;
+			lvl->head_chr--;
+			return consume_number(state, lvl);
 		}
-		return (tok_t){ .ty = tok_dot, .lit = c, .len = 1, .line = lexlvl(*state).line, .chr = lexlvl(*state).chr };
+		return (tok_t){ .ty = tok_dot, .lit = c, .len = 1, .line = lvl->line, .chr = lvl->chr };
 	case '0': case '1': case '2': case '3': case '4':
 	case '5': case '6': case '7': case '8': case '9':
-		lexlvl(*state).head--;
-		lexlvl(*state).head_chr--;
-		return consume_number(state);
+		lvl->head--;
+		lvl->head_chr--;
+		return consume_number(state, lvl);
 	case '"':
-		lexlvl(*state).head--;
-		lexlvl(*state).head_chr--;
-		return consume_string(state);
+		lvl->head--;
+		lvl->head_chr--;
+		return consume_string(state, lvl);
 	default:
 		if (isalpha(*c)) {
-			lexlvl(*state).head--;
-			lexlvl(*state).head_chr--;
-			return consume_ident(state);
+			lvl->head--;
+			lvl->head_chr--;
+			return consume_ident(state, lvl, expand_macros);
 		} else {
-			return make_errtok(state, err_expected, "identifier");
+			return make_errtok(state, lvl, err_expected, "identifier");
 		}
 	}
 }
-
-bool lexer_next(lexer_t *const state) {
-	memmove(lexlvl(*state).toks, lexlvl(*state).toks + 1, sizeof(lexlvl(*state).toks) - sizeof(lexlvl(*state).toks[0]));
-	const tok_t *const last_tok = &lexlvl(*state).toks[arrlen(lexlvl(*state).toks) - 2];
-	if (last_tok->ty != tok_error && last_tok->ty != tok_eof) {
-		lexlvl(*state).toks[arrlen(lexlvl(*state).toks) - 1] = _lexer_nexttok(state);
+static tok_t _lexer_nexttok(lexer_t *const state, lexerlvl_t *lvl, bool preprocess, bool expand_macros) {
+	if (lvl->macro_exp != -1) preprocess = false;
+	const tok_t next = __lexer_nexttok(state, lvl, preprocess, expand_macros);
+	if (lvl->end && next.lit >= lvl->end) {
+		state->lvl--;
+		lvl--;
+		return __lexer_nexttok(state, lvl, preprocess, expand_macros);
 	}
-	return lexlvl(*state).curr.ty != tok_eof && lexlvl(*state).curr.ty != tok_error;
+	return next;
+}
+bool lexer_next(lexer_t *const state) {
+	state->prev = state->curr;
+	state->curr = state->peek;
+	if (state->prev.ty != tok_error && state->prev.ty != tok_eof) {
+		state->peek = _lexer_nexttok(state, state->lvls + state->lvl, true, true);
+	}
+	return state->curr.ty != tok_eof && state->curr.ty != tok_error;
 }
 
 lexer_t lexer_init(const char *script) {
 	lexer_t state = (lexer_t){
+		.peek = (tok_t){ .ty = tok_undefined },
+		.curr = (tok_t){ .ty = tok_undefined },
 		.lvls[0] = {
 			.head = script,
 			.chr = 1,
 			.line = 1,
 			.head_line = 1,
 			.head_chr = 1,
-			.curr = (tok_t){ .ty = tok_undefined },
+			.macro_exp = -1,
+			.end = NULL,
 		},
 		.lvl = 0,
 		.concat_sz = 0,
 		.incfn = NULL,
 	};
 	state.map = ident_map_init(arrlen(state.ents));
-	lexlvl(state).prev = (tok_t){ .ty = tok_undefined };
-	lexlvl(state).peek = _lexer_nexttok(&state);
+	state.peek = _lexer_nexttok(&state, state.lvls, true, true);
 	return state;
 }
 

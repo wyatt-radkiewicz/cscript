@@ -136,20 +136,20 @@ void parser_err(
 	}
 
 	// TODO: Continue to next statement I guess, it depends
-	while (lexcurr(state->lexer).ty != tok_semicol
-		&& lexcurr(state->lexer).ty != tok_eof
-		&& lexcurr(state->lexer).ty != tok_error) {
+	while (state->lexer.curr.ty != tok_semicol
+		&& state->lexer.curr.ty != tok_eof
+		&& state->lexer.curr.ty != tok_error) {
 		lexer_next(&state->lexer);
 	}
 	lexer_next(&state->lexer);
 }
 
 static bool parser_eat(parser_t *const state, const tokty_t tokty, const char *const expect_msg) {
-	if (lexcurr(state->lexer).ty == tokty) {
+	if (state->lexer.curr.ty == tokty) {
 		lexer_next(&state->lexer);
 		return true;
 	} else {
-		const err_t err = (err_t){ .ty = err_expected, .msg = expect_msg, .line = lexcurr(state->lexer).line, .chr = lexcurr(state->lexer).chr };
+		const err_t err = (err_t){ .ty = err_expected, .msg = expect_msg, .line = state->lexer.curr.line, .chr = state->lexer.curr.chr };
 		parser_err(state, err);
 		return false;
 	}
@@ -157,8 +157,8 @@ static bool parser_eat(parser_t *const state, const tokty_t tokty, const char *c
 
 static int _parse_cast(parser_t *const state, const int type) {
 	parser_eat(state, tok_rparen, "\")\"");
-	const int line = lexcurr(state->lexer).line, chr = lexcurr(state->lexer).chr;
-	int init = lexcurr(state->lexer).ty == tok_lbrace ? parse_initializer(state, false) : AST_SENTINAL;
+	const int line = state->lexer.curr.line, chr = state->lexer.curr.chr;
+	int init = state->lexer.curr.ty == tok_lbrace ? parse_initializer(state, false) : AST_SENTINAL;
 	if (init == AST_SENTINAL) {
 		const int expr = parse_expression(state, prec_2);
 		if (expr != AST_SENTINAL) {
@@ -195,7 +195,7 @@ static int _parse_cast(parser_t *const state, const int type) {
 }
 
 static int parse_unary(parser_t *const state) {
-	const tok_t tok = lexcurr(state->lexer);
+	const tok_t tok = state->lexer.curr;
 	int val = AST_SENTINAL;
 	lexer_next(&state->lexer);
 	switch (tok.ty) {
@@ -226,7 +226,7 @@ static int parse_comma(
 	const prec_t prec,
 	int left
 ) {
-	const tok_t tok = lexcurr(state->lexer);
+	const tok_t tok = state->lexer.curr;
 	lexer_next(&state->lexer);
 	return parser_add(state, (ast_t){
 		.ty = ast_comma,
@@ -244,15 +244,15 @@ static int parse_call(
 	const prec_t prec,
 	int left
 ) {
-	const int line = lexcurr(state->lexer).line, chr = lexcurr(state->lexer).chr;
+	const int line = state->lexer.curr.line, chr = state->lexer.curr.chr;
 	lexer_next(&state->lexer);
 	int params = AST_SENTINAL;
 	int *last = &params;
-	while (lexcurr(state->lexer).ty != tok_eof && lexcurr(state->lexer).ty != tok_error) {
+	while (state->lexer.curr.ty != tok_eof && state->lexer.curr.ty != tok_error) {
 		const int param = parse_expression(state, prec_ternary);
 		*last = param;
 		last = &state->buf[param].next;
-		if (lexcurr(state->lexer).ty == tok_comma) lexer_next(&state->lexer);
+		if (state->lexer.curr.ty == tok_comma) lexer_next(&state->lexer);
 		else break;
 	}
 	parser_eat(state, tok_rparen, "\")\"");
@@ -275,7 +275,7 @@ static int parse_eq(
 	const prec_t prec,
 	int left
 ) {
-	const tok_t tok = lexcurr(state->lexer);
+	const tok_t tok = state->lexer.curr;
 	lexer_next(&state->lexer);
 	const int right = parse_expression(state, prec);
 	return parser_add(
@@ -297,7 +297,7 @@ static int parse_binary(
 	const prec_t prec,
 	int left
 ) {
-	const tok_t tok = lexcurr(state->lexer);
+	const tok_t tok = state->lexer.curr;
 	lexer_next(&state->lexer);
 	const int right = parse_expression(state, (tok.ty == tok_minusminus || tok.ty == tok_plusplus) ? prec_lowest : prec - 1);
 	return parser_add(
@@ -315,7 +315,7 @@ static int parse_binary(
 }
 
 static int parse_access_prefix(parser_t *const state) {
-	const tok_t tok = lexcurr(state->lexer);
+	const tok_t tok = state->lexer.curr;
 	lexer_next(&state->lexer);
 
 	if (tok.ty == tok_lbrack) {
@@ -349,7 +349,7 @@ static int parse_access_post(
 	const prec_t prec,
 	int left
 ) {
-	const tok_t tok = lexcurr(state->lexer);
+	const tok_t tok = state->lexer.curr;
 	lexer_next(&state->lexer);
 	if (tok.ty == tok_dot || tok.ty == tok_arrow) {
 		const int right = parse_expression(state, prec_lowest);
@@ -381,7 +381,7 @@ static int parse_access_post(
 	}
 }
 static int parse_ident(parser_t *const state) {
-	const tok_t name = lexcurr(state->lexer);
+	const tok_t name = state->lexer.curr;
 	lexer_next(&state->lexer);
 	return parser_add(state, (ast_t){
 		.ty = ast_ident,
@@ -410,7 +410,7 @@ parser_t parse(const char *src, ast_t *astbuf, size_t buflen) {
 static cvrflags_t parse_cvrflags(parser_t *const state) {
 	cvrflags_t cvrs = cvr_none;
 	while (true) {
-		switch (lexcurr(state->lexer).ty) {
+		switch (state->lexer.curr.ty) {
 		case tok_static: cvrs |= cvr_static; break;
 		case tok_const: cvrs |= cvr_const; break;
 		case tok_restrict: cvrs |= cvr_restrict; break;
@@ -423,20 +423,20 @@ static cvrflags_t parse_cvrflags(parser_t *const state) {
 }
 
 static int parse_type_not_arr_ptr_func(parser_t *const state) {
-	const int line = lexcurr(state->lexer).line, chr = lexcurr(state->lexer).chr;
+	const int line = state->lexer.curr.line, chr = state->lexer.curr.chr;
 	cvrflags_t cvrs = parse_cvrflags(state);
-	switch (lexcurr(state->lexer).ty) {
+	switch (state->lexer.curr.ty) {
 	case tok_union:
 	case tok_struct:
 		{
-			const bool is_struct = lexcurr(state->lexer).ty == tok_struct;
+			const bool is_struct = state->lexer.curr.ty == tok_struct;
 			lexer_next(&state->lexer);
 			const int tyname = parse_ident(state);
 			int members = AST_SENTINAL;
-			if (lexcurr(state->lexer).ty == tok_lbrace) { // structure definition
+			if (state->lexer.curr.ty == tok_lbrace) { // structure definition
 				lexer_next(&state->lexer); // parse members
 				int *last = &members;
-				while (lexcurr(state->lexer).ty != tok_rbrace && lexcurr(state->lexer).ty != tok_eof && lexcurr(state->lexer).ty != tok_error) {
+				while (state->lexer.curr.ty != tok_rbrace && state->lexer.curr.ty != tok_eof && state->lexer.curr.ty != tok_error) {
 					int member = parse_type(state, true, true);
 					*last = member;
 					while (state->buf[member].next != AST_SENTINAL) member = state->buf[member].next;
@@ -466,20 +466,20 @@ static int parse_type_not_arr_ptr_func(parser_t *const state) {
 			const int tyname = parse_ident(state);
 
 			int fields = AST_SENTINAL;
-			if (lexcurr(state->lexer).ty == tok_lbrace) { // enum definition
+			if (state->lexer.curr.ty == tok_lbrace) { // enum definition
 				lexer_next(&state->lexer); // parse fields
 				int *last = &fields;
-				while (lexcurr(state->lexer).ty != tok_rbrace && lexcurr(state->lexer).ty != tok_eof && lexcurr(state->lexer).ty != tok_error) {
-					const int line = lexcurr(state->lexer).line, chr = lexcurr(state->lexer).chr;
-					const tok_t field_name = lexcurr(state->lexer);
+				while (state->lexer.curr.ty != tok_rbrace && state->lexer.curr.ty != tok_eof && state->lexer.curr.ty != tok_error) {
+					const int line = state->lexer.curr.line, chr = state->lexer.curr.chr;
+					const tok_t field_name = state->lexer.curr;
 					int value = AST_SENTINAL;
 
 					lexer_next(&state->lexer);
-					if (lexcurr(state->lexer).ty == tok_eq) {
+					if (state->lexer.curr.ty == tok_eq) {
 						lexer_next(&state->lexer);
 						value = parse_expression(state, prec_ternary);
 					}
-					if (lexcurr(state->lexer).ty == tok_comma) lexer_next(&state->lexer);
+					if (state->lexer.curr.ty == tok_comma) lexer_next(&state->lexer);
 
 					const int field = parser_add(state, (ast_t){
 						.ty = ast_enum_field,
@@ -511,7 +511,7 @@ static int parse_type_not_arr_ptr_func(parser_t *const state) {
 		break;
 	case tok_ident: // Using an already made typedef
 		{
-			if (!ident_map_get(&state->tymap, lexcurr(state->lexer).lit, lexcurr(state->lexer).len, NULL)) return AST_SENTINAL;
+			if (!ident_map_get(&state->tymap, state->lexer.curr.lit, state->lexer.curr.len, NULL)) return AST_SENTINAL;
 
 			const int tyname = parse_ident(state);
 			return parser_add(state, (ast_t){
@@ -547,7 +547,7 @@ static int parse_type_not_arr_ptr_func(parser_t *const state) {
 	int bits = 32;
 	int f = 0, i = 0, u = 0, l = 0;
 	while (true) {
-		switch (lexcurr(state->lexer).ty) {
+		switch (state->lexer.curr.ty) {
 		case tok_unsigned: u++; break;
 		case tok_char: i++; bits = 8; break;
 		case tok_short: i++; bits = 16; break;
@@ -564,7 +564,7 @@ construct_pod:
 		|| (u && f)
 		|| (i && f)
 		|| (l && f)) {
-		parser_err(state, (err_t){ .ty = err_unexpected, .msg = "incorrect type spec info", .line = lexcurr(state->lexer).line, .chr = lexcurr(state->lexer).chr });
+		parser_err(state, (err_t){ .ty = err_unexpected, .msg = "incorrect type spec info", .line = state->lexer.curr.line, .chr = state->lexer.curr.chr });
 	}
 	unitty_t pod;
 	switch (bits) {
@@ -592,9 +592,9 @@ construct_pod:
 // Parse initializer
 // Could return either expression, or ast_init_list
 static int parse_initializer(parser_t *const state, const bool allow_desginator) {
-	const int line = lexcurr(state->lexer).line, chr = lexcurr(state->lexer).chr;
-	if ((lexcurr(state->lexer).ty == tok_dot || lexcurr(state->lexer).ty == tok_lbrack) && allow_desginator) {
-		if (lexcurr(state->lexer).ty == tok_dot) lexer_next(&state->lexer);
+	const int line = state->lexer.curr.line, chr = state->lexer.curr.chr;
+	if ((state->lexer.curr.ty == tok_dot || state->lexer.curr.ty == tok_lbrack) && allow_desginator) {
+		if (state->lexer.curr.ty == tok_dot) lexer_next(&state->lexer);
 		const int accessor = parse_expression(state, prec_2);
 		parser_eat(state, tok_eq, "\"=\"");
 		const int init = parse_initializer(state, false);
@@ -610,16 +610,16 @@ static int parse_initializer(parser_t *const state, const bool allow_desginator)
 			.chr = chr,
 		});
 	}
-	if (lexcurr(state->lexer).ty != tok_lbrace) return parse_expression(state, prec_assign);
+	if (state->lexer.curr.ty != tok_lbrace) return parse_expression(state, prec_assign);
 	lexer_next(&state->lexer);
 
 	int list = AST_SENTINAL;
 	int *last = &list;
-	while (lexcurr(state->lexer).ty != tok_rbrace && lexcurr(state->lexer).ty != tok_eof && lexcurr(state->lexer).ty != tok_error) {
+	while (state->lexer.curr.ty != tok_rbrace && state->lexer.curr.ty != tok_eof && state->lexer.curr.ty != tok_error) {
 		const int node = parse_initializer(state, true);
 		*last = node;
 		last = &state->buf[node].next;
-		if (lexcurr(state->lexer).ty == tok_comma) lexer_next(&state->lexer);
+		if (state->lexer.curr.ty == tok_comma) lexer_next(&state->lexer);
 		else break;
 	}
 
@@ -638,7 +638,7 @@ static int parse_initializer(parser_t *const state, const bool allow_desginator)
 // Obviously, function parameters are a situation where you would not want
 // multi_decl
 static int _parse_type(parser_t *const state, const bool multi_decl, const bool allow_idents, const int tyspec) {
-	const int line = lexcurr(state->lexer).line, chr = lexcurr(state->lexer).chr;
+	const int line = state->lexer.curr.line, chr = state->lexer.curr.chr;
 	int curr_node = tyspec; // currnode is the child
 							// tyspec is always child of curr_node
 	int root = tyspec;		// root of declaration
@@ -648,34 +648,34 @@ static int _parse_type(parser_t *const state, const bool multi_decl, const bool 
 	tok_t before[32];
 	int btop = -1, bparens = 0;
 	tok_t ident = (tok_t){ .ty = tok_undefined };
-	while (lexcurr(state->lexer).ty == tok_star // Check for anything for pointer wise
-		|| lexcurr(state->lexer).ty == tok_lparen
-		|| lexcurr(state->lexer).ty == tok_const
-		|| lexcurr(state->lexer).ty == tok_static
-		|| lexcurr(state->lexer).ty == tok_extern
-		|| lexcurr(state->lexer).ty == tok_restrict
-		|| lexcurr(state->lexer).ty == tok_volatile
-		|| lexcurr(state->lexer).ty == tok_rparen) {
-		bparens += lexcurr(state->lexer).ty == tok_lparen;
-		if (lexcurr(state->lexer).ty == tok_rparen && --bparens <= 0) break;
-		before[++btop] = lexcurr(state->lexer);
+	while (state->lexer.curr.ty == tok_star // Check for anything for pointer wise
+		|| state->lexer.curr.ty == tok_lparen
+		|| state->lexer.curr.ty == tok_const
+		|| state->lexer.curr.ty == tok_static
+		|| state->lexer.curr.ty == tok_extern
+		|| state->lexer.curr.ty == tok_restrict
+		|| state->lexer.curr.ty == tok_volatile
+		|| state->lexer.curr.ty == tok_rparen) {
+		bparens += state->lexer.curr.ty == tok_lparen;
+		if (state->lexer.curr.ty == tok_rparen && --bparens <= 0) break;
+		before[++btop] = state->lexer.curr;
 		lexer_next(&state->lexer);
 	}
-	if (lexcurr(state->lexer).ty == tok_ident) { // Get identifier if we can
+	if (state->lexer.curr.ty == tok_ident) { // Get identifier if we can
 		if (!allow_idents) {
-			parser_err(state, (err_t){ .ty = err_unexpected, .msg = "unexpected identifier", .line = lexcurr(state->lexer).line, .chr = lexcurr(state->lexer).chr });
+			parser_err(state, (err_t){ .ty = err_unexpected, .msg = "unexpected identifier", .line = state->lexer.curr.line, .chr = state->lexer.curr.chr });
 			return AST_SENTINAL;
 		}
-		ident = lexcurr(state->lexer);
+		ident = state->lexer.curr;
 		lexer_next(&state->lexer);
 	} // If not its undefined identifier
 
 	// Now parse functions, pointers, and arrays
 	while (true) {
 		// If function/array is here then do it!
-		while (lexcurr(state->lexer).ty == tok_lbrack
-			|| lexcurr(state->lexer).ty == tok_lparen) {
-			if (lexcurr(state->lexer).ty == tok_lbrack) {
+		while (state->lexer.curr.ty == tok_lbrack
+			|| state->lexer.curr.ty == tok_lparen) {
+			if (state->lexer.curr.ty == tok_lbrack) {
 				lexer_next(&state->lexer);
 				const cvrflags_t cvrs = parse_cvrflags(state);
 				curr_node = parser_add(state, (ast_t){
@@ -699,11 +699,11 @@ static int _parse_type(parser_t *const state, const bool multi_decl, const bool 
 				lexer_next(&state->lexer);
 				int params = AST_SENTINAL;
 				int *last = &params;
-				while (lexcurr(state->lexer).ty != tok_rparen) {
+				while (state->lexer.curr.ty != tok_rparen) {
 					int param = parse_type(state, false, true);
 					*last = param;
 					last = &state->buf[param].next;
-					if (lexcurr(state->lexer).ty == tok_comma) lexer_next(&state->lexer);
+					if (state->lexer.curr.ty == tok_comma) lexer_next(&state->lexer);
 					else break;
 				}
 				parser_eat(state, tok_rparen, "\")\"");
@@ -726,7 +726,7 @@ static int _parse_type(parser_t *const state, const bool multi_decl, const bool 
 			}
 		}
 
-		bool parened = lexcurr(state->lexer).ty == tok_rparen && btop >= 0;
+		bool parened = state->lexer.curr.ty == tok_rparen && btop >= 0;
 
 		// Get pointers and remove parenthases
 		cvrflags_t cvrs = cvr_none;
@@ -766,7 +766,7 @@ static int _parse_type(parser_t *const state, const bool multi_decl, const bool 
 
 	// Add the definition onto it now
 	int def = AST_SENTINAL;
-	if (lexcurr(state->lexer).ty == tok_eq && allow_idents) {
+	if (state->lexer.curr.ty == tok_eq && allow_idents) {
 		lexer_next(&state->lexer);
 		def = parse_initializer(state, false);
 	}
@@ -784,7 +784,7 @@ static int _parse_type(parser_t *const state, const bool multi_decl, const bool 
 		});
 	}
 
-	if (multi_decl && lexcurr(state->lexer).ty == tok_comma && allow_idents) {
+	if (multi_decl && state->lexer.curr.ty == tok_comma && allow_idents) {
 		lexer_next(&state->lexer);
 		int shallow_copy = parser_add(state, state->buf[tyspec]);
 		state->buf[shallow_copy].info.type.inner = AST_SENTINAL;
@@ -797,7 +797,7 @@ static int _parse_type(parser_t *const state, const bool multi_decl, const bool 
 
 static int parse_type(parser_t *const state, const bool multi_decl, const bool allow_idents) {
 	bool is_typedef = false;
-	if (lexcurr(state->lexer).ty == tok_typedef) {
+	if (state->lexer.curr.ty == tok_typedef) {
 		is_typedef = true;
 		lexer_next(&state->lexer);
 	}
@@ -825,12 +825,12 @@ static int parse_type(parser_t *const state, const bool multi_decl, const bool a
 }
 
 static int parse_compound_stmt(parser_t *const state) {
-	const int line = lexcurr(state->lexer).line, chr = lexcurr(state->lexer).chr;
+	const int line = state->lexer.curr.line, chr = state->lexer.curr.chr;
 
 	lexer_next(&state->lexer);
 	int stmts = AST_SENTINAL;
 	int *last = &stmts;
-	while (last && lexcurr(state->lexer).ty != tok_rbrace && lexcurr(state->lexer).ty != tok_eof && lexcurr(state->lexer).ty != tok_error) {
+	while (last && state->lexer.curr.ty != tok_rbrace && state->lexer.curr.ty != tok_eof && state->lexer.curr.ty != tok_error) {
 		int stmt = parse_statement(state);
 		*last = stmt;
 		last = stmt == AST_SENTINAL ? NULL : &state->buf[stmt].next;
@@ -851,16 +851,16 @@ static int parse_compound_stmt(parser_t *const state) {
 
 static void parse_label(parser_t *const state, labelty_t *const ty, int *const label) {
 	// get the label
-	if (lexcurr(state->lexer).ty == tok_ident && lexpeek(state->lexer).ty == tok_colon) {
+	if (state->lexer.curr.ty == tok_ident && state->lexer.peek.ty == tok_colon) {
 		*ty = label_norm;
 		*label = parse_ident(state);
 		lexer_next(&state->lexer);
-	} else if (lexcurr(state->lexer).ty == tok_case) {
+	} else if (state->lexer.curr.ty == tok_case) {
 		*ty = label_case;
 		lexer_next(&state->lexer);
 		*label = parse_ident(state);
 		parser_eat(state, tok_colon, "\":\"");
-	} else if (lexcurr(state->lexer).ty == tok_default) {
+	} else if (state->lexer.curr.ty == tok_default) {
 		*ty = label_default;
 		*label = AST_SENTINAL;
 		lexer_next(&state->lexer);
@@ -872,7 +872,7 @@ static void parse_label(parser_t *const state, labelty_t *const ty, int *const l
 }
 
 static int parse_ifelse_stmt(parser_t *const state) {
-	const int line = lexcurr(state->lexer).line, chr = lexcurr(state->lexer).chr;
+	const int line = state->lexer.curr.line, chr = state->lexer.curr.chr;
 
 	lexer_next(&state->lexer);
 	parser_eat(state, tok_lparen, "\"(\"");
@@ -880,7 +880,7 @@ static int parse_ifelse_stmt(parser_t *const state) {
 	parser_eat(state, tok_rparen, "\")\"");
 	const int on_true = parse_statement(state);
 	int on_false = AST_SENTINAL;
-	if (lexcurr(state->lexer).ty == tok_else) {
+	if (state->lexer.curr.ty == tok_else) {
 		lexer_next(&state->lexer);
 		on_false = parse_statement(state);
 	}
@@ -901,7 +901,7 @@ static int parse_ifelse_stmt(parser_t *const state) {
 	});
 }
 static int parse_switch_stmt(parser_t *const state) {
-	const int line = lexcurr(state->lexer).line, chr = lexcurr(state->lexer).chr;
+	const int line = state->lexer.curr.line, chr = state->lexer.curr.chr;
 
 	lexer_next(&state->lexer);
 	parser_eat(state, tok_lparen, "\"(\"");
@@ -924,7 +924,7 @@ static int parse_switch_stmt(parser_t *const state) {
 	});
 }
 static int parse_while_stmt(parser_t *const state) {
-	const int line = lexcurr(state->lexer).line, chr = lexcurr(state->lexer).chr;
+	const int line = state->lexer.curr.line, chr = state->lexer.curr.chr;
 
 	lexer_next(&state->lexer);
 	parser_eat(state, tok_lparen, "\"(\"");
@@ -947,7 +947,7 @@ static int parse_while_stmt(parser_t *const state) {
 	});
 }
 static int parse_dowhile_stmt(parser_t *const state) {
-	const int line = lexcurr(state->lexer).line, chr = lexcurr(state->lexer).chr;
+	const int line = state->lexer.curr.line, chr = state->lexer.curr.chr;
 
 	lexer_next(&state->lexer);
 	const int inner = parse_statement(state);
@@ -972,7 +972,7 @@ static int parse_dowhile_stmt(parser_t *const state) {
 	});
 }
 static int parse_for_stmt(parser_t *const state) {
-	const int line = lexcurr(state->lexer).line, chr = lexcurr(state->lexer).chr;
+	const int line = state->lexer.curr.line, chr = state->lexer.curr.chr;
 
 	lexer_next(&state->lexer);
 	parser_eat(state, tok_lparen, "\"(\"");
@@ -1004,7 +1004,7 @@ static int parse_for_stmt(parser_t *const state) {
 	});
 }
 static int parse_ret_stmt(parser_t *const state) {
-	const int line = lexcurr(state->lexer).line, chr = lexcurr(state->lexer).chr;
+	const int line = state->lexer.curr.line, chr = state->lexer.curr.chr;
 
 	lexer_next(&state->lexer);
 	const int expr = parse_expression(state, prec_full);
@@ -1022,7 +1022,7 @@ static int parse_ret_stmt(parser_t *const state) {
 	});
 }
 static int parse_goto_stmt(parser_t *const state) {
-	const int line = lexcurr(state->lexer).line, chr = lexcurr(state->lexer).chr;
+	const int line = state->lexer.curr.line, chr = state->lexer.curr.chr;
 
 	lexer_next(&state->lexer);
 	const int label = parse_ident(state);
@@ -1040,7 +1040,7 @@ static int parse_goto_stmt(parser_t *const state) {
 	});
 }
 static int parse_expr_decldef_stmt(parser_t *const state) {
-	const int line = lexcurr(state->lexer).line, chr = lexcurr(state->lexer).chr;
+	const int line = state->lexer.curr.line, chr = state->lexer.curr.chr;
 
 	const int decl = parse_type(state, true, true);
 	if (decl != AST_SENTINAL) {
@@ -1076,14 +1076,14 @@ static int parse_expr_decldef_stmt(parser_t *const state) {
 }
 
 static int parse_statement(parser_t *const state) {
-	const int line = lexcurr(state->lexer).line, chr = lexcurr(state->lexer).chr;
+	const int line = state->lexer.curr.line, chr = state->lexer.curr.chr;
 
 	labelty_t labelty;
 	int label;
 	parse_label(state, &labelty, &label);
 
 	int stmt = AST_SENTINAL;
-	switch (lexcurr(state->lexer).ty) {
+	switch (state->lexer.curr.ty) {
 	case tok_lbrace: stmt = parse_compound_stmt(state); break;
 	case tok_if: stmt = parse_ifelse_stmt(state); break;
 	case tok_switch: stmt = parse_switch_stmt(state); break;
@@ -1141,7 +1141,7 @@ static void parse_decl_toplvl(parser_t *const state, int *const first_def, int *
 	if (node != AST_SENTINAL
 		&& state->buf[node].ty == ast_decldef
 		&& state->buf[node].info.decldef.def == AST_SENTINAL
-		&& lexcurr(state->lexer).ty == tok_lbrace) {
+		&& state->lexer.curr.ty == tok_lbrace) {
 		state->buf[node].info.decldef.def = parse_statement(state);
 	} else {
 		parser_eat(state, tok_semicol, "\";\"");
@@ -1154,7 +1154,7 @@ static void parse_decl_toplvl(parser_t *const state, int *const first_def, int *
 
 static void parse_toplevels(parser_t *const state) {
 	int *last = &state->root;
-	while (lexcurr(state->lexer).ty != tok_eof && lexcurr(state->lexer).ty != tok_error) {
+	while (state->lexer.curr.ty != tok_eof && state->lexer.curr.ty != tok_error) {
 		int node = AST_SENTINAL;
 		parse_decl_toplvl(state, last, &node);
 		last = node == AST_SENTINAL ? NULL : &state->buf[node].next;
@@ -1165,13 +1165,13 @@ static int parse_expression(
 	parser_t *const state,
 	const prec_t prec
 ) {
-	const parse_unary_pfn prefix = _rules[lexcurr(state->lexer).ty].prefix;
+	const parse_unary_pfn prefix = _rules[state->lexer.curr.ty].prefix;
 	if (!prefix) return AST_SENTINAL;
 	int left = prefix(state);
 
 	// Support for (ONLY ternay operator)
-	if (lexcurr(state->lexer).ty == tok_qmark && prec >= prec_ternary) {
-		const tok_t tok = lexcurr(state->lexer);
+	if (state->lexer.curr.ty == tok_qmark && prec >= prec_ternary) {
+		const tok_t tok = state->lexer.curr;
 		lexer_next(&state->lexer);
 		const int middle = parse_expression(state, prec_ternary);
 		parser_eat(state, tok_colon, "\":\"");
@@ -1188,13 +1188,13 @@ static int parse_expression(
 			.line = tok.line,
 			.chr = tok.chr,
 		});
-	} else if (lexcurr(state->lexer).ty == tok_colon) {
+	} else if (state->lexer.curr.ty == tok_colon) {
 		return left;
 	}
 
-	while (prec >= _rules[lexcurr(state->lexer).ty].prec) {
-		const parse_binary_pfn infix = _rules[lexcurr(state->lexer).ty].infix;
-		left = infix(state, _rules[lexcurr(state->lexer).ty].prec, left);
+	while (prec >= _rules[state->lexer.curr.ty].prec) {
+		const parse_binary_pfn infix = _rules[state->lexer.curr.ty].infix;
+		left = infix(state, _rules[state->lexer.curr.ty].prec, left);
 	}
 
 	return left;
@@ -1202,7 +1202,7 @@ static int parse_expression(
 
 int parser_add(parser_t *const state, const ast_t newnode) {
 	if (state->nnodes == state->buflen) {
-		parser_err(state, (err_t){ .ty = err_limit, .msg = "max ast nodes reached", .line = lexcurr(state->lexer).line, .chr = lexcurr(state->lexer).chr });
+		parser_err(state, (err_t){ .ty = err_limit, .msg = "max ast nodes reached", .line = state->lexer.curr.line, .chr = state->lexer.curr.chr });
 		return AST_SENTINAL;
 	}
 	state->buf[state->nnodes] = newnode;
@@ -1211,9 +1211,9 @@ int parser_add(parser_t *const state, const ast_t newnode) {
 static typed_unit_t parse_number(parser_t *const state) {
 	// TODO: bigger numbers and postfixes for numbers
 	char numbuf[25];
-	const tok_t tok = lexcurr(state->lexer);
+	const tok_t tok = state->lexer.curr;
 	if (tok.len > 24) {
-		parser_err(state, (err_t){ .ty = err_limit, .msg = "exceeded max literal integer size", .line = lexcurr(state->lexer).line, .chr = lexcurr(state->lexer).chr });
+		parser_err(state, (err_t){ .ty = err_limit, .msg = "exceeded max literal integer size", .line = state->lexer.curr.line, .chr = state->lexer.curr.chr });
 		return (typed_unit_t){ .ty = unit_undefined };
 	}
 	memcpy(numbuf, tok.lit, tok.len);
@@ -1243,7 +1243,7 @@ static typed_unit_t parse_number(parser_t *const state) {
 	}
 }
 static int parse_string_lit(parser_t *const state) {
-	tok_t tok = lexcurr(state->lexer);
+	tok_t tok = state->lexer.curr;
 	lexer_next(&state->lexer);
 	return parser_add(state, (ast_t){
 		.ty = ast_literal,
@@ -1258,7 +1258,7 @@ static int parse_string_lit(parser_t *const state) {
 	});
 }
 static int parse_number_lit(parser_t *const state) {
-	tok_t tok = lexcurr(state->lexer);
+	tok_t tok = state->lexer.curr;
 	return parser_add(state, (ast_t){
 		.ty = ast_literal,
 		.tok = tok,
