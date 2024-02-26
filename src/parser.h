@@ -205,8 +205,8 @@ struct parser {
 	err_t errs[32];
 	size_t nerrs;
 	int root;
-	ident_ent_t tymap_ents[512];
 	ident_map_t tymap;
+	ident_ent_t tymap_ents[511];
 };
 
 int parser_add(parser_t *const state, ast_t newnode);

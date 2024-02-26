@@ -1,8 +1,8 @@
 //#define AST_SENTINAL -1
-int a = b = c = d == AST_SENTINAL;
+typedef struct parser parser_t;
+parser_t a = b = c = d == AST_SENTINAL;
 //int f(void), *fip(), (*pfi)(), *ap[3] = {0, .r = { [5] = 6 }};
 
-//typedef struct parser parser_t;
 //typedef struct tok tok_t;
 //typedef struct ast ast_t;
 //typedef struct err err_t;

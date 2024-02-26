@@ -17,16 +17,14 @@ inline static uint32_t ident_map_hash(const char *str, const size_t len) {
 	return ((str[0] * 0x92) ^ str[1]) ^ ((str[len - 1] * 0x13 - str[len - 2]) << 8);
 }
 
-ident_map_t ident_map_init(ident_ent_t *const ents, const size_t maxlen) {
-	memset(ents, 0, maxlen * sizeof(*ents));
+ident_map_t ident_map_init(const size_t maxlen_minus_1) {
 	return (ident_map_t){
-		.ents = ents,
-		.maxlen = maxlen,
+		.lenmask = maxlen_minus_1,
 		.len = 0,
 	};
 }
 void ident_map_add(ident_map_t *const map, const char *str, const size_t len, const int user) {
-	if (map->len >= map->maxlen) return;
+	if (map->len > map->lenmask) return;
 
 	map->len++;
 	ident_ent_t ent = (ident_ent_t){
@@ -36,7 +34,7 @@ void ident_map_add(ident_map_t *const map, const char *str, const size_t len, co
 		.psl = 0,
 	};
 
-	int i = ident_map_hash(ent.str, ent.len) % map->maxlen;
+	int i = ident_map_hash(ent.str, ent.len) & map->lenmask;
 	while (map->ents[i].str) {
 		if (ent.psl > map->ents[i].psl) {
 			// swap
@@ -45,14 +43,14 @@ void ident_map_add(ident_map_t *const map, const char *str, const size_t len, co
 			ent = tmp;
 		}
 
-		i = (i + 1) % map->maxlen;
+		i = (i + 1) & map->lenmask;
 		ent.psl++;
 	}
 
 	map->ents[i] = ent;
 }
 bool ident_map_get(ident_map_t *const map, const char *str, const size_t len, int **const user) {
-	int i = ident_map_hash(str, len) % map->maxlen, psl = 0;
+	int i = ident_map_hash(str, len) & map->lenmask, psl = 0;
 	while (map->ents[i].str && psl <= map->ents[i].psl) {
 		if (map->ents[i].len == len && memcmp(map->ents[i].str, str, len) == 0) {
 			if (user) *user = &map->ents[i].user;
@@ -60,7 +58,7 @@ bool ident_map_get(ident_map_t *const map, const char *str, const size_t len, in
 		}
 
 		psl++;
-		i = (i + 1) % map->maxlen;
+		i = (i + 1) & map->lenmask;
 	}
 
 	if (user) *user = NULL;

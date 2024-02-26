@@ -150,23 +150,31 @@ typedef struct lexerlvl {
 	};
 } lexerlvl_t;
 
+typedef const char *(*lexer_include_pfn)(const char *path);
+
 struct lexer {
 	lexerlvl_t lvls[16];
-	lexerlvl_t *lvl;
+	int lvl;
 
+	lexer_include_pfn incfn;
 	char concat_buf[512]; // Buffer for concatinated stuff
 	int concat_sz;
 	macro_t macros[256];
-	ident_ent_t ents[256];
 	ident_map_t map;
+	ident_ent_t ents[255];
 };
+
+#define lexlvl(state) ((state).lvls[(state).lvl])
+#define lexprev(state) ((state).lvls[(state).lvl].prev)
+#define lexcurr(state) ((state).lvls[(state).lvl].curr)
+#define lexpeek(state) ((state).lvls[(state).lvl].peek)
 
 #define make_errtok(state, _ty, _msg) ((tok_t){ \
 	.ty = tok_error, \
 	.lit = NULL, \
 	.len = 0, \
-	.line = state->lvl->line, \
-	.chr = state->lvl->chr, \
+	.line = lexlvl(*(state)).line, \
+	.chr = lexlvl(*(state)).chr, \
 	.err.ty = _ty, \
 	.err.msg = _msg, \
 })
