@@ -36,6 +36,20 @@ typedef struct err {
 
 typedef struct lexer lexer_t;
 
+typedef struct ident_ent {
+	const char *str;
+	int len, psl, user;
+} ident_ent_t;
+typedef struct ident_map {
+	ident_ent_t *ents;
+	size_t maxlen;
+	size_t len;
+} ident_map_t;
+
+ident_map_t ident_map_init(ident_ent_t *const ents, const size_t maxlen);
+void ident_map_add(ident_map_t *const map, const char *str, const size_t len, const int user);
+bool ident_map_get(ident_map_t *const map, const char *str, const size_t len, int **const user);
+
 void err_print(const err_t *const err);
 
 #endif

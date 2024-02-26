@@ -2,9 +2,20 @@
 #include <stdlib.h>
 
 #include "csi.h"
-#include "test.h"
 
 ast_t _ast[2048];
+
+char *test_loadfile(const char *path) {
+	FILE *fp = fopen(path, "rb");
+	fseek(fp, 0, SEEK_END);
+	size_t len = ftell(fp);
+	fseek(fp, 0, SEEK_SET);
+	char *str = malloc(len + 1);
+	fread(str, 1, len, fp);
+	str[len] = '\0';
+	fclose(fp);
+	return str;
+}
 
 int main(int argc, char **argv) {
 	if (argc != 2) {

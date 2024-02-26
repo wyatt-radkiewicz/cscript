@@ -95,6 +95,8 @@
 	enumdef(tok_qmark) \
 	enumdef(tok_colon) \
 	enumdef(tok_elipses) \
+	enumdef(tok_hash) \
+	enumdef(tok_doublehash) \
 	\
 	/* Misc tokens */ \
 	enumdef(tok_string) \
@@ -126,7 +128,17 @@ typedef struct keyword {
 	tokty_t ty;
 } keyword_t;
 
-struct lexer {
+typedef struct macro {
+	const char *name, *start;
+	int namelen, len;
+	struct macro_params {
+		const char *name;
+		int len;
+	} params[32];
+	int nparams;
+} macro_t;
+
+typedef struct lexerlvl {
 	size_t line, chr, head_line, head_chr;
 	const char *head;
 
@@ -136,14 +148,25 @@ struct lexer {
 		};
 		tok_t toks[3];
 	};
+} lexerlvl_t;
+
+struct lexer {
+	lexerlvl_t lvls[16];
+	lexerlvl_t *lvl;
+
+	char concat_buf[512]; // Buffer for concatinated stuff
+	int concat_sz;
+	macro_t macros[256];
+	ident_ent_t ents[256];
+	ident_map_t map;
 };
 
 #define make_errtok(state, _ty, _msg) ((tok_t){ \
 	.ty = tok_error, \
 	.lit = NULL, \
 	.len = 0, \
-	.line = (state)->line, \
-	.chr = (state)->chr, \
+	.line = state->lvl->line, \
+	.chr = state->lvl->chr, \
 	.err.ty = _ty, \
 	.err.msg = _msg, \
 })

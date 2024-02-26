@@ -205,11 +205,8 @@ struct parser {
 	err_t errs[32];
 	size_t nerrs;
 	int root;
-	struct parser_tymap_ent {
-		const char *str;
-		int len, psl;
-	} tymap[512]; // typedef hashmap (robin hood hashing ofc)
-	int ntypedefs;
+	ident_ent_t tymap_ents[512];
+	ident_map_t tymap;
 };
 
 int parser_add(parser_t *const state, ast_t newnode);

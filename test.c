@@ -1,27 +1,27 @@
-
-
-//int a = b = c = d == 5;
+//#define AST_SENTINAL -1
+int a = b = c = d == AST_SENTINAL;
 //int f(void), *fip(), (*pfi)(), *ap[3] = {0, .r = { [5] = 6 }};
-typedef struct parser parser_t;
-typedef struct tok tok_t;
-typedef struct ast ast_t;
-typedef struct err err_t;
-typedef struct typed_unit typed_unit_t;
-typedef unsigned long long int64_t;
-typedef union unit unit_t;
-static int parse_string_lit(parser_t *const state) {
-	tok_t tok = state->lexer.curr;
-	lexer_next(&state->lexer);
-	return parser_add(state, (ast_t){
-		.ty = ast_literal,
-		.tok = tok,
-		.info.literal = {
-			.ty = lit_str,
-			.val.str = tok,
-		},
-		.next = AST_SENTINAL,
-	});
-}
+
+//typedef struct parser parser_t;
+//typedef struct tok tok_t;
+//typedef struct ast ast_t;
+//typedef struct err err_t;
+//typedef struct typed_unit typed_unit_t;
+//typedef unsigned long long int64_t;
+//typedef union unit unit_t;
+//static int parse_string_lit(parser_t *const state) {
+//	tok_t tok = state->lexer.curr;
+//	lexer_next(&state->lexer);
+//	return parser_add(state, (ast_t){
+//		.ty = ast_literal,
+//		.tok = tok,
+//		.info.literal = {
+//			.ty = lit_str,
+//			.val.str = tok,
+//		},
+//		.next = AST_SENTINAL,
+//	});
+//}
 //static typed_unit_t parse_number(parser_t *const state) {
 //	// TODO: bigger numbers and postfixes for numbers
 //	char numbuf[25];
