@@ -140,7 +140,7 @@ static tok_t getkeyword(const lexer_t *const state, const lexerlvl_t *lvl, const
 	const uint32_t hash = ident_hash(keyword, len);
 	int i = hash % arrlen(_keywords), psl = 0;
 	while (psl <= _keywords[i].psl) {
-		if (_keywords[i].hash == hash && strncmp(_keywords[i].str, keyword, len) == 0) {
+		if (_keywords[i].hash == hash && _keywords[i].len == len && memcmp(_keywords[i].str, keyword, len) == 0) {
 			return (tok_t){
 				.ty = _keywords[i].ty,
 				.lit = keyword,
@@ -193,9 +193,29 @@ inline static bool consume_whitespace(lexer_t *const state, lexerlvl_t *const lv
 }
 static tok_t lexer_start_macro_exp(lexer_t *const state, lexerlvl_t *lvl, const int macro_idx) {
 	const macro_t *const macro = state->macros + macro_idx;
-	//if (macro->nparams) {
-		//
-	//}
+
+	macro_param_t params[MAX_MACRO_PARAMS];
+	int nparams = 0;
+	// lvl still points to old level
+	if (*lvl->head == '(') {
+		params[0].name = ++lvl->head;
+		params[0].len = 0;
+		nparams = 1;
+
+		while (*lvl->head != ')' && nparams < MAX_MACRO_PARAMS) {
+			if (*lvl->head == '\0') return (tok_t){ .ty = tok_eof, .lit = lvl->head, .len = 1, .line = lvl->line, .chr = lvl->chr };
+			if (*lvl->head == ',') {
+				params[nparams++] = (macro_param_t){
+					.name = ++lvl->head,
+					.len = 0,
+				};
+			} else {
+				params[nparams-1].len++;
+				lvl->head++;
+			}
+		}
+		lvl->head++;
+	}
 
 	state->lvls[++state->lvl] = (lexerlvl_t){
 		.head = macro->start,
@@ -205,11 +225,13 @@ static tok_t lexer_start_macro_exp(lexer_t *const state, lexerlvl_t *lvl, const 
 		.head_line = macro->start_chr,
 		.head_chr = macro->start_chr,
 		.macro_exp = macro_idx,
+		.nparams = nparams,
 	};
-	lvl = state->lvls + state->lvl;
+	memcpy(state->lvls[state->lvl].params, params, sizeof(params));
+	lvl++;
 	return _lexer_nexttok(state, lvl, false, true);
 }
-static tok_t consume_ident(lexer_t *const state, lexerlvl_t *const lvl, const bool expand_macros) {
+static tok_t consume_ident(lexer_t *const state, lexerlvl_t *lvl, const bool expand_macros) {
 	const char *keyword = lvl->head;
 	size_t len = 0;
 	while (isalnum(*lvl->head) || *lvl->head == '_') {
@@ -221,6 +243,26 @@ static tok_t consume_ident(lexer_t *const state, lexerlvl_t *const lvl, const bo
 	int *macro_idx = NULL;
 	if (expand_macros && ident_map_get(&state->map, keyword, len, &macro_idx)) {
 		return lexer_start_macro_exp(state, lvl, *macro_idx);
+	} else if (expand_macros && lvl->macro_exp != -1) { // Look for parameters
+		const macro_t *macro = state->macros + lvl->macro_exp;
+		for (int i = 0; i < macro->nparams; i++) {
+			if (len == macro->params[i].len && memcmp(keyword, macro->params[i].name, len) == 0) {
+				// Expand this macro parameter
+				const macro_param_t *const param = lvl->params + i;
+				state->lvls[++state->lvl] = (lexerlvl_t){
+					.head = param->name,
+					.end = param->name + param->len,
+					.chr = lvl->chr,
+					.line = lvl->line,
+					.head_line = lvl->head_line,
+					.head_chr = lvl->head_chr,
+					.macro_exp = -1,
+					.nparams = 0,
+				};
+				lvl++;
+				return _lexer_nexttok(state, lvl, false, true);
+			}
+		}
 	}
 	return getkeyword(state, lvl, keyword, len);
 }
@@ -263,20 +305,28 @@ static tok_t consume_number(lexer_t *const state, lexerlvl_t *const lvl) {
 	return tok;
 }
 
-static tok_t lexer_parse_macro_def(lexer_t *const state, lexerlvl_t *const lvl) {
+static tok_t lexer_parse_macro_def(lexer_t *const state, lexerlvl_t *lvl) {
 	const tok_t name = _lexer_nexttok(state, lvl, false, false);
+
 	macro_t macro = (macro_t){
 		.name = name.lit,
 		.namelen = name.len,
 		.nparams = 0,
 	};
-	if (*lvl->head == tok_lparen) {
+	if (*lvl->head == '(') {
 		_lexer_nexttok(state, lvl, false, false);
 		tok_t tok = _lexer_nexttok(state, lvl, false, false);
 		while (tok.ty != tok_rparen && macro.nparams < arrlen(macro.params)) {
-			macro.params[macro.nparams].name = tok.lit;
-			macro.params[macro.nparams].len = tok.len;
-			tok = _lexer_nexttok(state, lvl, false, false);
+			if (tok.len == 3 && memcmp(tok.lit, "...", 3) == 0) {
+				macro.params[macro.nparams].name = NULL; // Signifies __VA_ARGS__
+				macro.params[macro.nparams].len = 0;
+			} else {
+				macro.params[macro.nparams].name = tok.lit;
+				macro.params[macro.nparams].len = tok.len;
+				tok = _lexer_nexttok(state, lvl, false, false);
+				if (tok.ty != tok_rparen) tok = _lexer_nexttok(state, lvl, false, false);
+			}
+			macro.nparams++;
 		}
 	}
 	macro.start = lvl->head;
@@ -515,11 +565,13 @@ static tok_t __lexer_nexttok(lexer_t *const state, lexerlvl_t *lvl, const bool p
 }
 static tok_t _lexer_nexttok(lexer_t *const state, lexerlvl_t *lvl, bool preprocess, bool expand_macros) {
 	if (lvl->macro_exp != -1) preprocess = false;
-	const tok_t next = __lexer_nexttok(state, lvl, preprocess, expand_macros);
-	if (lvl->end && next.lit >= lvl->end) {
+	tok_t next = __lexer_nexttok(state, lvl, preprocess, expand_macros);
+	lvl = state->lvls + state->lvl;
+	while (lvl->end && next.lit >= lvl->end) {
 		state->lvl--;
 		lvl--;
-		return __lexer_nexttok(state, lvl, preprocess, expand_macros);
+		next = __lexer_nexttok(state, lvl, preprocess, expand_macros);
+		lvl = state->lvls + state->lvl;
 	}
 	return next;
 }
@@ -544,6 +596,7 @@ lexer_t lexer_init(const char *script) {
 			.head_chr = 1,
 			.macro_exp = -1,
 			.end = NULL,
+			.nparams = 0,
 		},
 		.lvl = 0,
 		.concat_sz = 0,

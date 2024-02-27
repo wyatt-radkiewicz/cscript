@@ -128,14 +128,18 @@ typedef struct keyword {
 	tokty_t ty;
 } keyword_t;
 
+typedef struct macro_param {
+	const char *name;
+	int len;
+} macro_param_t;
+
+#define MAX_MACRO_PARAMS 32
+
 typedef struct macro {
 	const char *name, *start;
 	int namelen, len;
 	size_t start_line, start_chr;
-	struct macro_params {
-		const char *name;
-		int len;
-	} params[32];
+	macro_param_t params[MAX_MACRO_PARAMS];
 	int nparams;
 } macro_t;
 
@@ -143,6 +147,8 @@ typedef struct lexerlvl {
 	size_t line, chr, head_line, head_chr;
 	const char *head, *end;
 	int macro_exp;
+	macro_param_t params[MAX_MACRO_PARAMS];
+	int nparams;
 } lexerlvl_t;
 
 typedef const char *(*lexer_include_pfn)(const char *path);
@@ -164,8 +170,8 @@ struct lexer {
 	.ty = tok_error, \
 	.lit = NULL, \
 	.len = 0, \
-	.line = lvl->line, \
-	.chr = lvl->chr, \
+	.line = (lvl)->line, \
+	.chr = (lvl)->chr, \
 	.err.ty = _ty, \
 	.err.msg = _msg, \
 })
