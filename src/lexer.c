@@ -223,9 +223,9 @@ static tok_t lexer_start_macro_exp(lexer_t *const state, lexerlvl_t *lvl, const 
 	state->lvls[++state->lvl] = (lexerlvl_t){
 		.head = macro->start,
 		.end = macro->start + macro->len,
-		.chr = macro->start_chr,
+		.chr = macro->start_line,
 		.line = macro->start_chr,
-		.head_line = macro->start_chr,
+		.head_line = macro->start_line,
 		.head_chr = macro->start_chr,
 		.macro_exp = macro_idx,
 		.nparams = nparams,
@@ -355,6 +355,8 @@ static tok_t lexer_parse_macro(lexer_t *const state, lexerlvl_t *const lvl) {
 	else if (macroty.len == 4 && memcmp(macroty.lit, "else", 4) == 0) return lexer_parse_macro_cond(state, lvl);
 	else if (macroty.len == 4 && memcmp(macroty.lit, "elif", 4) == 0) return lexer_parse_macro_cond(state, lvl);
 	else if (macroty.len == 5 && memcmp(macroty.lit, "endif", 5) == 0) return lexer_parse_macro_cond(state, lvl);
+	else if (macroty.len == 5 && memcmp(macroty.lit, "ifdef", 5) == 0) return lexer_parse_macro_cond(state, lvl);
+	else if (macroty.len == 5 && memcmp(macroty.lit, "elifdef", 5) == 0) return lexer_parse_macro_cond(state, lvl);
 	else return make_errtok(state, lvl, err_expected, "macro type");
 }
 

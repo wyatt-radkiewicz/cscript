@@ -14,7 +14,11 @@ errty_def
 }
 
 inline static uint32_t ident_map_hash(const char *str, const size_t len) {
-	return ((str[0] * 0x92) ^ str[1]) ^ ((str[len - 1] * 0x13 - str[len - 2]) << 8);
+	if (len >= 2) {
+		return ((str[0] * 0x92) ^ str[1]) ^ ((str[len - 1] * 0x13 - str[len - 2]) << 8);
+	} else {
+		return str[0];
+	}
 }
 
 ident_map_t ident_map_init(const size_t maxlen_minus_1) {
