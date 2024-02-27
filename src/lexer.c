@@ -202,9 +202,10 @@ static tok_t lexer_start_macro_exp(lexer_t *const state, lexerlvl_t *lvl, const 
 		params[0].len = 0;
 		nparams = 1;
 
-		while (*lvl->head != ')' && nparams < MAX_MACRO_PARAMS) {
+		int parens = *lvl->head != ')';
+		while (parens && nparams < MAX_MACRO_PARAMS) {
 			if (*lvl->head == '\0') return (tok_t){ .ty = tok_eof, .lit = lvl->head, .len = 1, .line = lvl->line, .chr = lvl->chr };
-			if (*lvl->head == ',') {
+			if (*lvl->head == ',' && parens == 1) {
 				params[nparams++] = (macro_param_t){
 					.name = ++lvl->head,
 					.len = 0,
@@ -213,6 +214,8 @@ static tok_t lexer_start_macro_exp(lexer_t *const state, lexerlvl_t *lvl, const 
 				params[nparams-1].len++;
 				lvl->head++;
 			}
+			if (*lvl->head == ')') parens--;
+			else if (*lvl->head == '(') parens++;
 		}
 		lvl->head++;
 	}
