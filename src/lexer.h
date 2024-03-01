@@ -128,50 +128,18 @@ typedef struct keyword {
 	tokty_t ty;
 } keyword_t;
 
-typedef struct macro_param {
-	const char *name;
-	int len;
-} macro_param_t;
-
-#define MAX_MACRO_PARAMS 32
-
-typedef struct macro {
-	const char *name, *start;
-	int namelen, len;
-	size_t start_line, start_chr;
-	macro_param_t params[MAX_MACRO_PARAMS];
-	int nparams;
-} macro_t;
-
-typedef struct lexerlvl {
-	size_t line, chr, head_line, head_chr;
-	const char *head, *end;
-	int macro_exp;
-	macro_param_t params[MAX_MACRO_PARAMS];
-	int nparams;
-} lexerlvl_t;
-
-typedef const char *(*lexer_include_pfn)(const char *path);
-
 struct lexer {
+	size_t line, chr, head_line, head_chr;
 	tok_t prev, curr, peek;
-	lexerlvl_t lvls[16];
-	int lvl;
-
-	lexer_include_pfn incfn;
-	char concat_buf[512]; // Buffer for concatinated stuff
-	int concat_sz;
-	macro_t macros[256];
-	ident_map_t map;
-	ident_ent_t ents[255];
+	const char *head;
 };
 
-#define make_errtok(state, lvl, _ty, _msg) ((tok_t){ \
+#define make_errtok(state, _ty, _msg) ((tok_t){ \
 	.ty = tok_error, \
 	.lit = NULL, \
 	.len = 0, \
-	.line = (lvl)->line, \
-	.chr = (lvl)->chr, \
+	.line = (state)->line, \
+	.chr = (state)->chr, \
 	.err.ty = _ty, \
 	.err.msg = _msg, \
 })
