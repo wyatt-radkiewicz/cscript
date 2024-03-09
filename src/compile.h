@@ -21,7 +21,6 @@ typedef struct valref {
 } valref_t;
 
 typedef struct compiler {
-	parser_t parser;
 	codeunit_t *code;
 	const codeunit_t *const code_end;
 	uint8_t *data;
@@ -38,7 +37,6 @@ typedef struct compiler {
 } compiler_t;
 
 compiler_t compile(
-	const parser_t *parser,
 	codeunit_t *code,
 	size_t codelen,
 	uint8_t *dataseg,

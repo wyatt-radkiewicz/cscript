@@ -3,14 +3,12 @@
 
 #include "csi.h"
 
-ast_t _ast[2048];
-
 char *test_loadfile(const char *path) {
 	FILE *fp = fopen(path, "rb");
 	fseek(fp, 0, SEEK_END);
 	size_t len = ftell(fp);
 	fseek(fp, 0, SEEK_SET);
-	char *str = malloc(len + 1);
+	char *str = arena_alloc(len + 1);
 	fread(str, 1, len, fp);
 	str[len] = '\0';
 	fclose(fp);
@@ -23,24 +21,23 @@ int main(int argc, char **argv) {
 		return 0;
 	}
 
-	// codeunit_t code[2048];
-	// uint8_t data[1024];
-	// unit_t stack[512];
+	arena_init("__BASE");
+
+	char *srcbuf = NULL;
 	{
 		const char *src = test_loadfile(argv[1]);
-		parser_t parser = parse(src, _ast, arrlen(_ast));
-		for (size_t i = 0; i < parser.nerrs; i++) {
-			err_print(parser.errs + i);
-		}
-		dbg_ast_print(_ast, parser.root);
-		//compiler_t compiler = compiler_init(src, code, arrlen(code), data, arrlen(data));
-		//compile(&compiler);
-		//for (size_t i = 0; i < compiler.code - code; i++) {
-		//	dbg_opcode_print(&code[i]);
-		//}
-		free((void *)src);
+		srcbuf = arena_alloc(4096);
+		preprocess(src, srcbuf, 4096);
 	}
-	//dbg_typed_unit_print(interpret(code, stack, arrlen(stack)));
+	{
+		struct parser_result res = parse(srcbuf);
+		for (size_t i = 0; i < res.nerrs; i++) {
+			err_print(res.errs + i);
+		}
+		dbg_ast_print(res.root, 0);
+	}
+
+	arena_deinit();
 
 	return 0;
 }

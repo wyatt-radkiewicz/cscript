@@ -1,6 +1,7 @@
 #ifndef _parser_h_
 #define _parser_h_
 
+#include "mem.h"
 #include "vm.h"
 #include "lexer.h"
 
@@ -35,22 +36,6 @@ typedef enum prec {
 	prec_full = prec_comma,
 	prec_null,
 } prec_t;
-
-typedef struct parser parser_t;
-typedef int(parse_unary_fn)(parser_t *const state);
-typedef int(parse_binary_fn)(
-	parser_t *const state,
-	const prec_t prec,
-	int left
-);
-typedef parse_unary_fn *parse_unary_pfn;
-typedef parse_binary_fn *parse_binary_pfn;
-
-typedef struct parse_rule {
-	parse_unary_pfn prefix;
-	parse_binary_pfn infix;
-	prec_t prec;
-} parse_rule_t;
 
 typedef enum astty {
 	ast_ternary,
@@ -124,94 +109,88 @@ typedef enum literalty {
 	lit_char,
 } literalty_t;
 
-#define AST_SENTINAL (-1)
-typedef struct ast {
+typedef struct ast ast_t;
+struct ast {
 	astty_t ty;
 	tok_t tok;
 	union {
 		struct {
 			stmtty_t ty;
 			labelty_t labelty;
-			int label;
+			ast_t *label;
 			union {
-				int inner;
+				ast_t *inner;
 				struct {
-					int cond, on_true, on_false;
+					ast_t *cond, *on_true, *on_false;
 				} ifelse;
 				struct {
-					int cond, inner;
+					ast_t *cond, *inner;
 				} cond;
 				struct {
-					int init_clause;
-					int cond_expr, iter_expr;
-					int stmt;
+					ast_t *init_clause;
+					ast_t *cond_expr, *iter_expr;
+					ast_t *stmt;
 				} forinfo;
 			};
 		} stmt;
-		struct { int left, right; } binary;
-		struct { int cond, ontrue, onfalse; } ternary;
+		struct { ast_t *left, *right; } binary;
+		struct { ast_t *cond, *ontrue, *onfalse; } ternary;
 		struct {
-			int expr, next;
+			ast_t *expr, *next;
 		} comma;
 		struct {
-			int ret, params, body;
+			ast_t *ret, *params, *body;
 		} func;
 		struct {
-			int func, params;
+			ast_t *func, *params;
 		} func_call;
 		struct {
-			int type, def;
+			ast_t *type, *def;
 		} decldef;
 		struct {
-			int type, expr;
+			ast_t *type, *expr;
 		} cast;
 		struct {
 			cvrflags_t cvrs;
 			declty_t ty;
 			// array of X, pointer to X, struct members, func return
-			int inner;
+			ast_t *inner;
 			union {
 				unitty_t pod;
-				int funcparams;
-				int arrlen;
-				int tyname; // identifier of declaration type
+				ast_t *funcparams;
+				ast_t *arrlen;
+				ast_t *tyname; // identifier of declaration type
 			};
 		} type;
 		struct {
-			int accessor, init;
+			ast_t *accessor, *init;
 		} designator;
 		struct {
-			int access_from, accessing;
+			ast_t *access_from, *accessing;
 		} accessor;
-		int inner;
+		ast_t *inner;
 		struct {
 			literalty_t ty;
 			union {
 				struct {
-					int type, init;
+					ast_t *type, *init;
 				} compound;
 				typed_unit_t pod;
 				tok_t lit;
 			} val;
 		} literal;
 	} info;
-	int next, line, chr;
-} ast_t;
-
-struct parser {
-	lexer_t lexer;
-	ast_t *buf;
-	size_t nnodes, buflen;
-	err_t errs[32];
-	size_t nerrs;
-	int root;
-	ident_map_t tymap;
-	ident_ent_t tymap_ents[511];
+	ast_t *next;
+	int line, chr;
 };
 
-int parser_add(parser_t *const state, ast_t newnode);
-parser_t parse(const char *src, ast_t *astbuf, size_t buflen);
-void dbg_ast_print(const ast_t *const ast, int root);
+struct parser_result {
+	dynpool_t ast_pool;
+	ast_t *root;
+	err_t *errs;
+	size_t nerrs;
+} parse(const char *src);
+void dbg_ast_print(const ast_t *node, int tablvl);
 
 #endif
 

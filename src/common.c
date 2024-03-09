@@ -21,9 +21,9 @@ inline static uint32_t ident_map_hash(const char *str, const size_t len) {
 	}
 }
 
-ident_map_t ident_map_init(const size_t maxlen_minus_1) {
+ident_map_t ident_map_init(const size_t maxlen) {
 	return (ident_map_t){
-		.lenmask = maxlen_minus_1,
+		.lenmask = maxlen - 1,
 		.len = 0,
 	};
 }
