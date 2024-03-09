@@ -165,23 +165,10 @@ static tok_t getkeyword(const lexer_t *const state, const char *const keyword, s
 
 static tok_t _lexer_nexttok(lexer_t *const state);
 
-inline static bool is_multiline(const char *const head) {
-	return *(head - ((*head - 2) == '\r' ? 3 : 2)) == '\\';
-}
-// Returns true if there is a \ at the end of the line
-inline static bool consume_line(lexer_t *const state) {
-	while (*(state->head++) != '\n');
-	state->head_chr = 1;
-	state->head_line++;
-	return is_multiline(state->head);
-}
-
 // More lexing
 inline static bool consume_whitespace(lexer_t *const state) {
-	while (isspace(*state->head) || *state->head == '/') {
+	while (isspace(*state->head)) {
 		char head = *(state->head++);
-		if (head == '/' && *state->head == '/') consume_line(state);
-		else if (head == '/') return true;
 		state->head_chr++;
 		if (head == '\n') {
 			state->head_line++;

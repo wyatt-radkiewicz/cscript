@@ -426,6 +426,7 @@ struct parser_result parse(const char *src) {
 		.root = NULL,
 	};
 	state.ast_pool = dynpool_init(128, sizeof(ast_t), arena_alloc);
+	*state.tymap = ident_map_init(1024);
 	lexer_next(&state.lexer);
 	parse_toplevels(&state);
 	return (struct parser_result){
