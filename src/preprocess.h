@@ -3,7 +3,7 @@
 
 #include "common.h"
 
-size_t preprocess(const char *src, char *buf, size_t buflen);
+size_t preprocess(char *src, char *buf, size_t buflen);
 
 #endif
 

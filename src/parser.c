@@ -461,13 +461,15 @@ static ast_t *parse_type_not_arr_ptr_func(parser_t *const state) {
 		{
 			const bool is_struct = state->lexer.curr.ty == tok_struct;
 			lexer_next(&state->lexer);
-			ast_t *const tyname = parse_ident(state);
+			ast_t *tyname = NULL;
+			if (state->lexer.curr.ty != tok_lbrace) tyname = parse_ident(state);
 			ast_t *members = NULL;
 			if (state->lexer.curr.ty == tok_lbrace) { // structure definition
 				lexer_next(&state->lexer); // parse members
 				ast_t **last = &members;
 				while (state->lexer.curr.ty != tok_rbrace && state->lexer.curr.ty != tok_eof && state->lexer.curr.ty != tok_error) {
 					ast_t *member = parse_type(state, true, true);
+					if (!member) break;
 					*last = member;
 					while (member->next) member = member->next;
 					last = &member->next;

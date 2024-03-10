@@ -137,11 +137,14 @@ static void process_macro_call(
 
 	// Get the parameters
 	arena_push_zone("MACRO_PARAMS");
-	if (*(state->src - 1) != '(') goto skip_params;
-	if (*state->src == ')') {
-		state->src++;
+	if (*(state->src - 1) != '(') {
+		state->src--;
 		goto skip_params;
 	}
+	//if (*state->src == ')') {
+		//state->src++;
+		//goto skip_params;
+	//}
 	inner_state.param_names = macro->params;
 	const char *param_start = state->src;
 	param_t *param_buf = inner_state.param_bufs;
@@ -159,6 +162,7 @@ static void process_macro_call(
 			};
 			memcpy(param_state.param_bufs, state->param_bufs, sizeof(state->param_bufs));
 			process(processor, &param_state);
+			//printf("buf: %s\n", buf);
 			*(param_buf++) = (param_t){
 				.name = buf,
 				.len = param_state.buf - buf,
@@ -208,13 +212,15 @@ static void process(processor_t *const processor, state_t *const state) {
 					param++, buf++
 				) {
 					if (!param->name) continue;
-					size_t ident_len = state->src - ident_start;
+					size_t ident_len = state->src - ident_start - 1;
+					if (state->src >= state->srcend) ident_len++;
 					if (ident_len == param->len
 						&& memcmp(ident_start, param->name, ident_len) == 0) {
-						state->buf -= ident_len;
-						printf("\n%s\n", buf->name);
+						//printf("%zu=>%zu=>%s\n", ident_len, param - state->param_names, buf->name);
+						state->buf -= ident_len + (state->src < state->srcend);
 						memcpy(state->buf, buf->name, buf->len);
 						state->buf += buf->len;
+						if (state->src < state->srcend) *(state->buf)++ = c;
 						ident_start = NULL;
 						goto skip_buffer;
 					}
@@ -223,7 +229,7 @@ static void process(processor_t *const processor, state_t *const state) {
 
 			// Do macro
 			int *macro_idx = NULL;
-			size_t ident_len = state->src - ident_start - 1;
+			size_t ident_len = state->src - 1 - ident_start;
 			ident_map_get(processor->macro_names, ident_start, ident_len, &macro_idx);
 			if (macro_idx) {
 				process_macro_call(
@@ -244,9 +250,23 @@ skip_buffer:
 	}
 }
 
-size_t preprocess(const char *src, char *buf, size_t buflen) {
+void remove_multiline(char *src) {
+	while (*src) {
+		if (*src == '\\') {
+			if (*(src + 1) == '\r' || *(src + 1) == '\n') {
+				*(src++) = ' ';
+				if (*src == '\r') *(src++) = ' ';
+				*(src++) = ' ';
+			}
+		}
+		src++;
+	}
+}
+
+size_t preprocess(char *src, char *buf, size_t buflen) {
 	_buf = buf;
 	arena_push_zone("PREPROCESSOR");
+	remove_multiline(src);
 	processor_t processor = (processor_t){
 		.macro_names = arena_alloc(sizeof(ident_map_t) + sizeof(ident_ent_t) * MAX_MACROS),
 	};
