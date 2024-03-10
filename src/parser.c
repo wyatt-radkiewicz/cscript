@@ -566,9 +566,11 @@ static ast_t *parse_type_not_arr_ptr_func(parser_t *const state) {
 			.line = line,
 			.chr = chr,
 		});
-	default: break; // we are parsing a POD
+	default:
+		break; 
 	}
 
+	bool has_typespec = false;
 	int bits = 32;
 	int f = 0, i = 0, u = 0, l = 0;
 	while (true) {
@@ -582,9 +584,11 @@ static ast_t *parse_type_not_arr_ptr_func(parser_t *const state) {
 		case tok_double: f++; bits = 64; break;
 		default: goto construct_pod;
 		}
+		has_typespec = true;
 		lexer_next(&state->lexer);
 	}
 construct_pod:
+	if (!has_typespec) return NULL;
 	if ((u > 1 || f > 1 || l > 2)
 		|| (u && f)
 		|| (i && f)
