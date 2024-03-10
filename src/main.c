@@ -28,7 +28,7 @@ int main(int argc, char **argv) {
 		const char *src = test_loadfile(argv[1]);
 		srcbuf = arena_alloc(4096);
 		preprocess(src, srcbuf, 4096);
-		//printf("\n\n%s\n\n", srcbuf);
+		printf("\n\n%s\n\n", srcbuf);
 	}
 	{
 		struct parser_result res = parse(srcbuf);

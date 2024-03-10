@@ -7,6 +7,8 @@
 #define MAX_MACROS 512
 #define MAX_PARAMS 32
 
+static char *_buf;
+
 typedef struct param {
 	const char *name;
 	size_t len;
@@ -23,7 +25,7 @@ typedef struct state {
 	const char *src, *srcend;
 	char *buf, *bufend;
 	param_t *param_names;
-	param_t param_defs[MAX_PARAMS];
+	param_t param_bufs[MAX_PARAMS];
 } state_t;
 
 typedef struct processor {
@@ -78,11 +80,11 @@ static void process_define(processor_t *const processor, state_t *const state) {
 		const char c = *(state->src)++;
 		if (c == ',') {
 			if (++param == macro->params + MAX_MACROS) break;
+			skip_whitespace(state);
 			*param = (param_t){
 				.name = state->src,
 				.len = 0,
 			};
-			skip_whitespace(state);
 			continue;
 		}
 		if (c == ')') break;
@@ -134,6 +136,7 @@ static void process_macro_call(
 	};
 
 	// Get the parameters
+	arena_push_zone("MACRO_PARAMS");
 	if (*(state->src - 1) != '(') goto skip_params;
 	if (*state->src == ')') {
 		state->src++;
@@ -141,31 +144,45 @@ static void process_macro_call(
 	}
 	inner_state.param_names = macro->params;
 	const char *param_start = state->src;
-	param_t *param_def = inner_state.param_defs;
+	param_t *param_buf = inner_state.param_bufs;
+	int depth = 1;
 	while (state->src < state->srcend) {
 		const char c = *(state->src)++;
-		if (c == ',' || (c == ')' && state->src - param_start > 0)) {
-			*(param_def++) = (param_t){
-				.name = param_start,
-				.len = (state->src - 1) - param_start,
+		if (c == ',' || (depth == 1 && c == ')' && state->src - param_start > 0)) {
+			char *buf = arena_alloc(4096);
+			state_t param_state = (state_t){
+				.src = param_start,
+				.srcend = state->src - 1,
+				.buf = buf,
+				.bufend = buf + 4096,
+				.param_names = state->param_names,
+			};
+			memcpy(param_state.param_bufs, state->param_bufs, sizeof(state->param_bufs));
+			process(processor, &param_state);
+			*(param_buf++) = (param_t){
+				.name = buf,
+				.len = param_state.buf - buf,
 			};
 			param_start = state->src;
-			if (c == ')') break;
-			else continue;
+			if (c == ')' && depth-- == 1) break;
+			continue;
 		}
-		if (c == ')') break;
+		if (c == '(') depth++;
+		if (c == ')' && depth-- == 1) break;
 	}
 skip_params:
 	// Do the macro
 	state->buf = macro_start;
 	process(processor, &inner_state);
 	state->buf = inner_state.buf;
+
+	// Cleanup
+	arena_pop_zone("MACRO_PARAMS");
 }
 
 static void process(processor_t *const processor, state_t *const state) {
 	bool line_start = true;
 	const char *ident_start = NULL;
-	size_t ident_len = 0;
 	while (state->src < state->srcend && state->buf != state->bufend) {
 		const char c = *(state->src++);
 		if (line_start && c == '#') {
@@ -176,60 +193,59 @@ static void process(processor_t *const processor, state_t *const state) {
 			skip_line(state);
 			continue;
 		}
+		bool is_alnum = false;
 		if (isalnum(c) || c == '_') {
 			if (!ident_start) {
 				ident_start = state->src - 1;
-				ident_len = 1;
-			} else {
-				ident_len++;
 			}
-		} else if (ident_start && ident_len) {
+			is_alnum = true;
+		}
+		*(state->buf)++ = c;
+		if (ident_start && (!is_alnum || (state->src >= state->srcend))) {
 			if (state->param_names) { // Do macro parameter
-				for (param_t *param = state->param_names, *def = state->param_defs;
+				for (param_t *param = state->param_names, *buf = state->param_bufs;
 					param != state->param_names + MAX_PARAMS;
-					param++, def++
+					param++, buf++
 				) {
 					if (!param->name) continue;
+					size_t ident_len = state->src - ident_start;
 					if (ident_len == param->len
 						&& memcmp(ident_start, param->name, ident_len) == 0) {
-						state_t inner_state = (state_t){
-							.src = def->name,
-							.srcend = def->name + def->len,
-							.buf = state->buf - ident_len,
-							.bufend = state->bufend,
-							.param_names = NULL,
-						};
-						process(processor, &inner_state);
-						state->buf = inner_state.buf;
-						//ident_start = NULL;
-						//continue;
+						state->buf -= ident_len;
+						printf("\n%s\n", buf->name);
+						memcpy(state->buf, buf->name, buf->len);
+						state->buf += buf->len;
+						ident_start = NULL;
+						goto skip_buffer;
 					}
 				}
 			}
 
 			// Do macro
 			int *macro_idx = NULL;
+			size_t ident_len = state->src - ident_start - 1;
 			ident_map_get(processor->macro_names, ident_start, ident_len, &macro_idx);
 			if (macro_idx) {
 				process_macro_call(
 					processor,
 					state,
 					processor->macros + *macro_idx,
-					state->buf - ident_len
+					state->buf - ident_len - 1
 				);
 				ident_start = NULL;
-				continue;
+				goto skip_buffer;
 			}
 
 			ident_start = NULL;
 		}
 
-		*(state->buf)++ = c;
 		line_start = c == '\n';
+skip_buffer:
 	}
 }
 
 size_t preprocess(const char *src, char *buf, size_t buflen) {
+	_buf = buf;
 	arena_push_zone("PREPROCESSOR");
 	processor_t processor = (processor_t){
 		.macro_names = arena_alloc(sizeof(ident_map_t) + sizeof(ident_ent_t) * MAX_MACROS),

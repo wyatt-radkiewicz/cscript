@@ -192,7 +192,7 @@ int fixedpool_empty(const fixedpool_t *self) {
 	return nfree == self->nchunks;
 }
 
-#define ARENA_STACK_SIZE 10
+#define ARENA_STACK_SIZE 64
 static byte_t *_stack[ARENA_STACK_SIZE];
 static const char *_stack_dbgnames[ARENA_STACK_SIZE];
 static int _stack_top;
