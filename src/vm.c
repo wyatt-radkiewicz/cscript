@@ -137,6 +137,12 @@ static typed_unit_t _interpret(state_t state) {
 		case opcode_pushimm:
 			*(--state.stack) = extract_imm(opcode, &state.code);
 			break;
+		case opcode_sub_stack:
+			state.stack -= extract_imm(opcode, &state.code).u64;
+			break;
+		case opcode_add_stack:
+			state.stack += extract_imm(opcode, &state.code).u64;
+			break;
 		case opcode_pushunit:
 			state.stack--;
 			*state.stack = state.stack[extract_imm(opcode, &state.code).u32 + 1];

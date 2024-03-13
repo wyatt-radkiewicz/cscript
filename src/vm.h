@@ -45,6 +45,8 @@ typedef struct typed_unit {
 	enumdef(opcode_nop) \
 	enumdef(opcode_pushimm) \
 	enumdef(opcode_pushunit) \
+	enumdef(opcode_sub_stack) \
+	enumdef(opcode_add_stack) \
 	enumdef(opcode_pop) \
 	enumdef(opcode_call) \
 	enumdef(opcode_ret) \

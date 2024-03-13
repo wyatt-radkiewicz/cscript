@@ -15,6 +15,10 @@ char *test_loadfile(const char *path) {
 	return str;
 }
 
+void conlog_s1d(const char *s, int x1) {
+	printf("%s%d\n", s, x1);
+}
+
 int main(int argc, char **argv) {
 	if (argc != 2) {
 		printf("Pass in file to test\n");
@@ -28,15 +32,19 @@ int main(int argc, char **argv) {
 		char *src = test_loadfile(argv[1]);
 		srcbuf = arena_alloc(4096);
 		preprocess(src, srcbuf, 4096);
-		//printf("\n\n%s\n\n", srcbuf);
 	}
+	codeunit_t *code = arena_alloc(sizeof(*code) * 1024);
+	uint8_t *data = arena_alloc(1024);
 	{
 		struct parser_result res = parse(srcbuf);
 		for (size_t i = 0; i < res.nerrs; i++) {
 			err_print(res.errs + i);
 		}
 		dbg_ast_print(res.root, 0);
+		if (!res.nerrs) compile(res.root, code, 1024, data, 1024);
 	}
+	unit_t *stack = arena_alloc(sizeof(*stack) * 128);
+	dbg_typed_unit_print(interpret(code, stack, 128));
 
 	arena_deinit();
 
