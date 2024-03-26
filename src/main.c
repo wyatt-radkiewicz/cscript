@@ -2,6 +2,7 @@
 #include <stdlib.h>
 
 #include "lexer.h"
+#include "parser.h"
 
 // Testing function
 char *load_file(const char *file)
@@ -28,6 +29,8 @@ char *load_file(const char *file)
 	return str;
 }
 
+static struct ast_node ast_buffer[512];
+
 int main(int argc, char **argv)
 {
 	char *src = load_file("test.cs");
@@ -45,6 +48,8 @@ int main(int argc, char **argv)
 		}
 		printf("\"\n");
 	}
+
+	ast_construct(src, ast_buffer, 512, NULL, 0);
 
 	free(src);
 

@@ -92,14 +92,19 @@ static void do_ident(char first, const char **src, struct token *iter)
 		break;
 	case 3:
 		if (DO_KWRD('l', "let")) iter->type = TOK_LET;
+		if (DO_KWRD('i', "int")) iter->type = TOK_TYPE_INT;
+		if (DO_KWRD('s', "str")) iter->type = TOK_TYPE_STR;
 		break;
 	case 4:
 		if (DO_KWRD('e', "else")) iter->type = TOK_ELSE;
+		if (DO_KWRD('u', "uint")) iter->type = TOK_TYPE_UINT;
+		if (DO_KWRD('v', "void")) iter->type = TOK_TYPE_VOID;
 		break;
 	case 5:
 		if (DO_KWRD('w', "while")) iter->type = TOK_WHILE;
 		if (DO_KWRD('b', "break")) iter->type = TOK_BREAK;
 		if (DO_KWRD('c', "const")) iter->type = TOK_CONST;
+		if (DO_KWRD('f', "float")) iter->type = TOK_TYPE_FLOAT;
 		break;
 	case 6:
 		if (DO_KWRD('s', "struct")) iter->type = TOK_STRUCT;
@@ -118,7 +123,7 @@ static void do_ident(char first, const char **src, struct token *iter)
 void token_iter_init(struct token *token)
 {
 	token->str = NULL;
-	token->type = TOK_EOF;
+	token->type = TOK_DOT;
 	token->strlen = 0;
 	token->line = 1;
 }
@@ -165,6 +170,8 @@ void token_iter_init(struct token *token)
 int token_iter_next(const char **src, struct token *iter)
 {
 	char c;
+
+	if (iter->type == TOK_EOF) return 0;
 
 	eat_whitespace(src, iter);
 

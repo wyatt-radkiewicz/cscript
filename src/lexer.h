@@ -26,6 +26,12 @@ enum token_type
 	TOK_RETURN,
 	TOK_CONST,
 
+	TOK_TYPE_INT,
+	TOK_TYPE_UINT,
+	TOK_TYPE_FLOAT,
+	TOK_TYPE_STR,
+	TOK_TYPE_VOID,
+
 	// Operators
 	TOK_EQ,
 	TOK_SEMICOL,
