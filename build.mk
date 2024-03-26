@@ -1,7 +1,7 @@
 SRCS := $(shell find $(SRC_DIR) -type f -name "*.c" )
 OBJS := $(patsubst %.c,$(BUILD_DIR)/%.o,$(SRCS))
 
-CFLAGS       := -I$(SRC_DIR) $(CFLAGS) $(DEPS_CFLAGS)
+CFLAGS       := -ansi -I$(SRC_DIR) $(CFLAGS) $(DEPS_CFLAGS)
 LDFLAGS      := $(LDFLAGS)
 
 ifeq ($(TARGET),dbg)
