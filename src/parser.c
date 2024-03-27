@@ -40,12 +40,12 @@ static void add_error(struct state *state, int line, const char *msg)
 }
 
 #define EAT_TOKEN(TYPE)							\
-	token_iter_next(&state->src, &state->token);			\
 	if (state->token.type != TYPE)					\
 	{								\
 		add_error(state, state->token.line, "expected "#TYPE);	\
 		return NULL;						\
-	}
+	}								\
+	token_iter_next(&state->src, &state->token);
 
 static struct ast_node *parse_type_func(struct state *state)
 {
@@ -95,8 +95,8 @@ static struct ast_node *parse_type(struct state *state)
 			// Start an array
 			curr = alloc_node(state, AST_ARRAY_OF);
 			token_iter_next(&state->src, &state->token);
-			curr->alt1 = parse_type(state);
-			curr->alt2 = NULL; // TODO: do parse_expr() here
+			curr->inner = parse_type(state);
+			curr->alt1 = NULL; // TODO: do parse_expr() here
 			if (state->token.type == TOK_SEMICOL)
 			{
 				while (state->token.type != TOK_RBRACK)
@@ -130,11 +130,40 @@ static struct ast_node *parse_let(struct state *state)
 {
 	struct ast_node *node = alloc_node(state, AST_LET);
 	token_iter_next(&state->src, &state->token);
-	EAT_TOKEN(TOK_IDENT);
 	node->token = state->token;
+	EAT_TOKEN(TOK_IDENT);
 	EAT_TOKEN(TOK_COLON);
-	token_iter_next(&state->src, &state->token);
 	node->inner = parse_type(state);
+	return node;
+}
+
+static struct ast_node *parse_struct(struct state *state)
+{
+	struct ast_node **last = NULL, *curr = NULL;
+	struct ast_node *node = alloc_node(state, AST_STRUCT_DEF);
+
+	token_iter_next(&state->src, &state->token);
+	node->token = state->token;
+	EAT_TOKEN(TOK_IDENT);
+	EAT_TOKEN(TOK_LBRACE);
+	
+	last = &node->inner;
+	while (state->token.type != TOK_RBRACE)
+	{
+		curr = alloc_node(state, AST_STRUCT_MEMBER);
+		curr->token = state->token;
+		token_iter_next(&state->src, &state->token);
+		EAT_TOKEN(TOK_COLON);
+		curr->inner = parse_type(state);
+		if (state->token.type == TOK_COMMA)
+		{
+			token_iter_next(&state->src, &state->token);
+		}
+
+		*last = curr;
+		last = &curr->next;
+	}
+
 	return node;
 }
 
@@ -158,12 +187,20 @@ struct ast_node *ast_construct(const char *src,
 	struct ast_node *root = NULL, **last = &root, *curr = NULL;
 
 	token_iter_init(&state.token);
-	while (token_iter_next(&src, &state.token))
+	while (token_iter_next(&state.src, &state.token))
 	{
 		switch (state.token.type)
 		{
 		case TOK_LET:
 			curr = parse_let(&state);
+			if (state.token.type != TOK_SEMICOL)
+			{
+				add_error(&state, state.token.line, "expected ;");
+				return root;
+			}
+			break;
+		case TOK_STRUCT:
+			curr = parse_struct(&state);
 			break;
 		default:
 			print_ast(root, 0);
@@ -211,6 +248,15 @@ static void print_ast(struct ast_node *node, int tabs)
 		printf("const ");
 		print_ast(node->inner, tabs);
 		break;
+	case AST_REF_OF:
+		printf("&");
+		print_ast(node->inner, tabs);
+		break;
+	case AST_ARRAY_OF:
+		printf("[");
+		print_ast(node->inner, tabs);
+		printf("]");
+		break;
 	case AST_BASE_TYPE:
 		switch (node->token.type)
 		{
@@ -219,16 +265,30 @@ static void print_ast(struct ast_node *node, int tabs)
 		case TOK_TYPE_FLOAT: printf("float "); break;
 		case TOK_TYPE_STR: printf("str "); break;
 		case TOK_TYPE_VOID: printf("void "); break;
-		default: printf("ERR "); break;
+		default: printf("err "); break;
 		}
 		break;
 	case AST_LET:
 		print_tabs(tabs);
-		printf("LET ");
+		printf("let ");
 		print_len(node->token.str, node->token.strlen);
 		printf(": ");
 		print_ast(node->inner, tabs+1);
 		printf("\n");
+		break;
+	case AST_STRUCT_DEF:
+		print_tabs(tabs);
+		printf("struct ");
+		print_len(node->token.str, node->token.strlen);
+		printf("\n");
+		print_ast(node->inner, tabs+1);
+		break;
+	case AST_STRUCT_MEMBER:
+		print_tabs(tabs);
+		print_len(node->token.str, node->token.strlen);
+		printf(": ");
+		print_ast(node->inner, tabs+1);
+		printf(",\n");
 		break;
 	default:
 		printf("unimplemented \n");
