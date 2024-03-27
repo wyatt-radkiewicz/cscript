@@ -34,20 +34,20 @@ static struct ast_node ast_buffer[512];
 int main(int argc, char **argv)
 {
 	char *src = load_file("test.cs");
-	char *head = src;
-	struct token token;
-	int i;
+	//char *head = src;
+	//struct token token;
+	//int i;
 
-	token_iter_init(&token);
-	while (token_iter_next((const char **)&head, &token))
-	{
-		printf("consumed %d: \"", token.type);
-		for (i = 0; i < token.strlen; i++)
-		{
-			putchar(token.str[i]);
-		}
-		printf("\"\n");
-	}
+	//token_iter_init(&token);
+	//while (token_iter_next((const char **)&head, &token))
+	//{
+	//	printf("consumed %d: \"", token.type);
+	//	for (i = 0; i < token.strlen; i++)
+	//	{
+	//		putchar(token.str[i]);
+	//	}
+	//	printf("\"\n");
+	//}
 
 	ast_construct(src, ast_buffer, 512, NULL, 0);
 

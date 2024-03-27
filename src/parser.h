@@ -11,12 +11,14 @@ enum ast_type
 	AST_FUNC_DEF,
 	AST_TYPE_DEF,
 
-	AST_STRUCT_MEMBER,
+	AST_SCOPE_VAR,
 	AST_LET,
 	AST_IDENT,
 	AST_TYPE,
 	AST_CONST_OF,
 	AST_REF_OF,
+	AST_PTR_OF,
+	AST_CPTR_OF,
 	AST_ARRAY_OF,
 	AST_BASE_TYPE,
 	AST_FUNC_OF,
@@ -26,10 +28,7 @@ enum ast_type
 	AST_LENOF,
 	AST_AS,
 
-	AST_LIT_INT,
-	AST_LIT_FLOAT,
-	AST_LIT_STR,
-
+	AST_LITERAL,
 	AST_BINARY,
 	AST_UNARY,
 	
@@ -45,7 +44,6 @@ enum ast_type
 struct ast_node
 {
 	enum ast_type type;
-	unsigned int flags;
 	struct token token;
 	struct ast_node *inner, *alt1, *alt2, *next;
 };

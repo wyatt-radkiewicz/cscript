@@ -83,6 +83,7 @@ static void do_ident(char first, const char **src, struct token *iter)
 	}
 
 	iter->type = TOK_IDENT;
+	// Keywords
 	switch (iter->strlen)
 	{
 	case 2:
@@ -109,6 +110,7 @@ static void do_ident(char first, const char **src, struct token *iter)
 	case 6:
 		if (DO_KWRD('s', "struct")) iter->type = TOK_STRUCT;
 		if (DO_KWRD('r', "return")) iter->type = TOK_RETURN;
+		if (DO_KWRD('e', "extern")) iter->type = TOK_EXTERN;
 		break;
 	case 7:
 		if (DO_KWRD('t', "typedef")) iter->type = TOK_TYPEDEF;
@@ -190,8 +192,11 @@ int token_iter_next(const char **src, struct token *iter)
 	case '+': iter->type = TOK_PLUS; break;
 	case '*': iter->type = TOK_STAR; break;
 	case '/': iter->type = TOK_SLASH; break;
+	case '%': iter->type = TOK_MODULO; break;
 	case '.': iter->type = TOK_DOT; break;
 	case '^': iter->type = TOK_BIT_XOR; break;
+	case '~': iter->type = TOK_BIT_NOT; break;
+	case '!': DO_DOUBLETOK('=', TOK_NOTEQ, TOK_NOT)
 	case '&': DO_DOUBLETOK('&', TOK_AND, TOK_BIT_AND)
 	case '|': DO_DOUBLETOK('|', TOK_OR, TOK_BIT_OR)
 	case '>': DO_TRIPLETOK('>', '=', TOK_RSHIFT, TOK_GE, TOK_GT)

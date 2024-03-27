@@ -25,6 +25,7 @@ enum token_type
 	TOK_BREAK,
 	TOK_RETURN,
 	TOK_CONST,
+	TOK_EXTERN,
 
 	TOK_TYPE_INT,
 	TOK_TYPE_UINT,
@@ -41,6 +42,7 @@ enum token_type
 	TOK_DASH,
 	TOK_STAR,
 	TOK_SLASH,
+	TOK_MODULO,
 	TOK_DOT,
 	TOK_ARROW,
 	TOK_BIT_AND,
@@ -48,6 +50,9 @@ enum token_type
 	TOK_BIT_XOR,
 	TOK_LSHIFT,
 	TOK_RSHIFT,
+	TOK_NOT,
+	TOK_BIT_NOT,
+	TOK_NOTEQ,
 	TOK_EQEQ,
 	TOK_GT,
 	TOK_LT,
@@ -62,6 +67,8 @@ enum token_type
 	TOK_RBRACK,
 	TOK_LBRACE,
 	TOK_RBRACE,
+
+	TOK_MAX,
 };
 
 struct token
