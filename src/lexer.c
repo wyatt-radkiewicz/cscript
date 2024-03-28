@@ -68,6 +68,7 @@ static void do_number(char first, const char **src, struct token *iter)
 			}
 			iter->type = TOK_LIT_DECIMAL;
 		}
+		iter->strlen++;
 		(*src)++;
 	}
 }

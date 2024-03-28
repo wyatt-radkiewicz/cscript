@@ -14,7 +14,6 @@ enum ast_type
 	AST_SCOPE_VAR,
 	AST_LET,
 	AST_IDENT,
-	AST_TYPE,
 	AST_CONST_OF,
 	AST_REF_OF,
 	AST_PTR_OF,

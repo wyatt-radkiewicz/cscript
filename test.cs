@@ -13,6 +13,13 @@ struct test_s {
 typedef test_t = test_s;
 
 fn addtwo(a: int, b: int) -> int {
+	let x: int = a * b;
+
+	if x > 25 {
+		return a + b;
+	} else {
+		return a - b;
+	}
 }
 
 // Base types

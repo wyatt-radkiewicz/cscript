@@ -97,6 +97,7 @@ static const struct expr_rule expr_rules[TOK_MAX] = {
 
 static struct ast_node *parse_type(struct state *state);
 static struct ast_node *parse_expr(struct state *state, int prec);
+static struct ast_node *parse_stmt(struct state *state);
 
 static void print_ast(struct ast_node *node, int tabs, int donext);
 
@@ -143,7 +144,15 @@ static struct ast_node *parse_unary(struct state *state, int prec)
 	struct ast_node *node = alloc_node(state, AST_UNARY);
 	node->token = state->token;
 	token_iter_next(&state->src, &state->token);
-	node->inner = parse_expr(state, prec - 1);
+	if (node->token.type == TOK_LPAREN)
+	{
+		node->inner = parse_expr(state, PREC_FULL);
+		EAT_TOKEN(TOK_RPAREN);
+	}
+	else
+	{
+		node->inner = parse_expr(state, prec - 1);
+	}
 	return node;
 }
 
@@ -321,6 +330,91 @@ static struct ast_node *parse_struct(struct state *state)
 	return node;
 }
 
+static struct ast_node *parse_stmt_compound(struct state *state)
+{
+	struct ast_node *node, **last, *curr;
+
+	node = alloc_node(state, AST_COMPOUND);
+	last = &node->inner;
+	
+	EAT_TOKEN(TOK_LBRACE);
+	while (state->token.type != TOK_RBRACE)
+	{
+		curr = parse_stmt(state);
+
+		*last = curr;
+		last = &curr->next;
+	}
+	EAT_TOKEN(TOK_RBRACE);
+
+	return node;
+}
+
+static struct ast_node *parse_stmt_if(struct state *state)
+{
+	struct ast_node *node;
+
+	node = alloc_node(state, AST_IF);
+	token_iter_next(&state->src, &state->token);
+	node->inner = parse_expr(state, PREC_FULL);
+	node->alt1 = parse_stmt_compound(state);
+
+	if (state->token.type != TOK_ELSE) return node;
+	token_iter_next(&state->src, &state->token);
+	if (state->token.type == TOK_IF) node->alt2 = parse_stmt_if(state);
+	else node->alt2 = parse_stmt_compound(state);
+
+	return node;
+}
+
+static struct ast_node *parse_stmt_while(struct state *state)
+{
+	struct ast_node *node;
+
+	node = alloc_node(state, AST_WHILE);
+	node->inner = parse_expr(state, PREC_FULL);
+	node->alt1 = parse_stmt_compound(state);
+
+	return node;
+}
+
+static struct ast_node *parse_stmt(struct state *state)
+{
+	struct ast_node *node;
+
+	switch (state->token.type)
+	{
+	case TOK_LBRACE: return parse_stmt_compound(state);
+	case TOK_IF: return parse_stmt_if(state);
+	case TOK_WHILE: return parse_stmt_while(state);
+	case TOK_LET:
+		node = parse_let(state);
+		EAT_TOKEN(TOK_SEMICOL);
+		return node;
+	case TOK_RETURN:
+		token_iter_next(&state->src, &state->token);
+		node = alloc_node(state, AST_RETURN);
+		node->inner = parse_expr(state, PREC_FULL);
+		EAT_TOKEN(TOK_SEMICOL);
+		return node;
+	case TOK_BREAK:
+		token_iter_next(&state->src, &state->token);
+		node = alloc_node(state, AST_BREAK);
+		EAT_TOKEN(TOK_SEMICOL);
+		return node;
+	case TOK_CONTINUE:
+		token_iter_next(&state->src, &state->token);
+		node = alloc_node(state, AST_CONTINUE);
+		EAT_TOKEN(TOK_SEMICOL);
+		return node;
+	default:
+		node = alloc_node(state, AST_EXPR);
+		node->inner = parse_expr(state, PREC_FULL);
+		EAT_TOKEN(TOK_SEMICOL);
+		return node;
+	}
+}
+
 static struct ast_node *parse_func(struct state *state)
 {
 	struct ast_node **last, *curr;
@@ -354,11 +448,7 @@ static struct ast_node *parse_func(struct state *state)
 		fn->alt2 = parse_type(state);
 	}
 
-	EAT_TOKEN(TOK_LBRACE);
-	
-	//parse_stmt_compound();
-
-	EAT_TOKEN(TOK_RBRACE);
+	fn->inner = parse_stmt_compound(state);
 
 	return fn;
 }
@@ -456,19 +546,16 @@ static void print_ast(struct ast_node *node, int tabs, int donext)
 		print_len(node->token.str, node->token.strlen);
 		break;
 	case AST_UNARY:
-		printf("(");
 		print_len(node->token.str, node->token.strlen);
 		print_ast(node->inner, tabs, 1);
-		printf(")");
+		if (node->token.type == TOK_LPAREN) printf(")");
 		break;
 	case AST_BINARY:
-		printf("(");
 		print_ast(node->alt1, tabs, 1);
 		printf(" ");
 		print_len(node->token.str, node->token.strlen);
 		printf(" ");
 		print_ast(node->alt2, tabs, 1);
-		printf(")");
 		break;
 	case AST_IDENT:
 		print_len(node->token.str, node->token.strlen);
@@ -515,7 +602,7 @@ static void print_ast(struct ast_node *node, int tabs, int donext)
 			printf(" = ");
 			print_ast(node->alt1, tabs+1, 1);
 		}
-		printf("\n");
+		printf(";\n");
 		break;
 	case AST_TYPE_DEF:
 		print_tabs(tabs);
@@ -551,12 +638,57 @@ static void print_ast(struct ast_node *node, int tabs, int donext)
 			print_ast(node->alt2, tabs+1, 1);
 		}
 		printf("\n");
+		print_ast(node->inner, tabs+1, 1);
 		break;
 	case AST_SCOPE_VAR:
 		print_len(node->token.str, node->token.strlen);
 		printf(": ");
 		print_ast(node->inner, tabs+1, 1);
 		printf(", ");
+		break;
+	case AST_IF:
+		print_tabs(tabs);
+		printf("if ");
+		print_ast(node->inner, tabs+1, 1);
+		printf("\n");
+		print_ast(node->alt1, tabs+1, 1);
+		if (!node->alt2) break;
+		print_tabs(tabs);
+		printf("else ");
+		if (node->alt2->type != AST_IF) printf("\n");
+		print_ast(node->alt2, tabs+1, 1);
+		break;
+	case AST_WHILE:
+		print_tabs(tabs);
+		printf("while ");
+		print_ast(node->inner, tabs+1, 1);
+		printf("\n");
+		print_ast(node->alt1, tabs+1, 1);
+		printf("\n");
+		break;
+	case AST_EXPR:
+		print_ast(node->inner, tabs+1, 1);
+		break;
+	case AST_COMPOUND:
+		print_tabs(tabs-1);
+		printf("{\n");
+		print_ast(node->inner, tabs, 1);
+		print_tabs(tabs-1);
+		printf("}\n");
+		break;
+	case AST_BREAK:
+		print_tabs(tabs);
+		printf("break;\n");
+		break;
+	case AST_CONTINUE:
+		print_tabs(tabs);
+		printf("continue;\n");
+		break;
+	case AST_RETURN:
+		print_tabs(tabs);
+		printf("return ");
+		print_ast(node->inner, tabs+1, 1);
+		printf(";\n");
 		break;
 	default:
 		printf("unimplemented \n");
