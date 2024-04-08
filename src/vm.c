@@ -7,9 +7,11 @@ static int vm_getfn(struct vm *vm, const char *fn);
 
 void vm_init(struct vm *vm,
 		struct vm_code *code,
+		int codelen,
 		vm_heap_alloc alloc,
 		vm_heap_free free,
 		union vm_untyped_var *data,
+		int datalen,
 		struct vm_typed_var *stack,
 		int stacklen,
 		struct vm_fn_entry *fn,
@@ -17,8 +19,11 @@ void vm_init(struct vm *vm,
 {
 	vm->pc = 0;
 	vm->code = code;
+	vm->codelen = codelen;
 	vm->data = data;
-	vm->stack = stack;
+	vm->stack = stack + stacklen - 1;
+	vm->stacktop = vm->stack + 1;
+	vm->stackbottom = stack - 1;
 	vm->alloc = alloc;
 	vm->free = free;
 	vm->fn = fn;
@@ -26,15 +31,15 @@ void vm_init(struct vm *vm,
 	vm->nfns = 0;
 	memset(vm->fn, 0, sizeof(*vm->fn) * vm->fnlen);
 }
-void vm_callfn(struct vm *vm, const char *fn)
+int vm_callfn(struct vm *vm, const char *fn)
 {
 	struct vm_typed_var tmp[2];
 	struct vm_code code;
 	int fnid;
 
 	fnid = vm_getfn(vm, fn);
-	if (fnid == -1) return;
-	vm_push(vm, (struct vm_typed_var){ .type = VAR_INT, .data.i = -1 });
+	if (fnid == -1) return VM_ERR_UNKNOWN_FUNC;
+	if (!vm_push(vm, (struct vm_typed_var){ .type = VAR_INT, .data.i = -1 })) return VM_ERR_STACK_OVERFLOW;
 	vm->pc = vm->fn[fnid].loc;
 
 	while (1)
@@ -43,7 +48,7 @@ void vm_callfn(struct vm *vm, const char *fn)
 	switch (code.op)
 	{
 	case OP_PUSH0:
-		vm_push(vm, (struct vm_typed_var){ .type = code.arg, .data.p = NULL });
+		if (!vm_push(vm, (struct vm_typed_var){ .type = code.arg, .data.p = NULL })) return VM_ERR_STACK_OVERFLOW;
 		break;
 	case OP_PUSHNI:
 		vm->stack -= code.arg;
@@ -53,16 +58,16 @@ void vm_callfn(struct vm *vm, const char *fn)
 		vm->stack += code.arg;
 		break;
 	case OP_REPUSH:
-		vm_push(vm, vm->stack[code.arg]);
+		if (!vm_push(vm, vm->stack[code.arg])) return VM_ERR_STACK_OVERFLOW;
 		break;
 	case OP_TRANSFER:
 		vm->stack[code.arg] = vm->stack[0];
 		break;
 	case OP_NEWRC:
-		vm_push(vm, (struct vm_typed_var){
+		if (!vm_push(vm, (struct vm_typed_var){
 			.type = VAR_REF,
 			.data.p = vm->alloc(code.arg),
-		});
+		})) return VM_ERR_STACK_OVERFLOW;
 		break;
 	case OP_ADDRC:
 		((struct vm_ptr *)vm->stack->data.p)->nrefs++;
@@ -83,10 +88,10 @@ void vm_callfn(struct vm *vm, const char *fn)
 		*(union vm_untyped_var *)(vm->stack[1].data.p) = vm->stack->data;
 		break;
 	case OP_LOADPTR:
-		vm_push(vm, (struct vm_typed_var){
+		if (!vm_push(vm, (struct vm_typed_var){
 			.type = code.arg,
 			.data = *(union vm_untyped_var *)(vm->stack[1].data.p)
-		});
+		})) return VM_ERR_STACK_OVERFLOW;
 		break;
 	case OP_STORECPTR:
 		switch (code.arg)
@@ -105,7 +110,7 @@ void vm_callfn(struct vm *vm, const char *fn)
 		}
 		break;
 	case OP_LOADCPTR:
-		vm_push(vm, (struct vm_typed_var){ .type = code.arg });
+		if (!vm_push(vm, (struct vm_typed_var){ .type = code.arg })) return VM_ERR_STACK_OVERFLOW;
 		switch (code.arg)
 		{
 		case VAR_CHAR:
@@ -122,16 +127,18 @@ void vm_callfn(struct vm *vm, const char *fn)
 		}
 		break;
 	case OP_CALL:
-		vm_push(vm, (struct vm_typed_var){ .type = VAR_INT, .data.i = vm->pc });
+		if (!vm_push(vm, (struct vm_typed_var){ .type = VAR_INT, .data.i = vm->pc })) return VM_ERR_STACK_OVERFLOW;
 		vm->pc = code.arg;
 		break;
 	case OP_EXTERN_CALL:
-		tmp[0] = vm_pop(vm);
+		if (!vm_pop(vm, tmp + 0)) return VM_ERR_STACK_UNDERFLOW;
 		((vm_extern_pfn)(tmp[0].data.p))(vm);
 		break;
 	case OP_RET:
-		vm->pc = vm_pop(vm).data.i;
-		if (vm->pc == -1) return;
+		if (!vm_pop(vm, tmp + 0)) return VM_ERR_STACK_UNDERFLOW;
+		vm->pc = tmp[0].data.i;
+		if (vm->pc == -1) return VM_ERR_OKAY;
+		if (vm->pc < -1 || vm->pc >= vm->codelen) return VM_ERR_SEGFAULT;
 		break;
 	case OP_JMP:
 		vm->pc = code.arg;
@@ -163,26 +170,26 @@ void vm_callfn(struct vm *vm, const char *fn)
 	BRANCHOP(OP_BLE, <=)
 #define MATHOP(OPNAME, OP)						\
 	case OPNAME:							\
-		tmp[1] = vm_pop(vm);					\
-		tmp[0] = vm_pop(vm);					\
+		if (!vm_pop(vm, tmp + 1)) return VM_ERR_STACK_UNDERFLOW;\
+		if (!vm_pop(vm, tmp + 0)) return VM_ERR_STACK_UNDERFLOW;\
 		switch (vm->stack->type)				\
 		{							\
 		case VAR_INT:						\
 		case VAR_UINT:						\
 		case VAR_CHAR:						\
-			vm_push(vm, (struct vm_typed_var){		\
+			if (!vm_push(vm, (struct vm_typed_var){		\
 				.type = tmp[0].type,			\
 				.data.u = tmp[0].data.u OP tmp[1].data.u,\
-			});						\
+			})) return VM_ERR_STACK_OVERFLOW;		\
 			break;						\
 		case VAR_FLOAT:						\
-			vm_push(vm, (struct vm_typed_var){		\
+			if (!vm_push(vm, (struct vm_typed_var){		\
 				.type = VAR_FLOAT,			\
 				.data.f = tmp[0].data.f OP tmp[1].data.f,\
-			});						\
+			})) return VM_ERR_STACK_OVERFLOW;		\
 			break;						\
 		default:						\
-			vm_push(vm, tmp[0]);				\
+			if (!vm_push(vm, tmp[0])) return VM_ERR_STACK_OVERFLOW;\
 			break;						\
 		}							\
 		break;							
@@ -192,14 +199,20 @@ void vm_callfn(struct vm *vm, const char *fn)
 	MATHOP(OP_MUL, *)
 	}
 	}
+
+	return VM_ERR_OKAY;
 }
-void vm_push(struct vm *vm, const struct vm_typed_var var)
+int vm_push(struct vm *vm, const struct vm_typed_var var)
 {
+	if (vm->stack - 1 <= vm->stackbottom) return 0;
 	*(--vm->stack) = var;
+	return 1;
 }
-struct vm_typed_var vm_pop(struct vm *vm)
+int vm_pop(struct vm *vm, struct vm_typed_var *var)
 {
-	return *(vm->stack++);
+	if (vm->stack >= vm->stacktop) return 0;
+	*var = *(vm->stack++);
+	return 1;
 }
 int vm_addfn(struct vm *vm, const char *name, int loc)
 {

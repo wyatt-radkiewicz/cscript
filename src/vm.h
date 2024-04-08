@@ -66,6 +66,15 @@ enum vm_opcode
 	OP_BLE,			// Branch on Less than or Equal to (both u i)
 };
 
+enum vm_error
+{
+	VM_ERR_OKAY,
+	VM_ERR_SEGFAULT,
+	VM_ERR_UNKNOWN_FUNC,
+	VM_ERR_STACK_OVERFLOW,
+	VM_ERR_STACK_UNDERFLOW,
+};
+
 struct vm_fn_entry
 {
 	char name[32];
@@ -91,9 +100,12 @@ struct vm
 	int pc;
 
 	struct vm_code *code;
+	int codelen;
 
-	struct vm_typed_var *stack;
+	struct vm_typed_var *stack, *stacktop, *stackbottom;
+
 	union vm_untyped_var *data;
+	int datalen;
 	vm_heap_alloc alloc;
 	vm_heap_free free;
 
@@ -105,16 +117,18 @@ typedef void (*vm_extern_pfn)(struct vm *vm);
 
 void vm_init(struct vm *vm,
 		struct vm_code *code,
+		int codelen,
 		vm_heap_alloc alloc,
 		vm_heap_free free,
 		union vm_untyped_var *data,
+		int datalen,
 		struct vm_typed_var *stack,
 		int stacklen,
 		struct vm_fn_entry *fn,
 		int fnlen);
-void vm_callfn(struct vm *vm, const char *fn);
-void vm_push(struct vm *vm, const struct vm_typed_var var);
-struct vm_typed_var vm_pop(struct vm *vm);
+int vm_callfn(struct vm *vm, const char *fn);
+int vm_push(struct vm *vm, const struct vm_typed_var var);
+int vm_pop(struct vm *vm, struct vm_typed_var *var);
 int vm_addfn(struct vm *vm, const char *name, int loc);
 
 #endif

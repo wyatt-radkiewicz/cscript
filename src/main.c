@@ -50,6 +50,27 @@ static struct vm_typed_var stack[128];
 static union vm_untyped_var data[512];
 static struct vm_code code[512];
 
+void vm_print_err(enum vm_error err)
+{
+	switch (err)
+	{
+	case VM_ERR_OKAY:
+		printf("errcode: OKAY\n");
+		break;
+	case VM_ERR_SEGFAULT:
+		printf("errcode: SEGFAULT\n");
+		break;
+	case VM_ERR_UNKNOWN_FUNC:
+		printf("errcode: UNKNOWN FUNC\n");
+		break;
+	case VM_ERR_STACK_OVERFLOW:
+		printf("errcode: STACK OVERFLOW\n");
+		break;
+	case VM_ERR_STACK_UNDERFLOW:
+		printf("errcode: STACK UNDERFLOW\n");
+		break;
+	}
+}
 void vm_print_topvar(struct vm *vm)
 {
 	switch (vm->stack[0].type)
@@ -114,16 +135,18 @@ int main(int argc, char **argv)
 	vm_init(
 		&vm,		// vm
 		code,		// code
+		ARRSZ(code),	// codelen
 		vm_alloc,	// alloc
 		vm_free,	// free
 		data,		// data
+		ARRSZ(data),	// datalen
 		stack,		// stack
 		ARRSZ(stack),	// stacklen
 		fns,		// funcs
 		ARRSZ(fns)	// funcs_len
 	);
 	vm_addfn(&vm, "main", 0);
-	vm_callfn(&vm, "main");
+	vm_print_err(vm_callfn(&vm, "main"));
 
 	free(src);
 
