@@ -58,7 +58,7 @@ static const struct expr_rule expr_rules[TOK_MAX] = {
 	{parse_literal, NULL, 0}, // TOK_TYPE_INT
 	{parse_literal, NULL, 0}, // TOK_TYPE_UINT
 	{parse_literal, NULL, 0}, // TOK_TYPE_FLOAT
-	{parse_literal, NULL, 0}, // TOK_TYPE_STR
+	{parse_literal, NULL, 0}, // TOK_TYPE_CHAR
 	{parse_literal, NULL, 0}, // TOK_TYPE_VOID
 	{NULL, parse_binary, 14}, // TOK_EQ
 	{NULL, NULL, PREC_FULL+1}, // TOK_SEMICOL
@@ -254,7 +254,7 @@ static struct ast_node *parse_type(struct state *state)
 			break;
 		case TOK_TYPE_INT:
 		case TOK_TYPE_UINT:
-		case TOK_TYPE_STR:
+		case TOK_TYPE_CHAR:
 		case TOK_TYPE_VOID:
 		case TOK_TYPE_FLOAT:
 			curr = alloc_node(state, AST_BASE_TYPE);
@@ -500,7 +500,7 @@ struct ast_node *ast_construct(const char *src,
 			curr = parse_func(&state);
 			break;
 		default:
-			print_ast(root, 0, 1);
+			//print_ast(root, 0, 1);
 			return root;
 		}
 
@@ -508,14 +508,14 @@ struct ast_node *ast_construct(const char *src,
 		last = &curr->next;
 	}
 
-	print_ast(root, 0, 1);
+	//print_ast(root, 0, 1);
 
 	return root;
 }
 
 
+#if 0
 #include <stdio.h>
-
 
 static void print_tabs(int tabs)
 {
@@ -586,7 +586,7 @@ static void print_ast(struct ast_node *node, int tabs, int donext)
 		case TOK_TYPE_INT: printf("int "); break;
 		case TOK_TYPE_UINT: printf("uint "); break;
 		case TOK_TYPE_FLOAT: printf("float "); break;
-		case TOK_TYPE_STR: printf("str "); break;
+		case TOK_TYPE_CHAR: printf("char "); break;
 		case TOK_TYPE_VOID: printf("void "); break;
 		default: printf("err "); break;
 		}
@@ -697,4 +697,5 @@ static void print_ast(struct ast_node *node, int tabs, int donext)
 
 	if (donext) print_ast(node->next, tabs, 1);
 }
+#endif
 

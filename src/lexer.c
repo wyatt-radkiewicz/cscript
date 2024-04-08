@@ -95,12 +95,12 @@ static void do_ident(char first, const char **src, struct token *iter)
 	case 3:
 		if (DO_KWRD('l', "let")) iter->type = TOK_LET;
 		if (DO_KWRD('i', "int")) iter->type = TOK_TYPE_INT;
-		if (DO_KWRD('s', "str")) iter->type = TOK_TYPE_STR;
 		break;
 	case 4:
 		if (DO_KWRD('e', "else")) iter->type = TOK_ELSE;
 		if (DO_KWRD('u', "uint")) iter->type = TOK_TYPE_UINT;
 		if (DO_KWRD('v', "void")) iter->type = TOK_TYPE_VOID;
+		if (DO_KWRD('c', "char")) iter->type = TOK_TYPE_CHAR;
 		break;
 	case 5:
 		if (DO_KWRD('w', "while")) iter->type = TOK_WHILE;

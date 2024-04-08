@@ -26,7 +26,7 @@ fn addtwo(a: int, b: int) -> int {
 // int		(i32)
 // uint		(u32)
 // float	(f32)
-// str		(const char *)
+// char		(char)
 // &		refrences - refrence counted pointers
 // ()		(const function pointer)
 // *		analogus to a const pointer in c

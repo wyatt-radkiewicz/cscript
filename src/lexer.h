@@ -30,7 +30,7 @@ enum token_type
 	TOK_TYPE_INT,
 	TOK_TYPE_UINT,
 	TOK_TYPE_FLOAT,
-	TOK_TYPE_STR,
+	TOK_TYPE_CHAR,
 	TOK_TYPE_VOID,
 
 	// Operators
