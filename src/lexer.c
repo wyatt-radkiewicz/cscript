@@ -189,7 +189,7 @@ int token_iter_next(const char **src, struct token *iter)
 	case ';': iter->type = TOK_SEMICOL; break;
 	case ':': iter->type = TOK_COLON; break;
 	case '=': DO_DOUBLETOK('=', TOK_EQEQ, TOK_EQ)
-	case '-': DO_DOUBLETOK('>', TOK_ARROW, TOK_EQ)
+	case '-': DO_DOUBLETOK('>', TOK_ARROW, TOK_DASH)
 	case '+': iter->type = TOK_PLUS; break;
 	case '*': iter->type = TOK_STAR; break;
 	case '/': iter->type = TOK_SLASH; break;

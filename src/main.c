@@ -2,6 +2,7 @@
 #include <stdlib.h>
 
 #include "parser.h"
+#include "compile.h"
 #include "vm.h"
 
 #define ARRSZ(A) (sizeof(A)/sizeof((A)[0]))
@@ -43,12 +44,6 @@ void vm_free(struct vm_ptr *var)
 {
 	free(var);
 }
-
-static struct ast_node ast_buffer[512];
-static struct vm_fn_entry fns[4];
-static struct vm_typed_var stack[128];
-static union vm_untyped_var data[512];
-static struct vm_code code[512];
 
 void vm_print_err(enum vm_error err)
 {
@@ -102,6 +97,14 @@ void vm_print_topvar(struct vm *vm)
 	}
 }
 
+static struct ast_node ast_buffer[512];
+
+static struct vm_fn_entry fns[4];
+static struct vm_code code[512];
+static union vm_untyped_var data[512];
+
+static struct vm_typed_var stack[128];
+
 int main(int argc, char **argv)
 {
 	struct vm vm;
@@ -123,14 +126,15 @@ int main(int argc, char **argv)
 
 	ast_construct(src, ast_buffer, 512, NULL, 0);
 
-	code[0] = (struct vm_code){ .op = OP_PUSH0, .arg = VAR_CHAR };
+	free(src);
+
+	code[0] = (struct vm_code){ .op = OP_PUSH0, .arg = VAR_INT };
 	code[1] = (struct vm_code){ .op = OP_LOAD, .arg = 0 };
 	code[2] = (struct vm_code){ .op = OP_PUSH0, .arg = VAR_PFN };
 	code[3] = (struct vm_code){ .op = OP_LOAD, .arg = 1 };
 	code[4] = (struct vm_code){ .op = OP_EXTERN_CALL, .arg = 0 };
 	code[5] = (struct vm_code){ .op = OP_POPN, .arg = 1 };
 	code[6] = (struct vm_code){ .op = OP_RET, .arg = 0 };
-	data[0] = (union vm_untyped_var){ .c = 't' };
 	data[1] = (union vm_untyped_var){ .p = vm_print_topvar };
 	vm_init(
 		&vm,		// vm
@@ -145,10 +149,12 @@ int main(int argc, char **argv)
 		fns,		// funcs
 		ARRSZ(fns)	// funcs_len
 	);
+
+	struct compile_error errs[32];
+	compile(ast_buffer, &vm, errs, ARRSZ(errs));
 	vm_addfn(&vm, "main", 0);
 	vm_print_err(vm_callfn(&vm, "main"));
 
-	free(src);
 
 	return 0;
 }
