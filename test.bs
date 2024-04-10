@@ -1,3 +1,4 @@
+extern fn print_int(val: int) -> int;
 
 let MAX: int = 5 + 2 - 5 * 5;
 

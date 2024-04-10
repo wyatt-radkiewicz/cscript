@@ -7,6 +7,7 @@
 #include "compile.h"
 
 static void makeop(struct state *state, int op, int arg) {
+	if ((op == OP_TRANSFER || op == OP_POPN) && arg == 0) return;
 	state->vm->code[state->codehead++] = (struct vm_code){ .op = op, .arg = arg };
 }
 
@@ -144,8 +145,12 @@ static void compile_let(struct state *state, struct ast_node *let) {
 	}
 }
 
-static int compile_expr(struct state *state, struct ast_node *expr) {
-	int eval = 0;
+static struct scoperef compile_expr(struct state *state, struct ast_node *expr) {
+	struct scoperef eval = {
+		.absloc = 0,
+		.lvalue = false,
+		.isvoid = false,
+	};
 
 	if (expr->type == AST_BINARY) {
 		compile_expr(state, expr->alt1);
@@ -157,7 +162,7 @@ static int compile_expr(struct state *state, struct ast_node *expr) {
 		case TOK_SLASH: makeop(state, OP_DIV, 0); break;
 		default: break;
 		}
-		eval = --state->stacktop;
+		eval.absloc = --state->stacktop;
 	}
 	if (expr->type == AST_LITERAL) {
 		char tmp[32];
@@ -166,7 +171,25 @@ static int compile_expr(struct state *state, struct ast_node *expr) {
 		state->vm->data[state->globalhead].i = atoi(tmp);
 		makeop(state, OP_PUSH0, VAR_INT);
 		makeop(state, OP_LOAD, state->globalhead++);
-		eval = ++state->stacktop;
+		eval.absloc = ++state->stacktop;
+	}
+	if (expr->type == AST_IDENT) {
+		struct scopevar *ident = NULL;
+		for (int i = 0; i < state->currscope ? state->scopes[1].scopebase : state->scopetop + 1; i++) {
+			struct scopevar *curr = &state->scopebuf[i];
+			if (curr->name.strlen != expr->token.strlen
+				|| memcmp(curr->name.str, expr->token.str, curr->name.strlen) != 0)
+				continue;
+			ident = curr;
+			break;
+		}
+		if (!ident) {
+			printf("DO ident error here :)\n");
+			eval.isvoid = true;
+			return eval;
+		}
+		eval.absloc = ident->absloc;
+		eval.lvalue = true;
 	}
 	if (expr->type == AST_CALL) {
 		struct scopevar *func = NULL;
@@ -180,7 +203,8 @@ static int compile_expr(struct state *state, struct ast_node *expr) {
 		}
 		if (!func) {
 			printf("DO error here :)\n");
-			return -1;
+			eval.isvoid = true;
+			return eval;
 		}
 
 		// Push parameters onto stack
@@ -197,6 +221,17 @@ static int compile_expr(struct state *state, struct ast_node *expr) {
 		} else {
 			printf("TODO: Make other funcs :)\n");
 		}
+		// Transfer the return variable
+		state->stacktop += 1;
+		if (func->type->alt2 && func->type->alt2->token.type != TOK_TYPE_VOID) {
+			stacktop++;
+			makeop(state, OP_TRANSFER, state->stacktop - stacktop);
+			eval.absloc = stacktop;
+			eval.lvalue = false;
+		} else {
+			eval.isvoid = true;
+		}
+		
 		makeop(state, OP_POPN, state->stacktop - stacktop);
 		state->stacktop = stacktop;
 	}
@@ -209,36 +244,41 @@ static void compile_stmt_list(struct state *state,
 				struct ast_node *fn) {
 	struct scope *scope = state->scopes + state->currscope;
 
-	switch (stmt->type) {
-	case AST_LET:
-		add_variable(state, stmt, 0);
-		compile_expr(state, stmt->inner);
-		break;
-	case AST_EXPR:
-		{
-			int stacktop = state->stacktop;
+	while (stmt) {
+		switch (stmt->type) {
+		case AST_LET:
+			add_variable(state, stmt, 0);
 			compile_expr(state, stmt->inner);
-			makeop(state, OP_POPN, state->stacktop - stacktop);
-			state->stacktop = stacktop;
-		}
-		break;
-	case AST_RETURN:
-		{
-			if (stmt->inner && stmt->inner->token.type != TOK_TYPE_VOID) {
+			
+			break;
+		case AST_EXPR:
+			{
+				int stacktop = state->stacktop;
 				compile_expr(state, stmt->inner);
-				makeop(state, OP_TRANSFER, state->stacktop - scope->stackbase - 1);
-				state->stacktop--;
-				makeop(state, OP_POPN, state->stacktop - scope->stackbase);
-				makeop(state, OP_RET, 1);
-				state->stacktop = scope->stackbase;
-			} else {
-				makeop(state, OP_POPN, state->stacktop - scope->stackbase);
-				makeop(state, OP_RET, 0);
-				state->stacktop = scope->stackbase;
+				makeop(state, OP_POPN, state->stacktop - stacktop);
+				state->stacktop = stacktop;
 			}
+			break;
+		case AST_RETURN:
+			{
+				if (stmt->inner && stmt->inner->token.type != TOK_TYPE_VOID) {
+					compile_expr(state, stmt->inner);
+					makeop(state, OP_TRANSFER, state->stacktop - scope->stackbase - 1);
+					state->stacktop--;
+					makeop(state, OP_POPN, state->stacktop - scope->stackbase);
+					makeop(state, OP_RET, 1);
+					state->stacktop = scope->stackbase;
+				} else {
+					makeop(state, OP_POPN, state->stacktop - scope->stackbase);
+					makeop(state, OP_RET, 0);
+					state->stacktop = scope->stackbase;
+				}
+			}
+			break;
+		default: break;
 		}
-		break;
-	default: break;
+
+		stmt = stmt->next;
 	}
 }
 
@@ -294,10 +334,28 @@ void compile_init(struct state *state,
 	};
 }
 
+static void compile_extern_fn_sig(struct state *state,
+				struct ast_node *fn) {
+	struct scopevar *func = NULL;
+	int end = state->currscope ? state->scopes[1].scopebase : state->scopetop + 1;
+	for (int i = 0; i < end; i++) {
+		struct scopevar *curr = &state->scopebuf[i];
+		if (curr->name.strlen != fn->token.strlen
+			|| memcmp(curr->name.str, fn->token.str, curr->name.strlen) != 0)
+			continue;
+		func = curr;
+		break;
+	}
+	if (!func) {
+		printf("extern function not declared.... :)\n");
+		return;
+	}
+	func->type = fn;
+}
+
 void compile_extern_fn(struct state *state,
 		const char *name,
 		vm_extern_pfn pfn) {
-	//struct scope *scope = state->scopes + state->currscope;
 	state->scopebuf[state->scopetop] = (struct scopevar){
 		.name = (struct token){
 			.str = name,
@@ -317,6 +375,9 @@ void compile(struct state *state) {
 	while (curr) {
 		if (curr->type == AST_LET) compile_let(state, curr);
 		if (curr->type == AST_FUNC_DEF) compile_fn(state, curr);
+		if (curr->type == AST_EXTERN_OF) {
+			compile_extern_fn_sig(state, curr->inner);
+		}
 
 		curr = curr->next;
 	}

@@ -11,6 +11,7 @@ enum ast_type
 	AST_FUNC_DEF,
 	AST_TYPE_DEF,
 
+	AST_EXTERN_OF,
 	AST_SCOPE_VAR,
 	AST_LET,
 	AST_IDENT,

@@ -1,6 +1,8 @@
 #ifndef _compile_h_
 #define _compile_h_
 
+#include <stdbool.h>
+
 #include "parser.h"
 #include "vm.h"
 
@@ -21,6 +23,12 @@ struct scopevar {
 };
 struct scope {
 	int stackbase, scopebase, nparams;
+};
+
+struct scoperef {
+	int absloc;
+	bool lvalue;
+	bool isvoid;
 };
 
 struct state {

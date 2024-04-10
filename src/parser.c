@@ -1,3 +1,4 @@
+#include <stdbool.h>
 #include <string.h>
 
 #include "lexer.h"
@@ -504,6 +505,11 @@ struct ast_node *ast_construct(const char *src,
 	token_iter_init(&state.token);
 	while (token_iter_next(&state.src, &state.token))
 	{
+		bool is_extern = false;
+		if (state.token.type == TOK_EXTERN) {
+			is_extern = true;
+			token_iter_next(&state.src, &state.token);
+		}
 		switch (state.token.type)
 		{
 		case TOK_LET:
@@ -533,6 +539,11 @@ struct ast_node *ast_construct(const char *src,
 			return root;
 		}
 
+		if (is_extern) {
+			struct ast_node *const inner = curr;
+			curr = alloc_node(&state, AST_EXTERN_OF);
+			curr->inner = inner;
+		}
 		*last = curr;
 		last = &curr->next;
 	}
