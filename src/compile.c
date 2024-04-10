@@ -1,3 +1,5 @@
+#include <stdio.h>
+
 #include <assert.h>
 #include <stdlib.h>
 #include <string.h>
@@ -166,6 +168,38 @@ static int compile_expr(struct state *state, struct ast_node *expr) {
 		makeop(state, OP_LOAD, state->globalhead++);
 		eval = ++state->stacktop;
 	}
+	if (expr->type == AST_CALL) {
+		struct scopevar *func = NULL;
+		for (int i = 0; i < state->currscope ? state->scopes[1].scopebase : state->scopetop + 1; i++) {
+			struct scopevar *curr = &state->scopebuf[i];
+			if (curr->name.strlen != expr->token.strlen
+				|| memcmp(curr->name.str, expr->token.str, curr->name.strlen) != 0)
+				continue;
+			func = curr;
+			break;
+		}
+		if (!func) {
+			printf("DO error here :)\n");
+			return -1;
+		}
+
+		// Push parameters onto stack
+		struct ast_node *param = expr->inner;
+		int stacktop = state->stacktop;
+		while (param) {
+			compile_expr(state, param);
+			param = param->next;
+		}
+		if (func->is_externfn) {
+			makeop(state, OP_PUSH0, VAR_PTR);
+			makeop(state, OP_LOAD, func->dataloc);
+			makeop(state, OP_EXTERN_CALL, 0);
+		} else {
+			printf("TODO: Make other funcs :)\n");
+		}
+		makeop(state, OP_POPN, state->stacktop - stacktop);
+		state->stacktop = stacktop;
+	}
 
 	return eval;
 }
@@ -194,9 +228,14 @@ static void compile_stmt_list(struct state *state,
 				compile_expr(state, stmt->inner);
 				makeop(state, OP_TRANSFER, state->stacktop - scope->stackbase - 1);
 				state->stacktop--;
+				makeop(state, OP_POPN, state->stacktop - scope->stackbase);
+				makeop(state, OP_RET, 1);
+				state->stacktop = scope->stackbase;
+			} else {
+				makeop(state, OP_POPN, state->stacktop - scope->stackbase);
+				makeop(state, OP_RET, 0);
+				state->stacktop = scope->stackbase;
 			}
-			makeop(state, OP_POPN, state->stacktop - scope->stackbase);
-			makeop(state, OP_RET, 1);
 		}
 		break;
 	default: break;
@@ -207,19 +246,34 @@ static void compile_fn(struct state *state, struct ast_node *fn) {
 	int fnloc = state->codehead;
 
 	push_scope(state);
+	struct scope *scope = state->scopes + state->currscope;
 	// Add parameters to the scope
 	{
-		int *const nparams = &state->scopes[state->currscope].nparams;
+		scope->nparams = 0;
 		struct ast_node *param = fn->alt1;
 		while (param) {
-			add_argument(state, param, *nparams);
 			param = param->next;
-			(*nparams)++;
+			scope->nparams++;
+		}
+
+		// We do this so that arguments can be pushed onto the stack
+		// from left to right.
+		int i = scope->nparams - 1;
+		param = fn->alt1;
+		while (param) {
+			add_argument(state, param, scope->nparams);
+			param = param->next;
+			i--;
 		}
 	}
 
 	// Compile the function
 	compile_stmt_list(state, fn->inner->inner, fn);
+
+	// Compile a implicit return
+	makeop(state, OP_POPN, state->stacktop - scope->stackbase);
+	state->stacktop = scope->stackbase;
+	makeop(state, OP_RET, 0);
 
 	vm_addfn(state->vm, fn->token.str, fn->token.strlen, fnloc);
 	pop_scope(state);

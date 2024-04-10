@@ -31,6 +31,8 @@ static struct ast_node *parse_literal(struct state *state, int prec);
 
 static struct ast_node *parse_unary(struct state *state, int prec);
 
+static struct ast_node *parse_ident(struct state *state, int prec);
+
 static struct ast_node *parse_binary(struct state *state,
 					struct ast_node *left,
 					int prec);
@@ -38,7 +40,7 @@ static struct ast_node *parse_binary(struct state *state,
 static const struct expr_rule expr_rules[TOK_MAX] = {
 	// unary binary binary_prec
 	{NULL, NULL, PREC_FULL+1}, // TOK_EOF
-	{parse_literal, NULL, 0}, // TOK_IDENT
+	{parse_ident, NULL, 0}, // TOK_IDENT
 	{parse_literal, NULL, 0}, // TOK_LIT_STRING
 	{parse_literal, NULL, 0}, // TOK_LIT_INTEGER
 	{parse_literal, NULL, 0}, // TOK_LIT_DECIMAL
@@ -153,6 +155,32 @@ static struct ast_node *parse_unary(struct state *state, int prec)
 	{
 		node->inner = parse_expr(state, prec - 1);
 	}
+	return node;
+}
+
+static struct ast_node *parse_ident(struct state *state, int prec) {
+	struct ast_node *node = alloc_node(state, AST_IDENT);
+	node->token = state->token;
+	token_iter_next(&state->src, &state->token);
+
+	// We actually have a function call
+	if (state->token.type == TOK_LPAREN) {
+		node->type = AST_CALL;
+
+		token_iter_next(&state->src, &state->token);
+		struct ast_node **last = &node->inner, *curr = NULL;
+		while (state->token.type != TOK_RPAREN) {
+			curr = parse_expr(state, 13);
+			if (state->token.type == TOK_COMMA) {
+				token_iter_next(&state->src, &state->token);
+			}
+			*last = curr;
+			last = &curr->next;
+		}
+
+		EAT_TOKEN(TOK_RPAREN);
+	}
+
 	return node;
 }
 

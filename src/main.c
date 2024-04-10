@@ -102,31 +102,31 @@ void vm_print_err(enum vm_error err)
 }
 void vm_print_topvar(struct vm *vm)
 {
-	switch (vm->stack[0].type)
+	switch (vm->stack[1].type)
 	{
 	case VAR_INT:
-		printf("top: int -> %d\n", vm->stack[0].data.i);
+		printf("top: int -> %d\n", vm->stack[1].data.i);
 		break;
 	case VAR_UINT:
-		printf("top: uint -> %u\n", vm->stack[0].data.u);
+		printf("top: uint -> %u\n", vm->stack[1].data.u);
 		break;
 	case VAR_CHAR:
-		printf("top: char -> %c\n", vm->stack[0].data.c);
+		printf("top: char -> %c\n", vm->stack[1].data.c);
 		break;
 	case VAR_FLOAT:
-		printf("top: float -> %f\n", vm->stack[0].data.f);
+		printf("top: float -> %f\n", vm->stack[1].data.f);
 		break;
 	case VAR_PTR:
-		printf("top: ptr -> %p\n", vm->stack[0].data.p);
+		printf("top: ptr -> %p\n", vm->stack[1].data.p);
 		break;
 	case VAR_CPTR:
-		printf("top: cptr -> %p\n", vm->stack[0].data.p);
+		printf("top: cptr -> %p\n", vm->stack[1].data.p);
 		break;
 	case VAR_REF:
-		printf("top: ref -> %p\n", vm->stack[0].data.p);
+		printf("top: ref -> %p\n", vm->stack[1].data.p);
 		break;
 	case VAR_PFN:
-		printf("top: pfn -> %p\n", vm->stack[0].data.p);
+		printf("top: pfn -> %p\n", vm->stack[1].data.p);
 		break;
 	}
 }
@@ -162,12 +162,15 @@ int main(int argc, char **argv)
 	struct compile_error errs[32];
 	struct state compiler;
 	compile_init(&compiler, ast_buffer, &vm, errs, ARRSZ(errs));
-	compile_extern_fn(&compiler, "vm_print_topvar", vm_print_topvar);
+	compile_extern_fn(&compiler, "print_int", vm_print_topvar);
+	code[ARRSZ(code)-1].op = OP_RET;
 	compile(&compiler);
 	for (int i = 0; i < ARRSZ(code); i++) {
 		vm_print_opcode(code[i]);
 	}
-	//vm_print_err(vm_callfn(&vm, "main"));
+	vm_push(&vm, (struct vm_typed_var){ .type = VAR_INT });
+	vm_push(&vm, (struct vm_typed_var){ .type = VAR_INT });
+	vm_print_err(vm_callfn(&vm, "main"));
 
 	return 0;
 }

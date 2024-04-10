@@ -2,6 +2,7 @@
 let MAX: int = 5 + 2 - 5 * 5;
 
 fn main(a: int, b: int) -> int {
+	print_int(4);
 	return 5 + 5;
 }
 

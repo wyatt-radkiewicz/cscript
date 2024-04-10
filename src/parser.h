@@ -30,6 +30,7 @@ enum ast_type
 	AST_LITERAL,
 	AST_BINARY,
 	AST_UNARY,
+	AST_CALL,
 	
 	AST_IF,
 	AST_WHILE,
