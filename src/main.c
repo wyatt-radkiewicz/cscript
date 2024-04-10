@@ -45,6 +45,40 @@ void vm_free(struct vm_ptr *var)
 	free(var);
 }
 
+void vm_print_opcode(struct vm_code code) {
+	switch (code.op) {
+	case OP_PUSH0: printf("OP_PUSH0"); break;
+	case OP_PUSHNI: printf("OP_PUSHNI"); break;
+	case OP_POPN: printf("OP_POPN"); break;
+	case OP_REPUSH: printf("OP_REPUSH"); break;
+	case OP_TRANSFER: printf("OP_TRANSFER"); break;
+	case OP_NEWRC: printf("OP_NEWRC"); break;
+	case OP_ADDRC: printf("OP_ADDRC"); break;
+	case OP_DECRC: printf("OP_DECRC"); break;
+	case OP_ADD: printf("OP_ADD"); break;
+	case OP_SUB: printf("OP_SUB"); break;
+	case OP_MUL: printf("OP_MUL"); break;
+	case OP_DIV: printf("OP_DIV"); break;
+	case OP_STORE: printf("OP_STORE"); break;
+	case OP_LOAD: printf("OP_LOAD"); break;
+	case OP_STOREPTR: printf("OP_STOREPTR"); break;
+	case OP_LOADPTR: printf("OP_LOADPTR"); break;
+	case OP_STORECPTR: printf("OP_STORECPTR"); break;
+	case OP_LOADCPTR: printf("OP_LOADCPTR"); break;
+	case OP_CALL: printf("OP_CALL"); break;
+	case OP_EXTERN_CALL: printf("OP_EXTERN_CALL"); break;
+	case OP_RET: printf("OP_RET"); break;
+	case OP_JMP: printf("OP_JMP"); break;
+	case OP_BEQ: printf("OP_BEQ"); break;
+	case OP_BNE: printf("OP_BNE"); break;
+	case OP_BGT: printf("OP_BGT"); break;
+	case OP_BLT: printf("OP_BLT"); break;
+	case OP_BGE: printf("OP_BGE"); break;
+	case OP_BLE: printf("OP_BLE"); break;
+	}
+	printf(": %d\n", code.arg);
+}
+
 void vm_print_err(enum vm_error err)
 {
 	switch (err)
@@ -100,7 +134,7 @@ void vm_print_topvar(struct vm *vm)
 static struct ast_node ast_buffer[512];
 
 static struct vm_fn_entry fns[4];
-static struct vm_code code[512];
+static struct vm_code code[64];
 static union vm_untyped_var data[512];
 
 static struct vm_typed_var stack[128];
@@ -108,34 +142,9 @@ static struct vm_typed_var stack[128];
 int main(int argc, char **argv)
 {
 	struct vm vm;
-	char *src = load_file("test.cs");
-	//char *head = src;
-	//struct token token;
-	//int i;
-
-	//token_iter_init(&token);
-	//while (token_iter_next((const char **)&head, &token))
-	//{
-	//	printf("consumed %d: \"", token.type);
-	//	for (i = 0; i < token.strlen; i++)
-	//	{
-	//		putchar(token.str[i]);
-	//	}
-	//	printf("\"\n");
-	//}
-
+	char *src = load_file("test.bs");
 	ast_construct(src, ast_buffer, 512, NULL, 0);
-
 	free(src);
-
-	code[0] = (struct vm_code){ .op = OP_PUSH0, .arg = VAR_INT };
-	code[1] = (struct vm_code){ .op = OP_LOAD, .arg = 0 };
-	code[2] = (struct vm_code){ .op = OP_PUSH0, .arg = VAR_PFN };
-	code[3] = (struct vm_code){ .op = OP_LOAD, .arg = 1 };
-	code[4] = (struct vm_code){ .op = OP_EXTERN_CALL, .arg = 0 };
-	code[5] = (struct vm_code){ .op = OP_POPN, .arg = 1 };
-	code[6] = (struct vm_code){ .op = OP_RET, .arg = 0 };
-	data[1] = (union vm_untyped_var){ .p = vm_print_topvar };
 	vm_init(
 		&vm,		// vm
 		code,		// code
@@ -151,10 +160,14 @@ int main(int argc, char **argv)
 	);
 
 	struct compile_error errs[32];
-	compile(ast_buffer, &vm, errs, ARRSZ(errs));
-	vm_addfn(&vm, "main", 0);
-	vm_print_err(vm_callfn(&vm, "main"));
-
+	struct state compiler;
+	compile_init(&compiler, ast_buffer, &vm, errs, ARRSZ(errs));
+	compile_extern_fn(&compiler, "vm_print_topvar", vm_print_topvar);
+	compile(&compiler);
+	for (int i = 0; i < ARRSZ(code); i++) {
+		vm_print_opcode(code[i]);
+	}
+	//vm_print_err(vm_callfn(&vm, "main"));
 
 	return 0;
 }

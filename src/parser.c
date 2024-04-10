@@ -394,7 +394,8 @@ static struct ast_node *parse_stmt(struct state *state)
 	case TOK_RETURN:
 		token_iter_next(&state->src, &state->token);
 		node = alloc_node(state, AST_RETURN);
-		node->inner = parse_expr(state, PREC_FULL);
+		if (state->token.type == TOK_SEMICOL) node->inner = NULL;
+		else node->inner = parse_expr(state, PREC_FULL);
 		EAT_TOKEN(TOK_SEMICOL);
 		return node;
 	case TOK_BREAK:

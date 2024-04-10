@@ -135,8 +135,10 @@ int vm_callfn(struct vm *vm, const char *fn)
 		((vm_extern_pfn)(tmp[0].data.p))(vm);
 		break;
 	case OP_RET:
-		if (!vm_pop(vm, tmp + 0)) return VM_ERR_STACK_UNDERFLOW;
+		if (vm->stack + code.arg >= vm->stacktop) return VM_ERR_STACK_UNDERFLOW;
+		tmp[0] = *(vm->stack + code.arg);
 		vm->pc = tmp[0].data.i;
+		memmove(vm->stack + code.arg, vm->stack + code.arg - 1, sizeof(*vm->stack) * code.arg);
 		if (vm->pc == -1) return VM_ERR_OKAY;
 		if (vm->pc < -1 || vm->pc >= vm->codelen) return VM_ERR_SEGFAULT;
 		break;
@@ -214,15 +216,16 @@ int vm_pop(struct vm *vm, struct vm_typed_var *var)
 	*var = *(vm->stack++);
 	return 1;
 }
-int vm_addfn(struct vm *vm, const char *name, int loc)
+int vm_addfn(struct vm *vm, const char *name, int namelen, int loc)
 {
 	struct vm_fn_entry ent, tmp;
 	int i;
 
-	ent.len = strlen(name);
+	ent.len = namelen;
 	if (vm->nfns >= vm->fnlen || ent.len + 1 > sizeof(ent.name)) return 0;
 
-	strcpy(ent.name, name);
+	memset(ent.name, 0, sizeof(ent.name));
+	memcpy(ent.name, name, namelen < sizeof(ent.name) - 1 ? namelen : sizeof(ent.name) - 1);
 	ent.loc = loc;
 	ent.psl = 0;
 	ent.hash = ent.len * name[0];
@@ -243,7 +246,7 @@ int vm_addfn(struct vm *vm, const char *name, int loc)
 
 	vm->fn[i] = ent;
 
-	printf("adding fn \"%s\" to: %d\n", name, i);
+	//printf("adding fn \"%s\" to: %d\n", name, i);
 	return 1;
 }
 static int vm_getfn(struct vm *vm, const char *fn)

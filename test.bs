@@ -1,0 +1,95 @@
+
+let MAX: int = 5 + 2 - 5 * 5;
+
+fn main(a: int, b: int) -> int {
+	return 5 + 5;
+}
+
+// This is Cscript shabang. It tells the vm and compiler how much to allocate
+// for the script. This can be ommitted in lue of defaults that the program
+// gives. This allocates 3KB for the VM to run the code (besides dynamically
+// allocated objects and stack) Currently code, data, and funcs take up some space
+// bu they will be optimized for space in future releases of Cscript.
+
+////!code:1K,data:1K,funcs:1K
+//
+//// Run at game startup
+//fn gen_objtype() -> WobjType {
+//	return WobjType {
+//		...
+//	};
+//}
+//
+//// Run for every object
+//fn slime_create(objptr: extern *Wobj, x: float, y: float, ci: int, cf: float) -> void {
+//	let obj: &Wobj = unwrap(objptr);
+//	
+//	obj.hitbox = Hibox{
+//		x: 4, y: 16, w: 32-8, h: 16
+//	};
+//	obj.flags = obj.flags | WOBJ_FLAG_ENEMY;
+//	obj.health = 3;
+//	obj.strength = 0.02;
+//	obj.speed = 3;
+//	obj.timer = util_randint(SEC, SEC*5);
+//	obj.velx = obj.speed * (util_randint(0, 1) * 2 - 1);
+//}
+//
+//fn slime_update(objptr: extern *Wobj) -> void {
+//	let obj: &Wobj = unwrap(objptr);
+//	obj.timer = obj.timer - 1;
+//	if obj.timer <= 0 {
+//		interaction_destroy(objptr);
+//		return;
+//	}
+//
+//	wobj_enemycry(-1);
+//	physics_begin(objptr);
+//	if wobj_getcollision(objptr, obj.velx, 0.0) {
+//		// turn around
+//		obj.velx = obj.velx * -1.0;
+//	}
+//	obj.vely = obj.vely + GVAR_GRAVITY;
+//	physics_end(objptr);
+//}
+//
+//fn slime_draw(objptr: extern *Wobj, cx: int, cy: int) -> void {
+//	let obj: &Wobj = unwrap(objptr);
+//	render_bitmap_ex(
+//		obj.x - cx,
+//		obj.y - cy,
+//		&bs_objtypes[WOBJ_SLIME].frames[obj.anim_frame],
+//		wobj_calclight(obj) + block_light(obj.x / BSZ, obj.y / BSZ),
+//		0,
+//		obj.flags & WOBJ_FLAG_HFLIP,
+//		False,
+//	);
+//}
+
+// Base types
+// int		(i32)
+// uint		(u32)
+// float	(f32)
+// char		(char)
+// &		refrences
+// ()		(const function pointer)
+// *		refrence counted pointers
+// extern *	const pointer in C (only can be cast to refrence)
+
+// Refrences can't be in structs, but pointers and pfn's can.
+// Pointers are always nullable pointers to dynamically allocated, refrence
+// counted VM objects.
+// Extern pointers are pointers to C objects, and are not refrence counted.
+// Pointers can only be created by using the new keyword. Which will take an
+// init expression which is either a literal, a struct initializer, or an
+// array initializer.
+// Pointers are also Monads. You either use Rust's
+// "if let inside = ptr {  }" syntax
+// or use the unwrap keyword like
+// "let inside: &int = unwrap ptr;" syntax.
+// The unwrap or if let syntax returns a refrence.
+
+// Compound types
+// structs
+// typedefs
+

@@ -56,7 +56,7 @@ enum vm_opcode
 	OP_LOADCPTR,		// Push from RAM from top ptr (with type [arg])
 	OP_CALL,		// Call VM function at [arg]
 	OP_EXTERN_CALL,		// Call C function at stack top
-	OP_RET,			// Return from function (top of stack is return)
+	OP_RET,			// Return to [arg] on stack, and shift everything down
 	OP_JMP,			// Jump to [arg]
 	OP_BEQ,			// Branch on EQual to [arg] (same below)
 	OP_BNE,			// Branch on Not Equal
@@ -129,7 +129,7 @@ void vm_init(struct vm *vm,
 int vm_callfn(struct vm *vm, const char *fn);
 int vm_push(struct vm *vm, const struct vm_typed_var var);
 int vm_pop(struct vm *vm, struct vm_typed_var *var);
-int vm_addfn(struct vm *vm, const char *name, int loc);
+int vm_addfn(struct vm *vm, const char *name, int namelen, int loc);
 
 #endif
 
