@@ -6,9 +6,11 @@
 
 #include "compile.h"
 
-static void makeop(struct state *state, int op, int arg) {
-	if ((op == OP_TRANSFER || op == OP_POPN) && arg == 0) return;
-	state->vm->code[state->codehead++] = (struct vm_code){ .op = op, .arg = arg };
+static struct vm_code *makeop(struct state *state, int op, int arg) {
+	if ((op == OP_TRANSFER || op == OP_POPN) && arg == 0) return NULL;
+	state->vm->code[state->codehead] = (struct vm_code){ .op = op, .arg = arg };
+	//vm_print_opcode(state->vm->code[state->codehead]);
+	return state->vm->code + state->codehead++;
 }
 
 static int alloc_global(struct state *state, int nelems) {
@@ -29,8 +31,8 @@ static void push_scope(struct state *state) {
 }
 static void pop_scope(struct state *state) {
 	assert(state->currscope);
-	state->stacktop = state->scopes[state->currscope].stackbase - 1;
-	state->scopetop = state->scopes[state->currscope].scopebase - 1;
+	state->stacktop = state->scopes[state->currscope].stackbase;
+	state->scopetop = state->scopes[state->currscope].scopebase;
 	state->currscope--;
 }
 
@@ -187,6 +189,19 @@ static struct scoperef compile_expr(struct state *state, struct ast_node *expr, 
 		case TOK_DASH: makeop(state, OP_SUB, 0); break;
 		case TOK_STAR: makeop(state, OP_MUL, 0); break;
 		case TOK_SLASH: makeop(state, OP_DIV, 0); break;
+		case TOK_BIT_AND: makeop(state, OP_AND, 0); break;
+		case TOK_BIT_OR: makeop(state, OP_OR, 0); break;
+		case TOK_BIT_XOR: makeop(state, OP_EOR, 0); break;
+		case TOK_LSHIFT: makeop(state, OP_SHL, 0); break;
+		case TOK_RSHIFT: makeop(state, OP_SHR, 0); break;
+		case TOK_AND: makeop(state, OP_TAND, 0); break;
+		case TOK_OR: makeop(state, OP_TOR, 0); break;
+		case TOK_EQEQ: makeop(state, OP_TEQ, 0); break;
+		case TOK_NOTEQ: makeop(state, OP_TNE, 0); break;
+		case TOK_GT: makeop(state, OP_TGT, 0); break;
+		case TOK_GE: makeop(state, OP_TGE, 0); break;
+		case TOK_LT: makeop(state, OP_TLT, 0); break;
+		case TOK_LE: makeop(state, OP_TLE, 0); break;
 		case TOK_EQ:
 			if (!left.lvalue) {
 				eval.isvoid = true;
@@ -337,6 +352,22 @@ static void compile_stmt_list(struct state *state,
 				compile_expr(state, stmt->inner, VAR_VOID);
 				makeop(state, OP_POPN, state->stacktop - stacktop);
 				state->stacktop = stacktop;
+			}
+			break;
+		case AST_IF:
+			{
+				compile_expr(state, stmt->inner, VAR_VOID);
+				struct vm_code *branch = makeop(state, OP_BEQ, 0);
+
+				push_scope(state);
+				int stacktop = state->stacktop;
+				compile_stmt_list(state, stmt->alt1->inner, fn);
+				makeop(state, OP_POPN, state->stacktop - stacktop);
+				state->stacktop = stacktop;
+				pop_scope(state);
+
+				branch->arg = state->codehead;
+				makeop(state, OP_POPN, 1); // Pop off expression
 			}
 			break;
 		case AST_RETURN:

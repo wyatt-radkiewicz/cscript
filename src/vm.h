@@ -32,8 +32,8 @@ struct vm_typed_var
 
 struct vm_code
 {
-	unsigned int op		: 5;
-	unsigned int arg	: (sizeof(int)*8)-5;
+	unsigned int op		: 6;
+	unsigned int arg	: (sizeof(int)*8)-6;
 };
 
 enum vm_opcode
@@ -60,12 +60,21 @@ enum vm_opcode
 	OP_EXTERN_CALL,		// Call C function at stack top
 	OP_RET,			// Return to [arg] on stack, and shift everything down
 	OP_JMP,			// Jump to [arg]
-	OP_BEQ,			// Branch on EQual to [arg] (same below)
-	OP_BNE,			// Branch on Not Equal
-	OP_BGT,			// Branch on Greater Than (works for u an i)
-	OP_BLT,			// Branch on Less Than (works for u an i)
-	OP_BGE,			// Branch on Greater than or Equal to (both u i)
-	OP_BLE,			// Branch on Less than or Equal to (both u i)
+	OP_TAND,		// 1 or 0 if top are both non-0
+	OP_TOR,			// 1 or 0 if top are either non-0
+	OP_TEQ,			// 1 or 0 is top are eq to
+	OP_TNE,			// 1/0 on Not Equal
+	OP_TGT,			// 1/0 on Greater Than (works for u an i)
+	OP_TLT,			// 1/0 on Less Than (works for u an i)
+	OP_TGE,			// 1/0 on Greater than or Equal to (both u i)
+	OP_TLE,			// 1/0 on Less than or Equal to (both u i)
+	OP_AND,			// Bitwise And
+	OP_OR,			// Bitwise Or
+	OP_EOR,			// Bitwise Exclusive Or
+	OP_SHL,			// Bitwise Shift Left
+	OP_SHR,			// Bitwise Shift Right
+	OP_BEQ,			// Branch on stack top being 0
+	OP_BNE,			// Branch on stack top being non-0 to [arg]
 	OP_CAST,		// Cast to of stack to type [arg]
 };
 

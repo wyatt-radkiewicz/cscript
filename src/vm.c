@@ -188,29 +188,41 @@ int vm_callfn(struct vm *vm, const char *fn)
 		break;
 #define BRANCHOP(BNAME, OP)						\
 	case BNAME:							\
-		switch (vm->stack[0].type)				\
+		if (!vm_pop(vm, tmp + 1)) return VM_ERR_STACK_UNDERFLOW;\
+		if (!vm_pop(vm, tmp + 0)) return VM_ERR_STACK_UNDERFLOW;\
+		vm_push(vm, (struct vm_typed_var){.type = VAR_INT});	\
+		switch (tmp[0].type)					\
 		{							\
 		case VAR_INT:						\
-			if (vm->stack[0].data.i OP vm->stack[1].data.i) vm->pc = code.arg;\
+			vm->stack->data.i = tmp[0].data.i OP tmp[1].data.i;\
 			break;						\
 		case VAR_UINT:						\
-			if (vm->stack[0].data.u OP vm->stack[1].data.u) vm->pc = code.arg;\
+			vm->stack->data.i = tmp[0].data.u OP tmp[1].data.u;\
 			break;						\
 		case VAR_CHAR:						\
-			if (vm->stack[0].data.c OP vm->stack[1].data.c) vm->pc = code.arg;\
+			vm->stack->data.i = tmp[0].data.c OP tmp[1].data.c;\
 			break;						\
 		case VAR_FLOAT:						\
-			if (vm->stack[0].data.f OP vm->stack[1].data.f) vm->pc = code.arg;\
+			vm->stack->data.i = tmp[0].data.f OP tmp[1].data.f;\
 			break;						\
 		default: break;						\
 		}							\
 		break;							
-	BRANCHOP(OP_BEQ, ==)
-	BRANCHOP(OP_BNE, !=)
-	BRANCHOP(OP_BGT, >)
-	BRANCHOP(OP_BLT, <)
-	BRANCHOP(OP_BGE, >=)
-	BRANCHOP(OP_BLE, <=)
+	BRANCHOP(OP_TAND, &&)
+	BRANCHOP(OP_TOR, ||)
+	BRANCHOP(OP_TEQ, ==)
+	BRANCHOP(OP_TNE, !=)
+	BRANCHOP(OP_TGT, >)
+	BRANCHOP(OP_TLT, <)
+	BRANCHOP(OP_TGE, >=)
+	BRANCHOP(OP_TLE, <=)
+	case OP_BEQ:
+		if (!vm->stack->data.u) vm->pc = code.arg;
+		break;
+	case OP_BNE:
+		if (vm->stack->data.u) vm->pc = code.arg;
+		break;
+#define FLOATOP(OP)
 #define MATHOP(OPNAME, OP)						\
 	case OPNAME:							\
 		if (!vm_pop(vm, tmp + 1)) return VM_ERR_STACK_UNDERFLOW;\
@@ -218,24 +230,42 @@ int vm_callfn(struct vm *vm, const char *fn)
 		switch (tmp[0].type)					\
 		{							\
 		case VAR_INT:						\
-		case VAR_UINT:						\
+			if (!vm_push(vm, (struct vm_typed_var){		\
+				.type = tmp[0].type,			\
+				.data.i = tmp[0].data.i OP tmp[1].data.i,\
+			})) return VM_ERR_STACK_OVERFLOW;		\
+			break;						\
 		case VAR_CHAR:						\
+			if (!vm_push(vm, (struct vm_typed_var){		\
+				.type = tmp[0].type,			\
+				.data.c = tmp[0].data.c OP tmp[1].data.c,\
+			})) return VM_ERR_STACK_OVERFLOW;		\
+			break;						\
+		case VAR_UINT:						\
 			if (!vm_push(vm, (struct vm_typed_var){		\
 				.type = tmp[0].type,			\
 				.data.u = tmp[0].data.u OP tmp[1].data.u,\
 			})) return VM_ERR_STACK_OVERFLOW;		\
 			break;						\
-		case VAR_FLOAT:						\
-			if (!vm_push(vm, (struct vm_typed_var){		\
-				.type = VAR_FLOAT,			\
-				.data.f = tmp[0].data.f OP tmp[1].data.f,\
-			})) return VM_ERR_STACK_OVERFLOW;		\
-			break;						\
+			FLOATOP(OP)					\
 		default:						\
 			if (!vm_push(vm, tmp[0])) return VM_ERR_STACK_OVERFLOW;\
 			break;						\
 		}							\
 		break;							
+	MATHOP(OP_AND, &)
+	MATHOP(OP_OR, |)
+	MATHOP(OP_EOR, ^)
+	MATHOP(OP_SHL, <<)
+	MATHOP(OP_SHR, >>)
+#undef FLOATOP
+#define FLOATOP(OP)						\
+		case VAR_FLOAT:						\
+			if (!vm_push(vm, (struct vm_typed_var){		\
+				.type = VAR_FLOAT,			\
+				.data.f = tmp[0].data.f OP tmp[1].data.f,\
+			})) return VM_ERR_STACK_OVERFLOW;		\
+			break;						
 	MATHOP(OP_ADD, +)
 	MATHOP(OP_SUB, -)
 	MATHOP(OP_DIV, /)

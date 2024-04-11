@@ -45,41 +45,6 @@ void vm_free(struct vm_ptr *var)
 	free(var);
 }
 
-void vm_print_opcode(struct vm_code code) {
-	switch (code.op) {
-	case OP_PUSH0: printf("OP_PUSH0"); break;
-	case OP_PUSHNI: printf("OP_PUSHNI"); break;
-	case OP_POPN: printf("OP_POPN"); break;
-	case OP_REPUSH: printf("OP_REPUSH"); break;
-	case OP_TRANSFER: printf("OP_TRANSFER"); break;
-	case OP_NEWRC: printf("OP_NEWRC"); break;
-	case OP_ADDRC: printf("OP_ADDRC"); break;
-	case OP_DECRC: printf("OP_DECRC"); break;
-	case OP_ADD: printf("OP_ADD"); break;
-	case OP_SUB: printf("OP_SUB"); break;
-	case OP_MUL: printf("OP_MUL"); break;
-	case OP_DIV: printf("OP_DIV"); break;
-	case OP_STORE: printf("OP_STORE"); break;
-	case OP_LOAD: printf("OP_LOAD"); break;
-	case OP_STOREPTR: printf("OP_STOREPTR"); break;
-	case OP_LOADPTR: printf("OP_LOADPTR"); break;
-	case OP_STORECPTR: printf("OP_STORECPTR"); break;
-	case OP_LOADCPTR: printf("OP_LOADCPTR"); break;
-	case OP_CALL: printf("OP_CALL"); break;
-	case OP_EXTERN_CALL: printf("OP_EXTERN_CALL"); break;
-	case OP_RET: printf("OP_RET"); break;
-	case OP_JMP: printf("OP_JMP"); break;
-	case OP_BEQ: printf("OP_BEQ"); break;
-	case OP_BNE: printf("OP_BNE"); break;
-	case OP_BGT: printf("OP_BGT"); break;
-	case OP_BLT: printf("OP_BLT"); break;
-	case OP_BGE: printf("OP_BGE"); break;
-	case OP_BLE: printf("OP_BLE"); break;
-	case OP_CAST: printf("OP_CAST"); break;
-	}
-	printf(": %d\n", code.arg);
-}
-
 void vm_print_err(enum vm_error err)
 {
 	switch (err)
@@ -177,6 +142,7 @@ int main(int argc, char **argv)
 	code[ARRSZ(code)-1].op = OP_RET;
 	compile(&compiler);
 	for (int i = 0; i < ARRSZ(code); i++) {
+		printf("%d: ", i);
 		vm_print_opcode(code[i]);
 	}
 	vm_push(&vm, (struct vm_typed_var){ .type = VAR_INT });
