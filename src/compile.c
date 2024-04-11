@@ -60,7 +60,11 @@ static void add_argument(struct state *state, struct ast_node *vardef, int param
 }
 
 static int get_podtype(struct state *state, struct ast_node *type) {
-	if (type->type == AST_IDENT) return -1;
+	if (!type) return VAR_VOID;
+	if (type->type == AST_IDENT) {
+		printf("IMPLEMENT TYPEDEFS (and structs)!!");
+		return -1;
+	}
 	switch (type->type) {
 	case AST_REF_OF: return VAR_REF;
 	case AST_CONST_OF: return get_podtype(state, type->inner);
@@ -147,32 +151,36 @@ static void compile_let(struct state *state, struct ast_node *let) {
 
 // Returns location of variable on the stack
 // If value is a global, it will load it onto the stack
-static int get_value(struct state *state, const struct scoperef *const val) {
+static int get_value(struct state *state, struct scoperef *val, enum vm_varty finalty) {
 	if (val->isglobal) {
-		makeop(state, OP_PUSH0, VAR_INT);
+		makeop(state, OP_PUSH0, val->podtype);
 		makeop(state, OP_LOAD, val->absloc);
+		if (finalty != VAR_VOID && finalty != val->podtype) makeop(state, OP_CAST, finalty);
 		return ++state->stacktop;
 	} else if (val->absloc != state->stacktop || val->lvalue) {
 		makeop(state, OP_REPUSH, state->stacktop - val->absloc);
+		if (finalty != VAR_VOID && finalty != val->podtype) makeop(state, OP_CAST, finalty);
 		return ++state->stacktop;
 	}
 
 	return val->absloc;
 }
 
-static struct scoperef compile_expr(struct state *state, struct ast_node *expr) {
+static struct scoperef compile_expr(struct state *state, struct ast_node *expr, enum vm_varty finalty) {
+	if (finalty == VAR_CHAR) finalty = VAR_INT;
 	struct scoperef eval = {
 		.absloc = 0,
 		.isglobal = false,
+		.podtype = finalty,
 		.lvalue = false,
 		.isvoid = false,
 	};
 
 	if (expr->type == AST_BINARY) {
-		struct scoperef left = compile_expr(state, expr->alt1);
-		if (expr->token.type != TOK_EQ) get_value(state, &left);
-		struct scoperef right = compile_expr(state, expr->alt2);
-		get_value(state, &right);
+		struct scoperef left = compile_expr(state, expr->alt1, finalty);
+		if (expr->token.type != TOK_EQ) get_value(state, &left, finalty);
+		struct scoperef right = compile_expr(state, expr->alt2, finalty);
+		get_value(state, &right, finalty);
 		switch (expr->token.type) {
 		case TOK_PLUS: makeop(state, OP_ADD, 0); break;
 		case TOK_DASH: makeop(state, OP_SUB, 0); break;
@@ -205,8 +213,19 @@ static struct scoperef compile_expr(struct state *state, struct ast_node *expr) 
 		char tmp[32];
 		strncpy(tmp, expr->token.str, 32);
 		tmp[31] = '\0';
-		state->vm->data[state->globalhead].i = atoi(tmp);
-		makeop(state, OP_PUSH0, VAR_INT);
+		if (finalty == VAR_FLOAT) {
+			state->vm->data[state->globalhead].f = atof(tmp);
+			eval.podtype = VAR_FLOAT;
+			makeop(state, OP_PUSH0, VAR_FLOAT);
+		} else if (finalty == VAR_UINT) {
+			state->vm->data[state->globalhead].u = (unsigned int)atoll(tmp);
+			eval.podtype = VAR_UINT;
+			makeop(state, OP_PUSH0, VAR_UINT);
+		} else {
+			state->vm->data[state->globalhead].i = atoi(tmp);
+			eval.podtype = VAR_INT;
+			makeop(state, OP_PUSH0, VAR_INT);
+		}
 		makeop(state, OP_LOAD, state->globalhead++);
 		eval.absloc = ++state->stacktop;
 	}
@@ -225,6 +244,7 @@ static struct scoperef compile_expr(struct state *state, struct ast_node *expr) 
 			eval.isvoid = true;
 			return eval;
 		}
+		eval.podtype = get_podtype(state, ident->type);
 		if (ident->dataloc != -1) {
 			eval.isglobal = true;
 			eval.absloc = ident->dataloc;
@@ -250,12 +270,18 @@ static struct scoperef compile_expr(struct state *state, struct ast_node *expr) 
 		}
 
 		// Push parameters onto stack
-		struct ast_node *param = expr->inner;
+		struct ast_node *arg = expr->inner, *param = func->type->alt1;
 		int stacktop = state->stacktop;
-		while (param) {
-			struct scoperef ref = compile_expr(state, param);
-			get_value(state, &ref);
+		while (arg) {
+			enum vm_varty pty = get_podtype(state, param->inner);
+			struct scoperef ref = compile_expr(state, arg, pty);
+			get_value(state, &ref, pty);
+			arg = arg->next;
 			param = param->next;
+			if (!!param != !!arg) {
+				printf("bruh wrong num of args xDDD\n");
+				return eval;
+			}
 		}
 		if (func->is_externfn) {
 			makeop(state, OP_PUSH0, VAR_PTR);
@@ -291,7 +317,10 @@ static void compile_stmt_list(struct state *state,
 		switch (stmt->type) {
 		case AST_LET:
 			{
-				compile_expr(state, stmt->alt1);
+				struct scoperef ref = compile_expr(state, stmt->alt1, get_podtype(state, stmt->inner));
+				enum vm_varty ty = get_podtype(state, stmt->inner);
+				if (ref.podtype != ty) makeop(state, OP_CAST, ty);
+				//implicit_convert(state, &ref, get_podtype(state, stmt->inner));
 				add_variable(state, stmt, 0);
 				//makeop(state, OP_PUSH0, get_podtype(state, stmt->inner));
 			}
@@ -299,7 +328,7 @@ static void compile_stmt_list(struct state *state,
 		case AST_EXPR:
 			{
 				int stacktop = state->stacktop;
-				compile_expr(state, stmt->inner);
+				compile_expr(state, stmt->inner, VAR_VOID);
 				makeop(state, OP_POPN, state->stacktop - stacktop);
 				state->stacktop = stacktop;
 			}
@@ -307,7 +336,7 @@ static void compile_stmt_list(struct state *state,
 		case AST_RETURN:
 			{
 				if (stmt->inner && stmt->inner->token.type != TOK_TYPE_VOID) {
-					compile_expr(state, stmt->inner);
+					compile_expr(state, stmt->inner, get_podtype(state, fn->alt2));
 					makeop(state, OP_TRANSFER, state->stacktop - scope->stackbase - 1);
 					state->stacktop--;
 					makeop(state, OP_POPN, state->stacktop - scope->stackbase);

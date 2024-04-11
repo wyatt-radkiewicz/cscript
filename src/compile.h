@@ -16,7 +16,7 @@ struct compile_error
 #define MAX_SCOPES 12
 
 struct scopevar {
-	const struct ast_node *type;
+	struct ast_node *type;
 	struct token name;
 	int dataloc, absloc;
 	int is_externfn;
@@ -27,6 +27,7 @@ struct scope {
 
 struct scoperef {
 	int absloc;
+	enum vm_varty podtype;
 	bool isglobal;
 	bool lvalue;
 	bool isvoid;

@@ -145,6 +145,44 @@ int vm_callfn(struct vm *vm, const char *fn)
 	case OP_JMP:
 		vm->pc = code.arg;
 		break;
+	case OP_CAST:
+		switch (vm->stack->type) {
+		case VAR_INT:
+			switch ((enum vm_varty)code.arg) {
+			case VAR_FLOAT: vm->stack->data.f = vm->stack->data.i; break;
+			case VAR_UINT: vm->stack->data.u = vm->stack->data.i; break;
+			case VAR_CHAR: vm->stack->data.c = vm->stack->data.i; break;
+			default: break;
+			}
+			break;
+		case VAR_UINT:
+			switch ((enum vm_varty)code.arg) {
+			case VAR_FLOAT: vm->stack->data.f = vm->stack->data.u; break;
+			case VAR_INT: vm->stack->data.i = vm->stack->data.u; break;
+			case VAR_CHAR: vm->stack->data.c = vm->stack->data.u; break;
+			default: break;
+			}
+			break;
+		case VAR_FLOAT:
+			switch ((enum vm_varty)code.arg) {
+			case VAR_UINT: vm->stack->data.u = vm->stack->data.f; break;
+			case VAR_INT: vm->stack->data.i = vm->stack->data.f; break;
+			case VAR_CHAR: vm->stack->data.c = vm->stack->data.f; break;
+			default: break;
+			}
+			break;
+		case VAR_CHAR:
+			switch ((enum vm_varty)code.arg) {
+			case VAR_UINT: vm->stack->data.u = vm->stack->data.c; break;
+			case VAR_INT: vm->stack->data.i = vm->stack->data.c; break;
+			case VAR_FLOAT: vm->stack->data.f = vm->stack->data.c; break;
+			default: break;
+			}
+			break;
+		default: break;
+		}
+		vm->stack->type = code.arg;
+		break;
 #define BRANCHOP(BNAME, OP)						\
 	case BNAME:							\
 		switch (vm->stack[0].type)				\
@@ -174,7 +212,7 @@ int vm_callfn(struct vm *vm, const char *fn)
 	case OPNAME:							\
 		if (!vm_pop(vm, tmp + 1)) return VM_ERR_STACK_UNDERFLOW;\
 		if (!vm_pop(vm, tmp + 0)) return VM_ERR_STACK_UNDERFLOW;\
-		switch (vm->stack->type)				\
+		switch (tmp[0].type)					\
 		{							\
 		case VAR_INT:						\
 		case VAR_UINT:						\

@@ -75,6 +75,7 @@ void vm_print_opcode(struct vm_code code) {
 	case OP_BLT: printf("OP_BLT"); break;
 	case OP_BGE: printf("OP_BGE"); break;
 	case OP_BLE: printf("OP_BLE"); break;
+	case OP_CAST: printf("OP_CAST"); break;
 	}
 	printf(": %d\n", code.arg);
 }
@@ -127,6 +128,12 @@ void vm_print_topvar(struct vm *vm)
 		break;
 	case VAR_PFN:
 		printf("top: pfn -> %p\n", vm->stack[0].data.p);
+		break;
+	case VAR_VOID:
+		printf("top: void\n");
+		break;
+	case VAR_STRUCT:
+		printf("top: struct\n");
 		break;
 	}
 	vm_push(vm, (struct vm_typed_var){

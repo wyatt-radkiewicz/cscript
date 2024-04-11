@@ -11,6 +11,8 @@ enum vm_varty
 	VAR_CPTR,
 	VAR_REF,
 	VAR_PFN,
+	VAR_STRUCT,
+	VAR_VOID,
 };
 
 union vm_untyped_var
@@ -64,6 +66,7 @@ enum vm_opcode
 	OP_BLT,			// Branch on Less Than (works for u an i)
 	OP_BGE,			// Branch on Greater than or Equal to (both u i)
 	OP_BLE,			// Branch on Less than or Equal to (both u i)
+	OP_CAST,		// Cast to of stack to type [arg]
 };
 
 enum vm_error

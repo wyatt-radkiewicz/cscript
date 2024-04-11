@@ -3,7 +3,7 @@ extern fn print_int(val: int) -> int;
 let TEST: int = 5;
 
 fn main(a: int, b: int) -> int {
-	let x: int = 2;
+	let x: char = 2;
 	print_int(x + 2);
 	print_int(x + 2);
 	TEST = TEST + 1;
