@@ -1,19 +1,18 @@
-extern fn print_int(val: int) -> int;
+extern fn print_int(val: int);
+extern fn input_int() -> int;
 
 let TEST: int = 5;
 
-//fn mul4_and_sub(a: int, b: int) -> int {
-//	return a - b * 4;
-//}
+fn printn(n: int) -> void {
+	let i: int = 0;
+	while i < n {
+		print_int(i);
+		i = i + 1;
+	}
+}
 
 fn main() -> int {
-	//print_int(mul4_and_sub(17, 3));
-	//let shit: int = 10;
-	//shit = shit - 4;
-	//shit = mul4_and_sub(shit, 1);
-	if 2 < 5 {
-		print_int(42);
-	}
+	printn(input_int());
 	return 0;
 }
 

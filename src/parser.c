@@ -401,6 +401,7 @@ static struct ast_node *parse_stmt_while(struct state *state)
 	struct ast_node *node;
 
 	node = alloc_node(state, AST_WHILE);
+	token_iter_next(&state->src, &state->token);
 	node->inner = parse_expr(state, PREC_FULL);
 	node->alt1 = parse_stmt_compound(state);
 

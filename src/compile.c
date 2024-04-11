@@ -358,6 +358,7 @@ static void compile_stmt_list(struct state *state,
 			{
 				compile_expr(state, stmt->inner, VAR_VOID);
 				struct vm_code *branch = makeop(state, OP_BEQ, 0);
+				state->stacktop--;
 
 				push_scope(state);
 				int stacktop = state->stacktop;
@@ -367,7 +368,24 @@ static void compile_stmt_list(struct state *state,
 				pop_scope(state);
 
 				branch->arg = state->codehead;
-				makeop(state, OP_POPN, 1); // Pop off expression
+			}
+			break;
+		case AST_WHILE:
+			{
+				int start = state->codehead;
+				compile_expr(state, stmt->inner, VAR_VOID);
+				struct vm_code *branch = makeop(state, OP_BEQ, 0);
+				state->stacktop--;
+
+				push_scope(state);
+				int stacktop = state->stacktop;
+				compile_stmt_list(state, stmt->alt1->inner, fn);
+				makeop(state, OP_POPN, state->stacktop - stacktop);
+				state->stacktop = stacktop;
+				pop_scope(state);
+
+				makeop(state, OP_JMP, start);
+				branch->arg = state->codehead;
 			}
 			break;
 		case AST_RETURN:

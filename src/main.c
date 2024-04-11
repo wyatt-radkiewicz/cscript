@@ -101,13 +101,23 @@ void vm_print_topvar(struct vm *vm)
 		printf("top: struct\n");
 		break;
 	}
+	//vm_push(vm, (struct vm_typed_var){
+	//	.type = VAR_INT,
+	//	.data.i = 69 + vm->stack[0].data.i,
+	//});
+}
+
+static void vm_input_int(struct vm *vm) {
+	int i;
+	printf("input: ");
+	scanf("%d", &i);
 	vm_push(vm, (struct vm_typed_var){
 		.type = VAR_INT,
-		.data.i = 69 + vm->stack[0].data.i,
+		.data.i = i,
 	});
 }
 
-static struct ast_node ast_buffer[512];
+static struct ast_node ast_buffer[512*4];
 
 static struct vm_fn_entry fns[4];
 static struct vm_code code[64];
@@ -139,6 +149,7 @@ int main(int argc, char **argv)
 	struct state compiler;
 	compile_init(&compiler, root, &vm, errs, ARRSZ(errs));
 	compile_extern_fn(&compiler, "print_int", vm_print_topvar);
+	compile_extern_fn(&compiler, "input_int", vm_input_int);
 	code[ARRSZ(code)-1].op = OP_RET;
 	compile(&compiler);
 	for (int i = 0; i < ARRSZ(code); i++) {

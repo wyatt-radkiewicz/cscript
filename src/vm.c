@@ -31,6 +31,7 @@ void vm_init(struct vm *vm,
 	vm->nfns = 0;
 	memset(vm->fn, 0, sizeof(*vm->fn) * vm->fnlen);
 }
+#include <unistd.h>
 int vm_callfn(struct vm *vm, const char *fn)
 {
 	struct vm_typed_var tmp[2];
@@ -44,6 +45,8 @@ int vm_callfn(struct vm *vm, const char *fn)
 
 	while (1)
 	{
+	//usleep(10000);
+	//printf("pc: %d\n", vm->pc);
 	code = vm->code[vm->pc++];
 	switch (code.op)
 	{
@@ -140,8 +143,8 @@ int vm_callfn(struct vm *vm, const char *fn)
 		vm->pc = tmp[0].data.i;
 		if (code.arg) {
 			memmove(vm->stack + code.arg, vm->stack + code.arg - 1, sizeof(*vm->stack) * code.arg);
-			vm->stack++;
 		}
+		vm->stack++;
 		if (vm->pc == -1) return VM_ERR_OKAY;
 		if (vm->pc < -1 || vm->pc >= vm->codelen) return VM_ERR_SEGFAULT;
 		break;
@@ -218,9 +221,11 @@ int vm_callfn(struct vm *vm, const char *fn)
 	BRANCHOP(OP_TLE, <=)
 	case OP_BEQ:
 		if (!vm->stack->data.u) vm->pc = code.arg;
+		if (vm->stack++ < vm->stackbottom) return VM_ERR_STACK_UNDERFLOW;
 		break;
 	case OP_BNE:
 		if (vm->stack->data.u) vm->pc = code.arg;
+		if (vm->stack++ < vm->stackbottom) return VM_ERR_STACK_UNDERFLOW;
 		break;
 #define FLOATOP(OP)
 #define MATHOP(OPNAME, OP)						\
