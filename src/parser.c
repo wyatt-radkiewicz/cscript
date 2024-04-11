@@ -502,9 +502,11 @@ struct ast_node *ast_construct(const char *src,
 	};
 	struct ast_node *root = NULL, **last = &root, *curr = NULL;
 
+	bool dont_consume = false;
 	token_iter_init(&state.token);
-	while (token_iter_next(&state.src, &state.token))
+	while (dont_consume || token_iter_next(&state.src, &state.token))
 	{
+		dont_consume = false;
 		bool is_extern = false;
 		if (state.token.type == TOK_EXTERN) {
 			is_extern = true;
@@ -533,6 +535,7 @@ struct ast_node *ast_construct(const char *src,
 			break;
 		case TOK_FN:
 			curr = parse_func(&state);
+			dont_consume = curr->inner;
 			break;
 		default:
 			//print_ast(root, 0, 1);

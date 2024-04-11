@@ -53,7 +53,8 @@ static void add_argument(struct state *state, struct ast_node *vardef, int param
 	state->scopebuf[state->scopetop] = (struct scopevar){
 		.name = vardef->token,
 		.type = vardef->inner,
-		.absloc = scope->stackbase - param_idx,
+		// Add 1 because of return value
+		.absloc = scope->stackbase - (param_idx + 1),
 		.dataloc = -1,
 	};
 	state->scopetop++;
@@ -288,15 +289,17 @@ static struct scoperef compile_expr(struct state *state, struct ast_node *expr, 
 			makeop(state, OP_LOAD, func->dataloc);
 			makeop(state, OP_EXTERN_CALL, 0);
 		} else {
-			printf("TODO: Make other funcs :)\n");
+			makeop(state, OP_CALL, func->dataloc);
 		}
 		// Transfer the return variable
-		state->stacktop += 1;
 		if (func->type->alt2 && func->type->alt2->token.type != TOK_TYPE_VOID) {
+			state->stacktop += 1;
 			stacktop++;
 			makeop(state, OP_TRANSFER, state->stacktop - stacktop);
 			eval.absloc = stacktop;
 			eval.lvalue = false;
+			eval.isglobal = false;
+			eval.podtype = get_podtype(state, func->type->alt2);
 		} else {
 			eval.isvoid = true;
 		}
@@ -375,7 +378,7 @@ static void compile_fn(struct state *state, struct ast_node *fn) {
 		int i = scope->nparams - 1;
 		param = fn->alt1;
 		while (param) {
-			add_argument(state, param, scope->nparams);
+			add_argument(state, param, i);
 			param = param->next;
 			i--;
 		}

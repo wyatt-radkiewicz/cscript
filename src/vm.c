@@ -138,7 +138,10 @@ int vm_callfn(struct vm *vm, const char *fn)
 		if (vm->stack + code.arg >= vm->stacktop) return VM_ERR_STACK_UNDERFLOW;
 		tmp[0] = *(vm->stack + code.arg);
 		vm->pc = tmp[0].data.i;
-		if (code.arg) memmove(vm->stack + code.arg, vm->stack + code.arg - 1, sizeof(*vm->stack) * code.arg);
+		if (code.arg) {
+			memmove(vm->stack + code.arg, vm->stack + code.arg - 1, sizeof(*vm->stack) * code.arg);
+			vm->stack++;
+		}
 		if (vm->pc == -1) return VM_ERR_OKAY;
 		if (vm->pc < -1 || vm->pc >= vm->codelen) return VM_ERR_SEGFAULT;
 		break;
