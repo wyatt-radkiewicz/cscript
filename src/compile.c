@@ -256,7 +256,8 @@ static struct scoperef compile_expr(struct state *state, struct ast_node *expr, 
 	}
 	if (expr->type == AST_CALL) {
 		struct scopevar *func = NULL;
-		for (int i = 0; i < state->currscope ? state->scopes[1].scopebase : state->scopetop + 1; i++) {
+		int end = state->currscope ? state->scopes[1].scopebase : state->scopetop + 1;
+		for (int i = 0; i < end; i++) {
 			struct scopevar *curr = &state->scopebuf[i];
 			if (curr->name.strlen != expr->token.strlen
 				|| memcmp(curr->name.str, expr->token.str, curr->name.strlen) != 0)

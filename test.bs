@@ -2,12 +2,12 @@ extern fn print_int(val: int) -> int;
 
 let TEST: int = 5;
 
-fn mul_and_add4(a: int, b: int) -> int {
+fn mul4_and_sub(a: int, b: int) -> int {
 	return a - b * 4;
 }
 
 fn main() -> int {
-	print_int(mul_and_add4(17, 3));
+	print_int(mul4_and_sub(17, 3));
 	return 0;
 }
 
