@@ -27,6 +27,7 @@ struct scope {
 
 struct scoperef {
 	int absloc;
+	bool isglobal;
 	bool lvalue;
 	bool isvoid;
 };

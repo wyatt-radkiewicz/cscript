@@ -43,7 +43,7 @@ static int add_variable(struct state *state, struct ast_node *vardef, int global
 		.dataloc = global ? alloc_global(state, get_size(state, vardef->inner)) : -1,
 	};
 	int loc = global ? state->scopebuf[state->scopetop].dataloc : state->scopebuf[state->scopetop].absloc;
-	if (!global) state->stacktop += get_size(state, vardef->inner);
+	//if (!global) state->stacktop += get_size(state, vardef->inner);
 	state->scopetop++;
 	return loc;
 }
@@ -145,24 +145,61 @@ static void compile_let(struct state *state, struct ast_node *let) {
 	}
 }
 
+// Returns location of variable on the stack
+// If value is a global, it will load it onto the stack
+static int get_value(struct state *state, const struct scoperef *const val) {
+	if (val->isglobal) {
+		makeop(state, OP_PUSH0, VAR_INT);
+		makeop(state, OP_LOAD, val->absloc);
+		return ++state->stacktop;
+	} else if (val->absloc != state->stacktop || val->lvalue) {
+		makeop(state, OP_REPUSH, state->stacktop - val->absloc);
+		return ++state->stacktop;
+	}
+
+	return val->absloc;
+}
+
 static struct scoperef compile_expr(struct state *state, struct ast_node *expr) {
 	struct scoperef eval = {
 		.absloc = 0,
+		.isglobal = false,
 		.lvalue = false,
 		.isvoid = false,
 	};
 
 	if (expr->type == AST_BINARY) {
-		compile_expr(state, expr->alt1);
-		compile_expr(state, expr->alt2);
+		struct scoperef left = compile_expr(state, expr->alt1);
+		if (expr->token.type != TOK_EQ) get_value(state, &left);
+		struct scoperef right = compile_expr(state, expr->alt2);
+		get_value(state, &right);
 		switch (expr->token.type) {
 		case TOK_PLUS: makeop(state, OP_ADD, 0); break;
 		case TOK_DASH: makeop(state, OP_SUB, 0); break;
 		case TOK_STAR: makeop(state, OP_MUL, 0); break;
 		case TOK_SLASH: makeop(state, OP_DIV, 0); break;
+		case TOK_EQ:
+			if (!left.lvalue) {
+				eval.isvoid = true;
+				printf("left must be lvalue dipshit\n");
+				return eval;
+			}
+			
+			if (left.isglobal) {
+				makeop(state, OP_STORE, left.absloc);
+				makeop(state, OP_POPN, 1);
+				state->stacktop--;
+				eval.absloc = left.absloc;
+				eval.isglobal = true;
+			} else {
+				makeop(state, OP_TRANSFER, state->stacktop - left.absloc);
+				makeop(state, OP_POPN, 1);
+				eval.absloc = --state->stacktop;
+			}
+			break;
 		default: break;
 		}
-		eval.absloc = --state->stacktop;
+		if (expr->token.type != TOK_EQ) eval.absloc = --state->stacktop;
 	}
 	if (expr->type == AST_LITERAL) {
 		char tmp[32];
@@ -175,7 +212,7 @@ static struct scoperef compile_expr(struct state *state, struct ast_node *expr) 
 	}
 	if (expr->type == AST_IDENT) {
 		struct scopevar *ident = NULL;
-		for (int i = 0; i < state->currscope ? state->scopes[1].scopebase : state->scopetop + 1; i++) {
+		for (int i = state->scopetop; i > -1; i--) {
 			struct scopevar *curr = &state->scopebuf[i];
 			if (curr->name.strlen != expr->token.strlen
 				|| memcmp(curr->name.str, expr->token.str, curr->name.strlen) != 0)
@@ -188,7 +225,12 @@ static struct scoperef compile_expr(struct state *state, struct ast_node *expr) 
 			eval.isvoid = true;
 			return eval;
 		}
-		eval.absloc = ident->absloc;
+		if (ident->dataloc != -1) {
+			eval.isglobal = true;
+			eval.absloc = ident->dataloc;
+		} else {
+			eval.absloc = ident->absloc;
+		}
 		eval.lvalue = true;
 	}
 	if (expr->type == AST_CALL) {
@@ -211,7 +253,8 @@ static struct scoperef compile_expr(struct state *state, struct ast_node *expr) 
 		struct ast_node *param = expr->inner;
 		int stacktop = state->stacktop;
 		while (param) {
-			compile_expr(state, param);
+			struct scoperef ref = compile_expr(state, param);
+			get_value(state, &ref);
 			param = param->next;
 		}
 		if (func->is_externfn) {
@@ -247,9 +290,11 @@ static void compile_stmt_list(struct state *state,
 	while (stmt) {
 		switch (stmt->type) {
 		case AST_LET:
-			add_variable(state, stmt, 0);
-			compile_expr(state, stmt->inner);
-			
+			{
+				compile_expr(state, stmt->alt1);
+				add_variable(state, stmt, 0);
+				//makeop(state, OP_PUSH0, get_podtype(state, stmt->inner));
+			}
 			break;
 		case AST_EXPR:
 			{
@@ -317,6 +362,16 @@ static void compile_fn(struct state *state, struct ast_node *fn) {
 
 	vm_addfn(state->vm, fn->token.str, fn->token.strlen, fnloc);
 	pop_scope(state);
+
+	assert(state->currscope == 0);
+
+	state->scopebuf[state->scopetop++] = (struct scopevar){
+		.name = fn->token,
+		.type = fn,
+		.is_externfn = 0,
+		.absloc = -1,
+		.dataloc = fnloc,
+	};
 }
 
 void compile_init(struct state *state,
