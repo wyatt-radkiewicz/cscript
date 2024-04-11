@@ -242,6 +242,7 @@ static struct scoperef compile_expr(struct state *state, struct ast_node *expr, 
 		}
 		if (!ident) {
 			printf("DO ident error here :)\n");
+			printf("line: %d\n", expr->token.line);
 			eval.isvoid = true;
 			return eval;
 		}
@@ -267,6 +268,7 @@ static struct scoperef compile_expr(struct state *state, struct ast_node *expr, 
 		}
 		if (!func) {
 			printf("DO error here :)\n");
+			printf("line: %d\n", expr->token.line);
 			eval.isvoid = true;
 			return eval;
 		}
