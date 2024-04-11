@@ -229,20 +229,29 @@ static struct scoperef compile_expr(struct state *state, struct ast_node *expr, 
 		char tmp[32];
 		strncpy(tmp, expr->token.str, 32);
 		tmp[31] = '\0';
+		bool iszero = false;
 		if (finalty == VAR_FLOAT) {
-			state->vm->data[state->globalhead].f = atof(tmp);
+			int f = atof(tmp);
+			iszero = f == 0.0f;
+			if (!iszero) state->vm->data[state->globalhead].f = f;
 			eval.podtype = VAR_FLOAT;
 			makeop(state, OP_PUSH0, VAR_FLOAT);
 		} else if (finalty == VAR_UINT) {
-			state->vm->data[state->globalhead].u = (unsigned int)atoll(tmp);
+			int u = (unsigned int)atoll(tmp);
+			iszero = !u;
+			if (!iszero) state->vm->data[state->globalhead].u = u;
 			eval.podtype = VAR_UINT;
 			makeop(state, OP_PUSH0, VAR_UINT);
 		} else {
-			state->vm->data[state->globalhead].i = atoi(tmp);
+			int i = atoi(tmp);
+			iszero = !i;
+			if (!iszero) state->vm->data[state->globalhead].i = i;
 			eval.podtype = VAR_INT;
 			makeop(state, OP_PUSH0, VAR_INT);
 		}
-		makeop(state, OP_LOAD, state->globalhead++);
+		if (!iszero) {
+			makeop(state, OP_LOAD, state->globalhead++);
+		}
 		eval.absloc = ++state->stacktop;
 	}
 	if (expr->type == AST_IDENT) {
