@@ -4,7 +4,7 @@ extern fn input_int() -> int;
 let TEST: int = 5;
 
 fn printn(n: int) -> void {
-	let i: int = 0;
+	let i: int;
 	while i < n {
 		print_int(i);
 		i = i + 1;
@@ -24,58 +24,8 @@ fn main() -> int {
 
 ////!code:1K,data:1K,funcs:1K
 //
-//// Run at game startup
-//fn gen_objtype() -> WobjType {
-//	return WobjType {
-//		...
-//	};
-//}
-//
-//// Run for every object
-//fn slime_create(objptr: extern *Wobj, x: float, y: float, ci: int, cf: float) -> void {
-//	let obj: &Wobj = unwrap(objptr);
-//	
-//	obj.hitbox = Hibox{
-//		x: 4, y: 16, w: 32-8, h: 16
-//	};
-//	obj.flags = obj.flags | WOBJ_FLAG_ENEMY;
-//	obj.health = 3;
-//	obj.strength = 0.02;
-//	obj.speed = 3;
-//	obj.timer = util_randint(SEC, SEC*5);
-//	obj.velx = obj.speed * (util_randint(0, 1) * 2 - 1);
-//}
-//
-//fn slime_update(objptr: extern *Wobj) -> void {
-//	let obj: &Wobj = unwrap(objptr);
-//	obj.timer = obj.timer - 1;
-//	if obj.timer <= 0 {
-//		interaction_destroy(objptr);
-//		return;
-//	}
-//
-//	wobj_enemycry(-1);
-//	physics_begin(objptr);
-//	if wobj_getcollision(objptr, obj.velx, 0.0) {
-//		// turn around
-//		obj.velx = obj.velx * -1.0;
-//	}
-//	obj.vely = obj.vely + GVAR_GRAVITY;
-//	physics_end(objptr);
-//}
-//
-//fn slime_draw(objptr: extern *Wobj, cx: int, cy: int) -> void {
-//	let obj: &Wobj = unwrap(objptr);
-//	render_bitmap_ex(
-//		obj.x - cx,
-//		obj.y - cy,
-//		&bs_objtypes[WOBJ_SLIME].frames[obj.anim_frame],
-//		wobj_calclight(obj) + block_light(obj.x / BSZ, obj.y / BSZ),
-//		0,
-//		obj.flags & WOBJ_FLAG_HFLIP,
-//		False,
-//	);
-//}
+// let arr: [int] = [0, 1, 2, 3, 4, 5, 6];
+// let arr: [int];
 
 // Base types
 // int		(i32)

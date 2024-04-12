@@ -338,6 +338,18 @@ static struct scoperef compile_expr(struct state *state, struct ast_node *expr, 
 	return eval;
 }
 
+static struct scoperef compile_default_init(struct state *state, enum vm_varty ty) {
+	struct scoperef eval = {
+		.absloc = ++state->stacktop,
+		.isglobal = false,
+		.podtype = ty,
+		.lvalue = true,
+		.isvoid = false,
+	};
+	makeop(state, OP_PUSH0, ty);
+	return eval;
+}
+
 static void compile_stmt_list(struct state *state,
 				struct ast_node *stmt,
 				struct ast_node *fn) {
@@ -347,7 +359,12 @@ static void compile_stmt_list(struct state *state,
 		switch (stmt->type) {
 		case AST_LET:
 			{
-				struct scoperef ref = compile_expr(state, stmt->alt1, get_podtype(state, stmt->inner));
+				struct scoperef ref;
+				if (stmt->alt1) {
+					ref = compile_expr(state, stmt->alt1, get_podtype(state, stmt->inner));
+				} else {
+					ref = compile_default_init(state, get_podtype(state, stmt->inner));
+				}
 				enum vm_varty ty = get_podtype(state, stmt->inner);
 				if (ref.podtype != ty) makeop(state, OP_CAST, ty);
 				//implicit_convert(state, &ref, get_podtype(state, stmt->inner));

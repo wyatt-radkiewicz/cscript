@@ -12,6 +12,7 @@ enum vm_varty
 	VAR_REF,
 	VAR_PFN,
 	VAR_STRUCT,
+	VAR_ARRAY,
 	VAR_VOID,
 };
 
