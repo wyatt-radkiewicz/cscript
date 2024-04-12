@@ -1,10 +1,10 @@
-extern fn print_int(val: int);
-extern fn input_int() -> int;
+extern fn print_int(val: i32);
+extern fn input_int() -> i32;
 
-let TEST: int = 5;
+let TEST: i32 = 012;
 
-fn printn(n: int) -> void {
-	let i: int;
+static fn printn(n: i32) -> void {
+	let i: i32;
 	while i < n {
 		print_int(i);
 		i = i + 1;
@@ -12,7 +12,9 @@ fn printn(n: int) -> void {
 }
 
 fn main() -> int {
-	printn(input_int());
+	let arr: [i32] = [0, 1, 2, 3, 4];
+	arr[2] = input_int();
+	printn(arr[2]);
 	return 0;
 }
 
@@ -26,6 +28,10 @@ fn main() -> int {
 //
 // let arr: [int] = [0, 1, 2, 3, 4, 5, 6];
 // let arr: [int];
+// let str: [char] = "hello";
+// let dynstr_ptr: *[char] = new [char; 5];
+// if dynstr_ptr == nullptr { return; }
+// let dynstr: &[char] = unwrap(dynstr_ptr);
 
 // Base types
 // int		(i32)

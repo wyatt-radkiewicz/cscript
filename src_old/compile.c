@@ -64,6 +64,7 @@ static void add_argument(struct state *state, struct ast_node *vardef, int param
 
 static int get_podtype(struct state *state, struct ast_node *type) {
 	if (!type) return VAR_VOID;
+	if (type->type == AST_ARRAY_OF) return VAR_ARRAY;
 	if (type->type == AST_IDENT) {
 		printf("IMPLEMENT TYPEDEFS (and structs)!!");
 		return -1;
@@ -82,6 +83,33 @@ static int get_podtype(struct state *state, struct ast_node *type) {
 		default: return -1;
 		}
 	default: return -1;
+	}
+}
+
+static struct vm_typed_var eval_constexpr(struct state *state,
+					struct ast_node *expr,
+					struct ast_node *finaltype);
+
+// Gets the size in units
+static int get_typesize(struct state *state, struct ast_node *type) {
+	switch (type->type) {
+	case AST_REF_OF: return 1;
+	case AST_CONST_OF: return get_typesize(state, type->inner);
+	case AST_PTR_OF: return 1;
+	case AST_CPTR_OF: return 1;
+	case AST_BASE_TYPE: return 1;
+	case AST_IDENT:
+		printf("unimplemented typesize of struct/typedef\n");
+		return -1;
+	case AST_ARRAY_OF:
+		{
+			int len = type->alt1 ? eval_constexpr(state, type->alt1,
+				&(struct ast_node){.type = AST_BASE_TYPE, .token =
+					(struct token){.type = TOK_TYPE_INT}}).data.i : 1;
+			int sz = get_typesize(state, type->inner);
+			return len * sz;
+		}
+	default: return -69;
 	}
 }
 
@@ -338,16 +366,60 @@ static struct scoperef compile_expr(struct state *state, struct ast_node *expr, 
 	return eval;
 }
 
-static struct scoperef compile_default_init(struct state *state, enum vm_varty ty) {
+static struct scoperef compile_default_init(struct state *state, struct ast_node *type) {
+	enum vm_varty podty = get_podtype(state, type);
+
+	if (podty == VAR_ARRAY) {
+		struct scoperef eval = {
+			.absloc = ++state->stacktop,
+			.isglobal = false,
+			.podtype = podty,
+			.lvalue = true,
+			.isvoid = false,
+		};
+		makeop(state, OP_PUSH0, podty);
+		makeop(state, OP_PUSH0, podty);
+		return eval;
+	}
 	struct scoperef eval = {
 		.absloc = ++state->stacktop,
 		.isglobal = false,
-		.podtype = ty,
+		.podtype = podty,
 		.lvalue = true,
 		.isvoid = false,
 	};
-	makeop(state, OP_PUSH0, ty);
+	makeop(state, OP_PUSH0, podty);
 	return eval;
+}
+
+static struct scoperef compile_init_expr(struct state *state,
+					struct ast_node *expr,
+					struct ast_node *type) {
+	enum vm_varty pod = get_podtype(state, type);
+	switch (pod) {
+	case VAR_ARRAY:
+		{
+			struct ast_node *node = expr->inner;
+			struct scoperef ref = {
+				.absloc = 0,
+				.podtype = pod,
+				.lvalue = true,
+				.isglobal = false,
+				.isvoid = false,
+			};
+			while (node) {
+				compile_init_expr(state, node, type->inner);
+				node = node->next;
+			}
+			ref.absloc = state->stacktop;
+			return ref;
+		}
+		break;
+	case VAR_STRUCT:
+		return compile_expr(state, expr, pod);
+	default:
+		return compile_expr(state, expr, pod);
+	}
 }
 
 static void compile_stmt_list(struct state *state,
@@ -361,15 +433,13 @@ static void compile_stmt_list(struct state *state,
 			{
 				struct scoperef ref;
 				if (stmt->alt1) {
-					ref = compile_expr(state, stmt->alt1, get_podtype(state, stmt->inner));
+					ref = compile_init_expr(state, stmt->alt1, stmt->inner);
 				} else {
 					ref = compile_default_init(state, get_podtype(state, stmt->inner));
 				}
 				enum vm_varty ty = get_podtype(state, stmt->inner);
 				if (ref.podtype != ty) makeop(state, OP_CAST, ty);
-				//implicit_convert(state, &ref, get_podtype(state, stmt->inner));
 				add_variable(state, stmt, 0);
-				//makeop(state, OP_PUSH0, get_podtype(state, stmt->inner));
 			}
 			break;
 		case AST_EXPR:

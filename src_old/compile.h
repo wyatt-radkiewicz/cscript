@@ -24,6 +24,11 @@ struct scopevar {
 struct scope {
 	int stackbase, scopebase, nparams;
 };
+struct vartype {
+	enum vm_varty ty;
+	int size;
+	int static_arrlen;
+};
 
 struct scoperef {
 	int absloc;

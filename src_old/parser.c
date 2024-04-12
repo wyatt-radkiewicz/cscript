@@ -299,6 +299,74 @@ static struct ast_node *parse_type(struct state *state)
 	}
 }
 
+static struct ast_node *parse_init_expr(struct state *state);
+
+#define ARR_MAX 4096
+static struct ast_node *parse_array_init(struct state *state) {
+	struct ast_node *node = alloc_node(state, AST_ARRAY_INIT);
+
+	struct ast_node *arr[ARR_MAX];
+	int len = 0;
+
+	EAT_TOKEN(TOK_LBRACK);
+	while (state->token.type != TOK_RBRACK) {
+		arr[len++] = parse_init_expr(state);
+		if (state->token.type == TOK_COMMA) {
+			token_iter_next(&state->src, &state->token);
+		}
+	}
+	EAT_TOKEN(TOK_RBRACK);
+
+	struct ast_node **last = &node->inner, *curr = NULL;
+	for (int i = len-1; i > -1; i--) {
+		curr = arr[i];
+		*last = curr;
+		last = &curr->next;
+	}
+
+	return node;
+}
+
+static struct ast_node *parse_struct_init(struct state *state) {
+	struct ast_node *node = alloc_node(state, AST_STRUCT_INIT);
+
+	struct ast_node **last = &node->inner, *curr = NULL;
+
+	node->token = state->token;
+	token_iter_next(&state->src, &state->token);
+	EAT_TOKEN(TOK_LBRACE);
+	while (state->token.type != TOK_RBRACE) {
+		curr = alloc_node(state, AST_STRUCT_MEMBER_INIT);
+		curr->token = state->token;
+		token_iter_next(&state->src, &state->token);
+		EAT_TOKEN(TOK_COLON);
+		curr->inner = parse_init_expr(state);
+
+		*last = curr;
+		last = &curr->next;
+		if (state->token.type == TOK_COMMA) {
+			token_iter_next(&state->src, &state->token);
+		}
+	}
+	EAT_TOKEN(TOK_RBRACE);
+
+	return node;
+}
+
+static struct ast_node *parse_init_expr(struct state *state) {
+	if (state->token.type == TOK_LBRACK) return parse_array_init(state);
+	if (state->token.type == TOK_IDENT) {
+		const char *src = state->src;
+		struct token tok = state->token;
+
+		token_iter_next(&src, &tok);
+		if (tok.type == TOK_LBRACE) {
+			return parse_struct_init(state);
+		}
+	}
+	return parse_expr(state, 13);
+}
+
 static struct ast_node *parse_let(struct state *state)
 {
 	struct ast_node *node = alloc_node(state, AST_LET);
@@ -310,7 +378,7 @@ static struct ast_node *parse_let(struct state *state)
 	if (state->token.type == TOK_EQ)
 	{
 		token_iter_next(&state->src, &state->token);
-		node->alt1 = parse_expr(state, PREC_FULL);
+		node->alt1 = parse_init_expr(state);
 	}
 	return node;
 }
