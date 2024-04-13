@@ -27,10 +27,16 @@ int main(int argc, char **argv) {
         emit_op_imm_i32(&head, 50);
         emit_op_imm_i32(&head, 19);
         emit_op_add(&head, false, false, false);
+        emit_op_imm_i32(&head, 0);
+        emit_op_push_eq(&head, false, false);
+        emit_op_beq(&head, 4, false);
+        emit_op_imm_i32(&head, 420);
+        emit_op_add(&head, false, false, false);
         emit_op_ret(&head);
     }
     for (const uint8_t *head = code;;) {
         if (head >= code + arrsz(code)) break;
+        printf("%4zu: ", head - code);
         if (vm_opcode_log(&head, stdout) == op_illegal) break;
         printf("\n");
     }
