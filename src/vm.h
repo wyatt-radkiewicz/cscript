@@ -13,7 +13,7 @@ typedef struct vm_callstack {
 
 typedef void *(*vm_alloc_t)(void *user, size_t sz);
 typedef void (*vm_free_t)(void *user, void *ptr);
-typedef void (*vm_extern_fn_t)(vm_state *state);
+typedef void (*vm_extern_fn_t)(vm_state_t *state);
 
 //
 // Fill this struct out and then call run
@@ -68,7 +68,9 @@ typedef enum vm_error_code {
 //
 typedef struct vm_error {
     vm_error_code_t errcode;
+    const uint8_t *instr_pointer;
     int64_t program_counter;
+    size_t code_size;
     uint8_t *stack_pointer;
     size_t stack_size, callstack_len;
 } vm_error_t;
@@ -100,7 +102,8 @@ bool vm_state_pop_f32(vm_state_t *state, float *x);
 bool vm_state_pop_f64(vm_state_t *state, double *x);
 //#ifdef DEBUG
 #include <stdio.h>
-void vm_error_log(const vm_error_t *err, FILE *out);
+void vm_error_log(const vm_error_t err, FILE *out);
+vm_opcode_t vm_opcode_log(const uint8_t **code, FILE *out);
 //#endif
 
 #endif

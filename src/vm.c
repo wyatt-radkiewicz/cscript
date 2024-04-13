@@ -13,39 +13,41 @@ static inline vm_error_t vm_error_init(vm_state_t *state, vm_error_code_t code) 
         .stack_size = state->stack + state->stack_size - state->sp,
         .program_counter = (intptr_t)state->pc - (intptr_t)state->code,
         .callstack_len = state->rp - state->callstack,
+        .instr_pointer = state->pc,
+        .code_size = state->code_size,
     };
 }
 
-static inline uint8_t take_u8(vm_state_t *state) {
-    return *state->pc++;
+static inline uint8_t take_u8(uint8_t **code) {
+    return *(*code)++;
 }
-static inline uint16_t take_u16(vm_state_t *state) {
-    uint16_t x = *state->pc++;
-    x |= *state->pc++ << 8;
+static inline uint16_t take_u16(uint8_t **code) {
+    uint16_t x = *(*code)++;
+    x |= *(*code)++ << 8;
     return x;
 }
-static inline uint32_t take_u32(vm_state_t *state) {
-    uint32_t x = *state->pc++;
-    x |= *state->pc++ << 8;
-    x |= *state->pc++ << 16;
-    x |= *state->pc++ << 24;
+static inline uint32_t take_u32(uint8_t **code) {
+    uint32_t x = *(*code)++;
+    x |= *(*code)++ << 8;
+    x |= *(*code)++ << 16;
+    x |= *(*code)++ << 24;
     return x;
 }
-static inline uint64_t take_u64(vm_state_t *state) {
-    uint64_t x = *state->pc++;
-    x |= (uint64_t)(*state->pc++) << 8;
-    x |= (uint64_t)(*state->pc++) << 16;
-    x |= (uint64_t)(*state->pc++) << 24;
-    x |= (uint64_t)(*state->pc++) << 32;
-    x |= (uint64_t)(*state->pc++) << 40;
-    x |= (uint64_t)(*state->pc++) << 48;
-    x |= (uint64_t)(*state->pc++) << 56;
+static inline uint64_t take_u64(uint8_t **code) {
+    uint64_t x = *(*code)++;
+    x |= (uint64_t)(*(*code)++) << 8;
+    x |= (uint64_t)(*(*code)++) << 16;
+    x |= (uint64_t)(*(*code)++) << 24;
+    x |= (uint64_t)(*(*code)++) << 32;
+    x |= (uint64_t)(*(*code)++) << 40;
+    x |= (uint64_t)(*(*code)++) << 48;
+    x |= (uint64_t)(*(*code)++) << 56;
     return x;
 }
 #define cast_take_template(NAME, TYPE, WIDTH) \
-    static inline TYPE take_##NAME(vm_state_t *state) { \
+    static inline TYPE take_##NAME(uint8_t **code) { \
         TYPE x; \
-        *(uint##WIDTH##_t *)(&x) = take_u##WIDTH(state); \
+        *(uint##WIDTH##_t *)(&x) = take_u##WIDTH(code); \
         return x; \
     }
 cast_take_template(i8, int8_t, 8)
@@ -66,8 +68,8 @@ cast_take_template(ptr, void *, 64)
 // Opcode implementations
 //
 static inline bool run_op_load_data(vm_state_t *state, vm_error_t *err, bool size_class) {
-    const uint32_t offs = size_class ? take_u32(state) : take_u8(state);
-    const uint32_t n = size_class ? take_u32(state) : take_u8(state);
+    const uint32_t offs = size_class ? take_u32(&state->pc) : take_u8(&state->pc);
+    const uint32_t n = size_class ? take_u32(&state->pc) : take_u8(&state->pc);
     vm_errout(offs + n > state->data_size, vm_err_segfault);
     vm_errout(state->sp - n < state->stack, vm_err_stack_overflow);
     state->sp -= n;
@@ -75,15 +77,15 @@ static inline bool run_op_load_data(vm_state_t *state, vm_error_t *err, bool siz
     return true;
 }
 static inline bool run_op_store_data(vm_state_t *state, vm_error_t *err, bool size_class) {
-    const uint32_t offs = size_class ? take_u32(state) : take_u8(state);
-    const uint32_t n = size_class ? take_u32(state) : take_u8(state);
+    const uint32_t offs = size_class ? take_u32(&state->pc) : take_u8(&state->pc);
+    const uint32_t n = size_class ? take_u32(&state->pc) : take_u8(&state->pc);
     vm_errout(offs + n > state->data_size, vm_err_segfault);
     vm_errout(state->sp + n > state->stack + state->stack_size, vm_err_stack_overrun);
     memcpy(state->data + offs, state->sp, n);
     return true;
 }
 static inline bool run_op_load_data_indirect(vm_state_t *state, vm_error_t *err, bool size_class) {
-    const uint32_t n = size_class ? take_u32(state) : take_u8(state);
+    const uint32_t n = size_class ? take_u32(&state->pc) : take_u8(&state->pc);
     uint32_t offs;
     vm_errout(!vm_state_pop_u32(state, &offs), vm_err_stack_underflow);
     vm_errout(state->sp - n < state->stack, vm_err_stack_overflow);
@@ -93,7 +95,7 @@ static inline bool run_op_load_data_indirect(vm_state_t *state, vm_error_t *err,
     return true;
 }
 static inline bool run_op_store_data_indirect(vm_state_t *state, vm_error_t *err, bool size_class) {
-    const uint32_t n = size_class ? take_u32(state) : take_u8(state);
+    const uint32_t n = size_class ? take_u32(&state->pc) : take_u8(&state->pc);
     uint32_t offs;
     vm_errout(!vm_state_pop_u32(state, &offs), vm_err_stack_underflow);
     vm_errout(state->sp + n > state->stack + state->stack_size, vm_err_stack_overrun);
@@ -102,7 +104,7 @@ static inline bool run_op_store_data_indirect(vm_state_t *state, vm_error_t *err
     return true;
 }
 static inline bool run_op_load_indirect(vm_state_t *state, vm_error_t *err, bool size_class) {
-    const uint32_t n = size_class ? take_u32(state) : take_u8(state);
+    const uint32_t n = size_class ? take_u32(&state->pc) : take_u8(&state->pc);
     void *ptr;
     vm_errout(!vm_state_pop_ptr(state, &ptr), vm_err_stack_underflow);
     //vm_errout(state->sp + n > state->stack + state->stack_size, vm_err_stack_overrun);
@@ -112,7 +114,7 @@ static inline bool run_op_load_indirect(vm_state_t *state, vm_error_t *err, bool
     return true;
 }
 static inline bool run_op_store_indirect(vm_state_t *state, vm_error_t *err, bool size_class) {
-    const uint32_t n = size_class ? take_u32(state) : take_u8(state);
+    const uint32_t n = size_class ? take_u32(&state->pc) : take_u8(&state->pc);
     void *ptr;
     vm_errout(!vm_state_pop_ptr(state, &ptr), vm_err_stack_underflow);
     vm_errout(state->sp + n > state->stack + state->stack_size, vm_err_stack_overrun);
@@ -120,8 +122,8 @@ static inline bool run_op_store_indirect(vm_state_t *state, vm_error_t *err, boo
     return true;
 }
 static inline bool run_op_load_stack(vm_state_t *state, vm_error_t *err, bool size_class) {
-    const int32_t offs = size_class ? take_i32(state) : take_i8(state);
-    const uint32_t n = size_class ? take_u32(state) : take_u8(state);
+    const int32_t offs = size_class ? take_i32(&state->pc) : take_i8(&state->pc);
+    const uint32_t n = size_class ? take_u32(&state->pc) : take_u8(&state->pc);
     const uint32_t base = state->rp->stack_base;
     vm_errout(state->sp - n < state->stack, vm_err_stack_overflow);
     vm_errout((int64_t)base + offs + n > state->stack_size, vm_err_stack_overrun);
@@ -131,8 +133,8 @@ static inline bool run_op_load_stack(vm_state_t *state, vm_error_t *err, bool si
     return true;
 }
 static inline bool run_op_store_stack(vm_state_t *state, vm_error_t *err, bool size_class) {
-    const int32_t offs = size_class ? take_i32(state) : take_i8(state);
-    const uint32_t n = size_class ? take_u32(state) : take_u8(state);
+    const int32_t offs = size_class ? take_i32(&state->pc) : take_i8(&state->pc);
+    const uint32_t n = size_class ? take_u32(&state->pc) : take_u8(&state->pc);
     const uint32_t base = state->rp->stack_base;
     vm_errout(state->sp + n > state->stack + state->stack_size, vm_err_stack_underflow);
     vm_errout((int64_t)base + offs + n > state->stack_size, vm_err_stack_overrun);
@@ -141,8 +143,8 @@ static inline bool run_op_store_stack(vm_state_t *state, vm_error_t *err, bool s
     return true;
 }
 static inline bool run_op_load_stack_indirect(vm_state_t *state, vm_error_t *err, bool size_class) {
-    const int32_t offs = size_class ? take_i32(state) : take_i8(state);
-    const uint32_t n = size_class ? take_u32(state) : take_u8(state);
+    const int32_t offs = size_class ? take_i32(&state->pc) : take_i8(&state->pc);
+    const uint32_t n = size_class ? take_u32(&state->pc) : take_u8(&state->pc);
     const uint32_t base = state->rp->stack_base;
     int32_t base_offs;
     vm_errout(!vm_state_pop_i32(state, &base_offs), vm_err_stack_underflow);
@@ -154,8 +156,8 @@ static inline bool run_op_load_stack_indirect(vm_state_t *state, vm_error_t *err
     return true;
 }
 static inline bool run_op_store_stack_indirect(vm_state_t *state, vm_error_t *err, bool size_class) {
-    const int32_t offs = size_class ? take_i32(state) : take_i8(state);
-    const uint32_t n = size_class ? take_u32(state) : take_u8(state);
+    const int32_t offs = size_class ? take_i32(&state->pc) : take_i8(&state->pc);
+    const uint32_t n = size_class ? take_u32(&state->pc) : take_u8(&state->pc);
     const uint32_t base = state->rp->stack_base;
     int32_t base_offs;
     vm_errout(!vm_state_pop_i32(state, &base_offs), vm_err_stack_underflow);
@@ -166,14 +168,14 @@ static inline bool run_op_store_stack_indirect(vm_state_t *state, vm_error_t *er
     return true;
 }
 static inline bool run_op_sub_stack(vm_state_t *state, vm_error_t *err, bool size_class) {
-    uint32_t n = size_class ? take_u32(state) : take_u8(state);
+    uint32_t n = size_class ? take_u32(&state->pc) : take_u8(&state->pc);
     vm_errout(!vm_state_pop_u32(state, &n), vm_err_stack_underflow);
     vm_errout(state->sp - n < state->stack, vm_err_stack_overflow);
     state->sp -= n;
     return true;
 }
 static inline bool run_op_add_stack(vm_state_t *state, vm_error_t *err, bool size_class) {
-    uint32_t n = size_class ? take_u32(state) : take_u8(state);
+    uint32_t n = size_class ? take_u32(&state->pc) : take_u8(&state->pc);
     vm_errout(!vm_state_pop_u32(state, &n), vm_err_stack_underflow);
     vm_errout(state->sp + n > state->stack + state->stack_size, vm_err_stack_underflow);
     state->sp += n;
@@ -188,7 +190,7 @@ static inline bool run_op_add_stack(vm_state_t *state, vm_error_t *err, bool siz
         } return true;
 #define binary_op_template(OP, OPNAME) \
 static inline bool run_##OPNAME(vm_state_t *state, vm_error_t *err, bool flag) { \
-    const uint8_t flags = take_u8(state); \
+    const uint8_t flags = take_u8(&state->pc); \
     switch (flags) { \
     binary_op_type(OP, int32_t, i32, 0b000) \
     binary_op_type(OP, uint32_t, u32, 0b100) \
@@ -244,7 +246,7 @@ static inline bool run_op_sra(vm_state_t *state, vm_error_t *err, bool bits64) {
     return true;
 }
 static inline bool run_op_mod(vm_state_t *state, vm_error_t *err, bool flag) {
-    const uint8_t flags = take_u8(state);
+    const uint8_t flags = take_u8(&state->pc);
     switch (flags) {
     case 0b00: {
         int32_t a, b;
@@ -289,7 +291,7 @@ static inline bool run_op_not(vm_state_t *state, vm_error_t *err, bool bits64) {
     return true;
 }
 static inline bool run_op_neg(vm_state_t *state, vm_error_t *err, bool flag) {
-    const uint8_t flags = take_u8(state);
+    const uint8_t flags = take_u8(&state->pc);
     switch (flags) {
     case 0b00: {
         int32_t a;
@@ -318,7 +320,7 @@ static inline bool run_op_neg(vm_state_t *state, vm_error_t *err, bool flag) {
     }
 }
 static inline bool run_op_extend(vm_state_t *state, vm_error_t *err, bool u) {
-    const uint8_t size_class = take_u8(state);
+    const uint8_t size_class = take_u8(&state->pc);
     switch (size_class | u << 2) {
     case 0b100: {
         uint8_t a;
@@ -357,7 +359,7 @@ static inline bool run_op_extend(vm_state_t *state, vm_error_t *err, bool u) {
     }
 }
 static inline bool run_op_reduce(vm_state_t *state, vm_error_t *err, bool flag) {
-    const uint8_t size_class = take_u8(state);
+    const uint8_t size_class = take_u8(&state->pc);
     switch (size_class) {
     case 0b01: {
         uint16_t a;
@@ -442,7 +444,7 @@ static inline bool run_op_d2f(vm_state_t *state, vm_error_t *err, bool flag) {
 }
 #define test_op_template(OP, OPNAME) \
 static inline bool run_##OPNAME(vm_state_t *state, vm_error_t *err, bool flag) { \
-    const uint8_t flags = take_u8(state); \
+    const uint8_t flags = take_u8(&state->pc); \
     switch (flags) { \
     /* 32 bit ints */ \
     case 0b00: { \
@@ -484,7 +486,7 @@ test_op_template(!=, op_push_ne)
 #undef test_op_template
 #define test_op_template(OP, OPNAME) \
 static inline bool run_##OPNAME(vm_state_t *state, vm_error_t *err, bool flag) { \
-    const uint8_t flags = take_u8(state); \
+    const uint8_t flags = take_u8(&state->pc); \
     switch (flags) { \
     /* 32 bit ints */ \
     case 0b000: { \
@@ -551,7 +553,7 @@ static inline bool run_op_ret(vm_state_t *state, vm_error_t *err, bool flag) {
     }
 }
 static inline bool run_op_call(vm_state_t *state, vm_error_t *err, bool flag) {
-    const uint32_t loc = take_u32(state);
+    const uint32_t loc = take_u32(&state->pc);
     vm_errout(state->callstack + 1 >= state->callstack + state->callstack_size, vm_err_callstack_overflow);
     state->callstack++;
     state->callstack->ret_loc = state->pc - state->code;
@@ -570,7 +572,7 @@ static inline bool run_op_call_indirect(vm_state_t *state, vm_error_t *err, bool
     return true;
 }
 static inline bool run_op_extern_call(vm_state_t *state, vm_error_t *err, bool flag) {
-    const uint32_t idx = take_u32(state);
+    const uint32_t idx = take_u32(&state->pc);
     vm_errout(idx >= state->pfn_size, vm_err_invalid_pfn);
     vm_errout(!state->pfn[idx], vm_err_invalid_pfn);
     state->pfn[idx](state);
@@ -584,7 +586,7 @@ static inline bool run_op_extern_call_indirect(vm_state_t *state, vm_error_t *er
     return true;
 }
 static inline bool run_op_jump(vm_state_t *state, vm_error_t *err, bool flag) {
-    const int32_t offs = take_i32(state);
+    const int32_t offs = take_i32(&state->pc);
     vm_errout(state->pc + offs >= state->code + state->code_size, vm_err_code_segfault);
     vm_errout(state->pc - offs < state->code, vm_err_code_segfault);
     state->pc += offs;
@@ -599,7 +601,7 @@ static inline bool run_op_jump_indirect(vm_state_t *state, vm_error_t *err, bool
     return true;
 }
 static inline bool run_op_bne(vm_state_t *state, vm_error_t *err, bool bits64) {
-    const int32_t offs = take_i32(state);
+    const int32_t offs = take_i32(&state->pc);
     vm_errout(state->pc + offs >= state->code + state->code_size, vm_err_code_segfault);
     vm_errout(state->pc - offs < state->code, vm_err_code_segfault);
 
@@ -615,7 +617,7 @@ static inline bool run_op_bne(vm_state_t *state, vm_error_t *err, bool bits64) {
     return true;
 }
 static inline bool run_op_beq(vm_state_t *state, vm_error_t *err, bool bits64) {
-    const int32_t offs = take_i32(state);
+    const int32_t offs = take_i32(&state->pc);
     vm_errout(state->pc + offs >= state->code + state->code_size, vm_err_code_segfault);
     vm_errout(state->pc - offs < state->code, vm_err_code_segfault);
 
@@ -631,62 +633,62 @@ static inline bool run_op_beq(vm_state_t *state, vm_error_t *err, bool bits64) {
     return true;
 }
 static inline bool run_op_imm_i8(vm_state_t *state, vm_error_t *err, bool flag) {
-    int8_t imm = take_i8(state);
+    int8_t imm = take_i8(&state->pc);
     vm_errout(!vm_state_push_i8(state, imm), vm_err_stack_overflow);
     return true;
 }
 static inline bool run_op_imm_i16(vm_state_t *state, vm_error_t *err, bool flag) {
-    int16_t imm = take_i16(state);
+    int16_t imm = take_i16(&state->pc);
     vm_errout(!vm_state_push_i16(state, imm), vm_err_stack_overflow);
     return true;
 }
 static inline bool run_op_imm_i32(vm_state_t *state, vm_error_t *err, bool flag) {
-    int32_t imm = take_i32(state);
+    int32_t imm = take_i32(&state->pc);
     vm_errout(!vm_state_push_i32(state, imm), vm_err_stack_overflow);
     return true;
 }
 static inline bool run_op_imm_i64(vm_state_t *state, vm_error_t *err, bool flag) {
-    int64_t imm = take_i64(state);
+    int64_t imm = take_i64(&state->pc);
     vm_errout(!vm_state_push_i64(state, imm), vm_err_stack_overflow);
     return true;
 }
 static inline bool run_op_imm_u8(vm_state_t *state, vm_error_t *err, bool flag) {
-    uint8_t imm = take_u8(state);
+    uint8_t imm = take_u8(&state->pc);
     vm_errout(!vm_state_push_u8(state, imm), vm_err_stack_overflow);
     return true;
 }
 static inline bool run_op_imm_u16(vm_state_t *state, vm_error_t *err, bool flag) {
-    uint16_t imm = take_u16(state);
+    uint16_t imm = take_u16(&state->pc);
     vm_errout(!vm_state_push_u16(state, imm), vm_err_stack_overflow);
     return true;
 }
 static inline bool run_op_imm_u32(vm_state_t *state, vm_error_t *err, bool flag) {
-    uint32_t imm = take_u32(state);
+    uint32_t imm = take_u32(&state->pc);
     vm_errout(!vm_state_push_u32(state, imm), vm_err_stack_overflow);
     return true;
 }
 static inline bool run_op_imm_u64(vm_state_t *state, vm_error_t *err, bool flag) {
-    uint64_t imm = take_u64(state);
+    uint64_t imm = take_u64(&state->pc);
     vm_errout(!vm_state_push_u64(state, imm), vm_err_stack_overflow);
     return true;
 }
 static inline bool run_op_imm_f32(vm_state_t *state, vm_error_t *err, bool flag) {
-    float imm = take_f32(state);
+    float imm = take_f32(&state->pc);
     vm_errout(!vm_state_push_f32(state, imm), vm_err_stack_overflow);
     return true;
 }
 static inline bool run_op_imm_f64(vm_state_t *state, vm_error_t *err, bool flag) {
-    double imm = take_f64(state);
+    double imm = take_f64(&state->pc);
     vm_errout(!vm_state_push_f64(state, imm), vm_err_stack_overflow);
     return true;
 }
 static inline bool run_op_imm_ptr(vm_state_t *state, vm_error_t *err, bool flag) {
-    void *imm = take_ptr(state);
+    void *imm = take_ptr(&state->pc);
     vm_errout(!vm_state_push_ptr(state, imm), vm_err_stack_overflow);
     return true;
 }
 static inline bool run_op_alloc(vm_state_t *state, vm_error_t *err, bool size_class) {
-    const uint32_t n = size_class ? take_u32(state) : take_u8(state);
+    const uint32_t n = size_class ? take_u32(&state->pc) : take_u8(&state->pc);
     assert(state->alloc && "Virtual machine must have an alloc pfn!");
     void *ptr = state->alloc(state->alloc_user, n);
     vm_errout(!vm_state_push_ptr(state, ptr), vm_err_stack_overflow);
@@ -782,14 +784,275 @@ vm_pop_template(f64, double)
 const char *vm_error_code_to_str(vm_error_code_t code) {
     switch (code) {
     VM_ERROR_CODES
+    default: return "";
     }
 }
 #undef X
-void vm_error_log(const vm_error_t *err, FILE *out) {
+void vm_error_log(const vm_error_t err, FILE *out) {
     fprintf(out, "vm_error_t {\n");
-    fprintf(out, "\tprogram_counter: %ld,\n", err->program_counter);
-    fprintf(out, "\tstack_pointer: %p,\n", err->stack_pointer);
-    fprintf(out, "\tstack_size: %zu,\n", err->stack_size);
+    fprintf(out, "\tprogram_counter: %ld,\n", err.program_counter);
+    fprintf(out, "\tinstr: ");
+    if (err.program_counter < err.code_size && err.instr_pointer) {
+        vm_opcode_log(&(const uint8_t *){err.instr_pointer}, out);
+    } else {
+        fprintf(out, "<null>");
+    }
+    fprintf(out, "\n");
+    fprintf(out, "\tstack_pointer: %p,\n", err.stack_pointer);
+    fprintf(out, "\tstack_size: %zu,\n", err.stack_size);
     fprintf(out, "}\n");
-
 }
+
+#define flagstr(FLAG, BIT) (((FLAG) & (BIT)) ? "true" : "false")
+static void log_op_load_data(uint8_t **code, FILE *out, bool size_class) {
+    if (size_class) {
+        fprintf(out, "offs: %ud, ", take_u32(code));
+        fprintf(out, "n: %ud", take_u32(code));
+    } else {
+        fprintf(out, "offs: %ud, ", take_u8(code));
+        fprintf(out, "n: %ud", take_u8(code));
+    }
+}
+static void log_op_store_data(uint8_t **code, FILE *out, bool size_class) {
+    if (size_class) {
+        fprintf(out, "offs: %ud, ", take_u32(code));
+        fprintf(out, "n: %ud", take_u32(code));
+    } else {
+        fprintf(out, "offs: %ud, ", take_u8(code));
+        fprintf(out, "n: %ud", take_u8(code));
+    }
+}
+static void log_op_load_data_indirect(uint8_t **code, FILE *out, bool size_class) {
+    if (size_class) fprintf(out, "n: %ud", take_u32(code));
+    else fprintf(out, "n: %ud", take_u8(code));
+}
+static void log_op_store_data_indirect(uint8_t **code, FILE *out, bool size_class) {
+    if (size_class) fprintf(out, "n: %ud", take_u32(code));
+    else fprintf(out, "n: %ud", take_u8(code));
+}
+static void log_op_load_indirect(uint8_t **code, FILE *out, bool size_class) {
+    if (size_class) fprintf(out, "n: %ud", take_u32(code));
+    else fprintf(out, "n: %ud", take_u8(code));
+}
+static void log_op_store_indirect(uint8_t **code, FILE *out, bool size_class) {
+    if (size_class) fprintf(out, "n: %ud", take_u32(code));
+    else fprintf(out, "n: %ud", take_u8(code));
+}
+static void log_op_load_stack(uint8_t **code, FILE *out, bool size_class) {
+    if (size_class) {
+        fprintf(out, "offs: %ud, ", take_u32(code));
+        fprintf(out, "n: %ud", take_u32(code));
+    } else {
+        fprintf(out, "offs: %ud, ", take_u8(code));
+        fprintf(out, "n: %ud", take_u8(code));
+    }
+}
+static void log_op_store_stack(uint8_t **code, FILE *out, bool size_class) {
+    if (size_class) {
+        fprintf(out, "offs: %ud, ", take_u32(code));
+        fprintf(out, "n: %ud", take_u32(code));
+    } else {
+        fprintf(out, "offs: %ud, ", take_u8(code));
+        fprintf(out, "n: %ud", take_u8(code));
+    }
+}
+static void log_op_load_stack_indirect(uint8_t **code, FILE *out, bool size_class) {
+    if (size_class) {
+        fprintf(out, "offs: %ud, ", take_u32(code));
+        fprintf(out, "n: %ud", take_u32(code));
+    } else {
+        fprintf(out, "offs: %ud, ", take_u8(code));
+        fprintf(out, "n: %ud", take_u8(code));
+    }
+}
+static void log_op_store_stack_indirect(uint8_t **code, FILE *out, bool size_class) {
+    if (size_class) {
+        fprintf(out, "offs: %ud, ", take_u32(code));
+        fprintf(out, "n: %ud", take_u32(code));
+    } else {
+        fprintf(out, "offs: %ud, ", take_u8(code));
+        fprintf(out, "n: %ud", take_u8(code));
+    }
+}
+static void log_op_sub_stack(uint8_t **code, FILE *out, bool size_class) {
+    if (size_class) fprintf(out, "n: %ud", take_u32(code));
+    else fprintf(out, "n: %ud", take_u8(code));
+}
+static void log_op_add_stack(uint8_t **code, FILE *out, bool size_class) {
+    if (size_class) fprintf(out, "n: %ud", take_u32(code));
+    else fprintf(out, "n: %ud", take_u8(code));
+}
+static void log_op_add(uint8_t **code, FILE *out, bool flag) {
+    const uint8_t flags = take_u8(code);
+    fprintf(out, "bits64: %s, fp: %s, u: %s", flagstr(flags, 0), flagstr(flags, 1), flagstr(flags, 2));
+}
+static void log_op_sub(uint8_t **code, FILE *out, bool flag) {
+    const uint8_t flags = take_u8(code);
+    fprintf(out, "bits64: %s, fp: %s, u: %s", flagstr(flags, 0), flagstr(flags, 1), flagstr(flags, 2));
+}
+static void log_op_mul(uint8_t **code, FILE *out, bool flag) {
+    const uint8_t flags = take_u8(code);
+    fprintf(out, "bits64: %s, fp: %s, u: %s", flagstr(flags, 0), flagstr(flags, 1), flagstr(flags, 2));
+}
+static void log_op_div(uint8_t **code, FILE *out, bool flag) {
+    const uint8_t flags = take_u8(code);
+    fprintf(out, "bits64: %s, fp: %s, u: %s", flagstr(flags, 0), flagstr(flags, 1), flagstr(flags, 2));
+}
+static void log_op_and(uint8_t **code, FILE *out, bool flag) {
+    fprintf(out, "bits64: %s", flag ? "true" : "false");
+}
+static void log_op_or(uint8_t **code, FILE *out, bool flag) {
+    fprintf(out, "bits64: %s", flag ? "true" : "false");
+}
+static void log_op_xor(uint8_t **code, FILE *out, bool flag) {
+    fprintf(out, "bits64: %s", flag ? "true" : "false");
+}
+static void log_op_sll(uint8_t **code, FILE *out, bool flag) {
+    fprintf(out, "bits64: %s", flag ? "true" : "false");
+}
+static void log_op_srl(uint8_t **code, FILE *out, bool flag) {
+    fprintf(out, "bits64: %s", flag ? "true" : "false");
+}
+static void log_op_sra(uint8_t **code, FILE *out, bool flag) {
+    fprintf(out, "bits64: %s", flag ? "true" : "false");
+}
+static void log_op_not(uint8_t **code, FILE *out, bool flag) {
+    fprintf(out, "bits64: %s", flag ? "true" : "false");
+}
+static void log_op_mod(uint8_t **code, FILE *out, bool flag) {
+    const uint8_t flags = take_u8(code);
+    fprintf(out, "bits64: %s, u: %s", flagstr(flags, 0), flagstr(flags, 1));
+}
+static void log_op_neg(uint8_t **code, FILE *out, bool flag) {
+    const uint8_t flags = take_u8(code);
+    fprintf(out, "bits64: %s, u: %s", flagstr(flags, 0), flagstr(flags, 1));
+}
+static void log_op_extend(uint8_t **code, FILE *out, bool u) {
+    const uint8_t size_class = take_u8(code);
+    fprintf(out, "u: %s, size_class: %u", u ? "true" : "false", size_class);
+}
+static void log_op_reduce(uint8_t **code, FILE *out, bool u) {
+    const uint8_t size_class = take_u8(code);
+    fprintf(out, "u: %s, size_class: %u", u ? "true" : "false", size_class);
+}
+static void log_op_f2u(uint8_t **code, FILE *out, bool flag) {
+    fprintf(out, "bits64: %s", flag ? "true" : "false");
+}
+static void log_op_f2i(uint8_t **code, FILE *out, bool flag) {
+    fprintf(out, "bits64: %s", flag ? "true" : "false");
+}
+static void log_op_i2f(uint8_t **code, FILE *out, bool flag) {
+    fprintf(out, "bits64: %s", flag ? "true" : "false");
+}
+static void log_op_u2f(uint8_t **code, FILE *out, bool flag) {
+    fprintf(out, "bits64: %s", flag ? "true" : "false");
+}
+static void log_op_f2d(uint8_t **code, FILE *out, bool flag) {}
+static void log_op_d2f(uint8_t **code, FILE *out, bool flag) {}
+static void log_op_push_eq(uint8_t **code, FILE *out, bool flag) {
+    const uint8_t flags = take_u8(code);
+    fprintf(out, "bits64: %s, fp: %s", flagstr(flags, 0), flagstr(flags, 1));
+}
+static void log_op_push_ne(uint8_t **code, FILE *out, bool flag) {
+    const uint8_t flags = take_u8(code);
+    fprintf(out, "bits64: %s, fp: %s", flagstr(flags, 0), flagstr(flags, 1));
+}
+static void log_op_push_gt(uint8_t **code, FILE *out, bool flag) {
+    const uint8_t flags = take_u8(code);
+    fprintf(out, "bits64: %s, fp: %s, u: %s", flagstr(flags, 0), flagstr(flags, 1), flagstr(flags, 2));
+}
+static void log_op_push_lt(uint8_t **code, FILE *out, bool flag) {
+    const uint8_t flags = take_u8(code);
+    fprintf(out, "bits64: %s, fp: %s, u: %s", flagstr(flags, 0), flagstr(flags, 1), flagstr(flags, 2));
+}
+static void log_op_push_ge(uint8_t **code, FILE *out, bool flag) {
+    const uint8_t flags = take_u8(code);
+    fprintf(out, "bits64: %s, fp: %s, u: %s", flagstr(flags, 0), flagstr(flags, 1), flagstr(flags, 2));
+}
+static void log_op_push_le(uint8_t **code, FILE *out, bool flag) {
+    const uint8_t flags = take_u8(code);
+    fprintf(out, "bits64: %s, fp: %s, u: %s", flagstr(flags, 0), flagstr(flags, 1), flagstr(flags, 2));
+}
+static void log_op_ret(uint8_t **code, FILE *out, bool flag) {}
+static void log_op_call(uint8_t **code, FILE *out, bool flag) {
+    fprintf(out, "offs: %ud", take_u32(code));
+}
+static void log_op_call_indirect(uint8_t **code, FILE *out, bool flag) {}
+static void log_op_extern_call(uint8_t **code, FILE *out, bool flag) {
+    fprintf(out, "fn_idx: %ud", take_u32(code));
+}
+static void log_op_extern_call_indirect(uint8_t **code, FILE *out, bool flag) {}
+static void log_op_jump(uint8_t **code, FILE *out, bool flag) {
+    fprintf(out, "offs: %d", take_i32(code));
+}
+static void log_op_jump_indirect(uint8_t **code, FILE *out, bool flag) {}
+static void log_op_bne(uint8_t **code, FILE *out, bool flag) {
+    fprintf(out, "bits64: %s, offs: %d", flag ? "true" : "false", take_i32(code));
+}
+static void log_op_beq(uint8_t **code, FILE *out, bool flag) {
+    fprintf(out, "bits64: %s, offs: %d", flag ? "true" : "false", take_i32(code));
+}
+static void log_op_imm_i8(uint8_t **code, FILE *out, bool flag) {
+    fprintf(out, "imm: %d", take_i8(code));
+}
+static void log_op_imm_i16(uint8_t **code, FILE *out, bool size_class) {
+    if (size_class) fprintf(out, "imm: %d", take_i16(code));
+    else fprintf(out, "imm: %d", take_i8(code));
+}
+static void log_op_imm_i32(uint8_t **code, FILE *out, bool size_class) {
+    if (size_class) fprintf(out, "imm: %d", take_i32(code));
+    else fprintf(out, "imm: %d", take_i8(code));
+}
+static void log_op_imm_i64(uint8_t **code, FILE *out, bool size_class) {
+    if (size_class) fprintf(out, "imm: %ld", take_i64(code));
+    else fprintf(out, "imm: %d", take_i8(code));
+}
+static void log_op_imm_u8(uint8_t **code, FILE *out, bool flag) {
+    fprintf(out, "imm: %ud", take_u8(code));
+}
+static void log_op_imm_u16(uint8_t **code, FILE *out, bool size_class) {
+    if (size_class) fprintf(out, "imm: %ud", take_u16(code));
+    else fprintf(out, "imm: %ud", take_u8(code));
+}
+static void log_op_imm_u32(uint8_t **code, FILE *out, bool size_class) {
+    if (size_class) fprintf(out, "imm: %ud", take_u32(code));
+    else fprintf(out, "imm: %ud", take_u8(code));
+}
+static void log_op_imm_u64(uint8_t **code, FILE *out, bool size_class) {
+    if (size_class) fprintf(out, "imm: %lu", take_u64(code));
+    else fprintf(out, "imm: %ud", take_u8(code));
+}
+static void log_op_imm_f32(uint8_t **code, FILE *out, bool flag) {
+    fprintf(out, "imm: %f", take_f32(code));
+}
+static void log_op_imm_f64(uint8_t **code, FILE *out, bool flag) {
+    fprintf(out, "imm: %f", take_f64(code));
+}
+static void log_op_imm_ptr(uint8_t **code, FILE *out, bool flag) {
+    fprintf(out, "imm: %p", take_ptr(code));
+}
+static void log_op_alloc(uint8_t **code, FILE *out, bool size_class) {
+    if (size_class) fprintf(out, "n: %ud", take_u32(code));
+    else fprintf(out, "n: %ud", take_u8(code));
+}
+static void log_op_alloc_indirect(uint8_t **code, FILE *out, bool flag) {}
+static void log_op_free_indirect(uint8_t **code, FILE *out, bool flag) {}
+
+vm_opcode_t vm_opcode_log(const uint8_t **code, FILE *out) {
+    const uint8_t byte = *(*code)++;
+    const bool flag = byte & 0x80;
+    const vm_opcode_t opcode = byte & 0x7f;
+
+#define X(ENUM) \
+case ENUM: \
+    fprintf(out, #ENUM"("); \
+    log_##ENUM((uint8_t **)code, out, flag); \
+    fprintf(out, ")"); \
+    return opcode;
+    switch (opcode) {
+    VM_OPCODES
+    default: fprintf(out, "op_invalid()"); return op_illegal;
+    }
+#undef X
+}
+

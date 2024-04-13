@@ -77,6 +77,7 @@
     X(op_free_indirect)
 
 #define vm_opcode_max (op_free_indirect + 1)
+#define op_illegal vm_opcode_max
 
 #define X(ENUM) ENUM,
 typedef enum vm_opcode {
