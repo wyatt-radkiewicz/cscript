@@ -101,15 +101,25 @@ void emit_op_store_stack(uint8_t **code, uint32_t offs, uint32_t n) {
         emit(n & 0xff);
     }
 }
-void emit_op_load_stack_indirect(uint8_t **code, uint32_t n) {
-    emit(op_load_stack_indirect | size_class_u32(n));
-    if (size_class_u32(n)) emit_u32(code, n);
-    else emit(n & 0xff);
+void emit_op_load_stack_indirect(uint8_t **code, uint32_t offs, uint32_t n) {
+    emit(op_load_stack_indirect | size_class_u32(offs) | size_class_u32(n));
+    if (size_class_u32(offs) || size_class_u32(n)) {
+        emit_u32(code, offs);
+        emit_u32(code, n);
+    } else {
+        emit(offs & 0xff);
+        emit(n & 0xff);
+    }
 }
-void emit_op_store_stack_indirect(uint8_t **code, uint32_t n) {
-    emit(op_store_stack_indirect | size_class_u32(n));
-    if (size_class_u32(n)) emit_u32(code, n);
-    else emit(n & 0xff);
+void emit_op_store_stack_indirect(uint8_t **code, uint32_t offs, uint32_t n) {
+    emit(op_store_stack_indirect | size_class_u32(offs) | size_class_u32(n));
+    if (size_class_u32(offs) || size_class_u32(n)) {
+        emit_u32(code, offs);
+        emit_u32(code, n);
+    } else {
+        emit(offs & 0xff);
+        emit(n & 0xff);
+    }
 }
 void emit_op_sub_stack(uint8_t **code, uint32_t n) {
     emit(op_sub_stack | size_class_u32(n));

@@ -82,12 +82,15 @@ void emit_op_store_data_indirect(uint8_t **code, uint32_t n);
 // Expects the stack to have the pointer
 void emit_op_load_indirect(uint8_t **code, uint32_t n);
 void emit_op_store_indirect(uint8_t **code, uint32_t n);
+// Stack loading operations start from the bottom of the stack
 void emit_op_load_stack(uint8_t **code, uint32_t offs, uint32_t n);
 void emit_op_store_stack(uint8_t **code, uint32_t offs, uint32_t n);
 // Expects the stack to have the offset pushed on
 // (the offset after the offset itself is pushed on of course)
-void emit_op_load_stack_indirect(uint8_t **code, uint32_t n);
-void emit_op_store_stack_indirect(uint8_t **code, uint32_t n);
+// The offs value there will be added onto the offset found on the
+// stack as well
+void emit_op_load_stack_indirect(uint8_t **code, uint32_t offs, uint32_t n);
+void emit_op_store_stack_indirect(uint8_t **code, uint32_t offs, uint32_t n);
 void emit_op_sub_stack(uint8_t **code, uint32_t n);
 void emit_op_add_stack(uint8_t **code, uint32_t n);
 void emit_op_add(uint8_t **code, bool bits64, bool fp);

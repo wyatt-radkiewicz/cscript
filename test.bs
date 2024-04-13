@@ -1,9 +1,9 @@
-extern fn print_int(val: i32);
+extern fn print_int(val: i32) -> u0;
 extern fn input_int() -> i32;
 
-let TEST: i32 = 012;
+let TEST: i32 = 69;
 
-static fn printn(n: i32) -> void {
+static fn printn(n: i32) -> u0 {
 	let i: i32;
 	while i < n {
 		print_int(i);
@@ -11,7 +11,7 @@ static fn printn(n: i32) -> void {
 	}
 }
 
-fn main() -> int {
+fn main() -> i32 {
 	let arr: [i32] = [0, 1, 2, 3, 4];
 	arr[2] = input_int();
 	printn(arr[2]);

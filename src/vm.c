@@ -95,17 +95,41 @@ static inline bool run_op_store_data_indirect(vm_state_t *state, vm_error_t *err
     memcpy(state->data + offs, state->sp, n);
     return true;
 }
-static inline bool run_op_load_indirect(vm_state_t *state, vm_error_t *err, bool flag) {
-    return false;
+static inline bool run_op_load_indirect(vm_state_t *state, vm_error_t *err, bool size_class) {
+    const uint32_t n = size_class ? take_u32(state) : take_u8(state);
+    void *ptr;
+    vm_errout(!vm_state_pop_ptr(state, &ptr), vm_err_stack_underflow);
+    //vm_errout(state->sp + n > state->stack + state->stack_size, vm_err_stack_overrun);
+    vm_errout(state->sp - n < state->stack, vm_err_stack_overflow);
+    state->sp -= n;
+    memcpy(state->sp, ptr, n);
+    return true;
 }
-static inline bool run_op_store_indirect(vm_state_t *state, vm_error_t *err, bool flag) {
-    return false;
+static inline bool run_op_store_indirect(vm_state_t *state, vm_error_t *err, bool size_class) {
+    const uint32_t n = size_class ? take_u32(state) : take_u8(state);
+    void *ptr;
+    vm_errout(!vm_state_pop_ptr(state, &ptr), vm_err_stack_underflow);
+    vm_errout(state->sp + n > state->stack + state->stack_size, vm_err_stack_overrun);
+    memcpy(ptr, state->sp, n);
+    return true;
 }
-static inline bool run_op_load_stack(vm_state_t *state, vm_error_t *err, bool flag) {
-    return false;
+static inline bool run_op_load_stack(vm_state_t *state, vm_error_t *err, bool size_class) {
+    const uint32_t offs = size_class ? take_u32(state) : take_u8(state);
+    const uint32_t n = size_class ? take_u32(state) : take_u8(state);
+    vm_errout(state->sp - n < state->stack, vm_err_stack_overflow);
+    vm_errout(offs + n > state->stack_size, vm_err_stack_overrun);
+    state->sp -= n;
+    memcpy(state->sp, state->stack + offs, n);
+    return true;
 }
-static inline bool run_op_store_stack(vm_state_t *state, vm_error_t *err, bool flag) {
-    return false;
+static inline bool run_op_store_stack(vm_state_t *state, vm_error_t *err, bool size_class) {
+    const uint32_t n = size_class ? take_u32(state) : take_u8(state);
+    uint32_t offs;
+    vm_errout(!vm_state_pop_u32(state, &offs), vm_err_stack_underflow);
+    vm_errout(state->sp + n > state->stack + state->stack_size, vm_err_stack_overrun);
+    vm_errout(offs + n > state->stack_size, vm_err_stack_overrun);
+    memcpy(state->stack + offs, state->sp, n);
+    return true;
 }
 static inline bool run_op_load_stack_indirect(vm_state_t *state, vm_error_t *err, bool flag) {
     return false;
