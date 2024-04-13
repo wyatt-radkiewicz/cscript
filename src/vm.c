@@ -3,6 +3,9 @@
 
 #include "vm.h"
 
+//
+// Utility functions
+//
 static inline vm_error_t vm_error_init(vm_state_t *state, vm_error_code_t code) {
     return (vm_error_t){
         .errcode = code,
@@ -59,6 +62,9 @@ cast_take_template(ptr, void *, 64)
         return false; \
     }
 
+//
+// Opcode implementations
+//
 static inline bool run_op_load_data(vm_state_t *state, vm_error_t *err, bool size_class) {
     const uint32_t offs = size_class ? take_u32(state) : take_u8(state);
     const uint32_t n = size_class ? take_u32(state) : take_u8(state);
@@ -272,77 +278,24 @@ static inline bool run_op_alloc_indirect(vm_state_t *state, vm_error_t *err, boo
 static inline bool run_op_free_indirect(vm_state_t *state, vm_error_t *err, bool flag) {
     return false;
 }
-static inline bool run_vm_opcode_max(vm_state_t *state, vm_error_t *err, bool flag) {
-    return false;
-}
 
-
-static bool vm_state_run_once(vm_state_t *state, vm_error_t *err) {
+//
+// Virtual Machine
+//
+static bool vm_state_run_instr(vm_state_t *state, vm_error_t *err) {
     vm_errout(state->pc > state->code + state->code_size, vm_err_code_segfault);
     const uint8_t byte = *state->pc++;
     const bool flag = byte & 0x80;
 
+#define X(ENUM) case ENUM: return run_##ENUM(state, err, flag);
     switch ((vm_opcode_t)(byte & 0x7f)) {
-    case op_load_data: return run_op_load_data(state, err, flag);
-    case op_store_data: return run_op_store_data(state, err, flag);
-    case op_load_data_indirect: return run_op_load_data_indirect(state, err, flag);
-    case op_store_data_indirect: return run_op_store_data_indirect(state, err, flag);
-    case op_load_indirect: return run_op_load_indirect(state, err, flag);
-    case op_store_indirect: return run_op_store_indirect(state, err, flag);
-    case op_load_stack: return run_op_load_stack(state, err, flag);
-    case op_store_stack: return run_op_store_stack(state, err, flag);
-    case op_load_stack_indirect: return run_op_load_stack_indirect(state, err, flag);
-    case op_store_stack_indirect: return run_op_store_stack_indirect(state, err, flag);
-    case op_sub_stack: return run_op_sub_stack(state, err, flag);
-    case op_add_stack: return run_op_add_stack(state, err, flag);
-    case op_add: return run_op_add(state, err, flag);
-    case op_sub: return run_op_sub(state, err, flag);
-    case op_mul: return run_op_mul(state, err, flag);
-    case op_div: return run_op_div(state, err, flag);
-    case op_and: return run_op_and(state, err, flag);
-    case op_or: return run_op_or(state, err, flag);
-    case op_xor: return run_op_xor(state, err, flag);
-    case op_sll: return run_op_sll(state, err, flag);
-    case op_srl: return run_op_srl(state, err, flag);
-    case op_sra: return run_op_sra(state, err, flag);
-    case op_extend: return run_op_extend(state, err, flag);
-    case op_reduce: return run_op_reduce(state, err, flag);
-    case op_f2u: return run_op_f2u(state, err, flag);
-    case op_f2i: return run_op_f2i(state, err, flag);
-    case op_i2f: return run_op_i2f(state, err, flag);
-    case op_u2f: return run_op_u2f(state, err, flag);
-    case op_push_eq: return run_op_push_eq(state, err, flag);
-    case op_push_ne: return run_op_push_ne(state, err, flag);
-    case op_push_gt: return run_op_push_gt(state, err, flag);
-    case op_push_lt: return run_op_push_lt(state, err, flag);
-    case op_push_ge: return run_op_push_ge(state, err, flag);
-    case op_push_le: return run_op_push_le(state, err, flag);
-    case op_ret: return run_op_ret(state, err, flag);
-    case op_call: return run_op_call(state, err, flag);
-    case op_call_indirect: return run_op_call_indirect(state, err, flag);
-    case op_extern_call: return run_op_extern_call(state, err, flag);
-    case op_extern_call_indirect: return run_op_extern_call_indirect(state, err, flag);
-    case op_jump: return run_op_jump(state, err, flag);
-    case op_bne: return run_op_bne(state, err, flag);
-    case op_beq: return run_op_beq(state, err, flag);
-    case op_imm_i8: return run_op_imm_i8(state, err, flag);
-    case op_imm_i16: return run_op_imm_i16(state, err, flag);
-    case op_imm_i32: return run_op_imm_i32(state, err, flag);
-    case op_imm_i64: return run_op_imm_i64(state, err, flag);
-    case op_imm_u8: return run_op_imm_u8(state, err, flag);
-    case op_imm_u16: return run_op_imm_u16(state, err, flag);
-    case op_imm_u32: return run_op_imm_u32(state, err, flag);
-    case op_imm_u64: return run_op_imm_u64(state, err, flag);
-    case op_imm_f32: return run_op_imm_f32(state, err, flag);
-    case op_imm_f64: return run_op_imm_f64(state, err, flag);
-    case op_imm_ptr: return run_op_imm_ptr(state, err, flag);
-    case op_alloc_indirect: return run_op_alloc_indirect(state, err, flag);
-    case op_free_indirect: return run_op_free_indirect(state, err, flag);
+    VM_OPCODES
     default:
         *err = vm_error_init(state, vm_err_illegal_instr);
         return false;
         break;
     }
+#undef X
 
     return true;
 }
@@ -352,7 +305,7 @@ vm_error_t vm_state_run(vm_state_t *state, uint32_t offs) {
     state->rp = state->callstack;
 
     vm_error_t err;
-    while (vm_state_run_once(state, &err));
+    while (vm_state_run_instr(state, &err));
     return err;
 }
 #define vm_push_template(NAME, TYPE) \

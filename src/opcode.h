@@ -5,73 +5,77 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#define VM_OPCODES \
+	X(op_load_data) \
+	X(op_store_data) \
+	X(op_load_data_indirect) \
+	X(op_store_data_indirect) \
+    X(op_load_indirect) \
+    X(op_store_indirect) \
+    X(op_load_stack) \
+	X(op_store_stack) \
+    X(op_load_stack_indirect) \
+	X(op_store_stack_indirect) \
+	X(op_sub_stack) \
+	X(op_add_stack) \
+     \
+    /* These operations assume 32bit stack values are pushed */ \
+	X(op_add) \
+	X(op_sub) \
+	X(op_mul) \
+	X(op_div) \
+	X(op_and) \
+	X(op_or) \
+	X(op_xor) \
+    X(op_sll) \
+    X(op_srl) \
+    X(op_sra) \
+     \
+    X(op_extend) \
+    X(op_reduce) \
+    X(op_f2u) \
+    X(op_f2i) \
+    X(op_i2f) \
+    X(op_u2f) \
+     \
+	X(op_push_eq) \
+	X(op_push_ne) \
+	X(op_push_gt) \
+	X(op_push_lt) \
+	X(op_push_ge) \
+	X(op_push_le) \
+     \
+	X(op_ret) \
+	X(op_call) \
+    X(op_call_indirect) \
+    X(op_extern_call) \
+    X(op_extern_call_indirect) \
+	X(op_jump) \
+	X(op_bne) \
+	X(op_beq) \
+     \
+    X(op_imm_i8) \
+    X(op_imm_i16) \
+    X(op_imm_i32) \
+    X(op_imm_i64) \
+    X(op_imm_u8) \
+    X(op_imm_u16) \
+    X(op_imm_u32) \
+    X(op_imm_u64) \
+    X(op_imm_f32) \
+    X(op_imm_f64) \
+    X(op_imm_ptr) \
+     \
+    X(op_alloc_indirect) \
+    X(op_free_indirect)
+
+#define vm_opcode_max (op_free_indirect + 1)
+
+#define X(ENUM) ENUM,
 typedef enum vm_opcode {
-	op_load_data,
-	op_store_data,
-	op_load_data_indirect,
-	op_store_data_indirect,
-    op_load_indirect,
-    op_store_indirect,
-
-    op_load_stack,
-	op_store_stack,
-    op_load_stack_indirect,
-	op_store_stack_indirect,
-	op_sub_stack,
-	op_add_stack,
-
-    // These operations assume 32bit stack values are pushed
-	op_add,
-	op_sub,
-	op_mul,
-	op_div,
-	op_and,
-	op_or,
-	op_xor,
-    op_sll,
-    op_srl,
-    op_sra,
-
-    op_extend,
-    op_reduce,
-    op_f2u,
-    op_f2i,
-    op_i2f,
-    op_u2f,
-
-	op_push_eq,
-	op_push_ne,
-	op_push_gt,
-	op_push_lt,
-	op_push_ge,
-	op_push_le,
-
-	op_ret,
-	op_call,
-    op_call_indirect,
-    op_extern_call,
-    op_extern_call_indirect,
-	op_jump,
-	op_bne,
-	op_beq,
-
-    op_imm_i8,
-    op_imm_i16,
-    op_imm_i32,
-    op_imm_i64,
-    op_imm_u8,
-    op_imm_u16,
-    op_imm_u32,
-    op_imm_u64,
-    op_imm_f32,
-    op_imm_f64,
-    op_imm_ptr,
-
-    op_alloc_indirect,
-    op_free_indirect,
-
-    vm_opcode_max,
+    VM_OPCODES
 } vm_opcode_t;
+#undef X
 static_assert(vm_opcode_max < 64, "Number of opcodes must be under 64!");
 
 void emit_op_load_data(uint8_t **code, uint32_t offs, uint32_t n);

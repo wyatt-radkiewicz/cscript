@@ -1,5 +1,9 @@
 #include "opcode.h"
 
+//
+// Utilities
+//
+
 #define emit(BYTE) (*((*code)++) = (BYTE))
 
 static inline int size_class_i32(int32_t n) {
@@ -41,6 +45,9 @@ static inline void emit_ptr(uint8_t **code, const void *p) {
     emit_u64(code, (uintptr_t)p);
 }
 
+//
+// Opcode creation functions
+//
 void emit_op_load_data(uint8_t **code, uint32_t offs, uint32_t n) {
     emit(op_load_data | size_class_u32(offs) | size_class_u32(n));
     if (size_class_u32(offs) || size_class_u32(n)) {
