@@ -5,7 +5,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-enum vm_opcode {
+typedef enum vm_opcode {
 	op_load_data,
 	op_store_data,
 	op_load_data_indirect,
@@ -20,7 +20,8 @@ enum vm_opcode {
 	op_sub_stack,
 	op_add_stack,
 
-	op_add,     // These operations assume 32bit stack values are pushed
+    // These operations assume 32bit stack values are pushed
+	op_add,
 	op_sub,
 	op_mul,
 	op_div,
@@ -70,7 +71,7 @@ enum vm_opcode {
     op_free_indirect,
 
     vm_opcode_max,
-};
+} vm_opcode_t;
 static_assert(vm_opcode_max < 64, "Number of opcodes must be under 64!");
 
 void emit_op_load_data(uint8_t **code, uint32_t offs, uint32_t n);
