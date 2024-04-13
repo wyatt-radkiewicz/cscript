@@ -5,12 +5,23 @@
 
 #include "opcode.h"
 
+typedef struct vm_state vm_state_t;
+typedef struct vm_callstack {
+    uint32_t ret_loc;
+    uint32_t stack_base;
+} vm_callstack_t;
+
+typedef void *(*vm_alloc_t)(void *user, size_t sz);
+typedef void (*vm_free_t)(void *user, void *ptr);
+typedef void (*vm_extern_fn_t)(vm_state *state);
+
 //
 // Fill this struct out and then call run
+// pc, sp, and rp don't need to be initialized by the user
 //
-typedef struct vm_state {
+struct vm_state {
     uint8_t *pc, *sp;
-    uint32_t *rp;
+    vm_callstack_t *rp;
 
     uint8_t *code;
     size_t code_size;
@@ -21,9 +32,16 @@ typedef struct vm_state {
     uint8_t *stack;
     size_t stack_size;
 
-    uint32_t *callstack;
+    vm_callstack_t *callstack;
     size_t callstack_size;
-} vm_state_t;
+
+    vm_extern_fn_t *pfn;
+    size_t pfn_size;
+
+    void *alloc_user;
+    vm_alloc_t alloc;
+    vm_free_t free;
+};
 
 //
 // Virtual Machine Error Codes
@@ -33,10 +51,12 @@ typedef struct vm_state {
     X(vm_err_stack_overflow) \
     X(vm_err_stack_underflow) \
     X(vm_err_callstack_overflow) \
+    X(vm_err_callstack_underflow) \
     X(vm_err_code_segfault) /* The code pointer is out of bounds */ \
     X(vm_err_segfault) /* Data segment was accessed out of bounds */ \
     X(vm_err_stack_overrun) /* Stack is accessed out of bounds */ \
-    X(vm_err_illegal_instr)
+    X(vm_err_illegal_instr) \
+    X(vm_err_invalid_pfn)
 #define X(ENUM) ENUM,
 typedef enum vm_error_code {
     VM_ERROR_CODES

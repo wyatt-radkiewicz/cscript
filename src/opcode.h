@@ -30,6 +30,9 @@
     X(op_sll) \
     X(op_srl) \
     X(op_sra) \
+    X(op_not) \
+    X(op_mod) \
+    X(op_neg) \
      \
     X(op_extend) \
     X(op_reduce) \
@@ -37,6 +40,8 @@
     X(op_f2i) \
     X(op_i2f) \
     X(op_u2f) \
+    X(op_f2d) \
+    X(op_d2f) \
      \
 	X(op_push_eq) \
 	X(op_push_ne) \
@@ -51,6 +56,7 @@
     X(op_extern_call) \
     X(op_extern_call_indirect) \
 	X(op_jump) \
+    X(op_jump_indirect) \
 	X(op_bne) \
 	X(op_beq) \
      \
@@ -66,6 +72,7 @@
     X(op_imm_f64) \
     X(op_imm_ptr) \
      \
+    X(op_alloc) \
     X(op_alloc_indirect) \
     X(op_free_indirect)
 
@@ -86,51 +93,64 @@ void emit_op_store_data_indirect(uint8_t **code, uint32_t n);
 // Expects the stack to have the pointer
 void emit_op_load_indirect(uint8_t **code, uint32_t n);
 void emit_op_store_indirect(uint8_t **code, uint32_t n);
-// Stack loading operations start from the bottom of the stack
-void emit_op_load_stack(uint8_t **code, uint32_t offs, uint32_t n);
-void emit_op_store_stack(uint8_t **code, uint32_t offs, uint32_t n);
+// Stack loading operations start from the call stack base pointer
+// (the callstack base pointer points to the top of the stack at when the
+//  call operation was ran)
+void emit_op_load_stack(uint8_t **code, int32_t offs, uint32_t n);
+void emit_op_store_stack(uint8_t **code, int32_t offs, uint32_t n);
 // Expects the stack to have the offset pushed on
 // (the offset after the offset itself is pushed on of course)
 // The offs value there will be added onto the offset found on the
 // stack as well
-void emit_op_load_stack_indirect(uint8_t **code, uint32_t offs, uint32_t n);
-void emit_op_store_stack_indirect(uint8_t **code, uint32_t offs, uint32_t n);
+void emit_op_load_stack_indirect(uint8_t **code, int32_t offs, uint32_t n);
+void emit_op_store_stack_indirect(uint8_t **code, int32_t offs, uint32_t n);
 void emit_op_sub_stack(uint8_t **code, uint32_t n);
 void emit_op_add_stack(uint8_t **code, uint32_t n);
-void emit_op_add(uint8_t **code, bool bits64, bool fp);
-void emit_op_sub(uint8_t **code, bool bits64, bool fp);
-void emit_op_mul(uint8_t **code, bool bits64, bool fp);
-void emit_op_div(uint8_t **code, bool bits64, bool fp);
+void emit_op_add(uint8_t **code, bool bits64, bool u, bool fp);
+void emit_op_sub(uint8_t **code, bool bits64, bool u, bool fp);
+void emit_op_mul(uint8_t **code, bool bits64, bool u, bool fp);
+void emit_op_div(uint8_t **code, bool bits64, bool u, bool fp);
 void emit_op_and(uint8_t **code, bool bits64);
 void emit_op_or(uint8_t **code, bool bits64);
 void emit_op_xor(uint8_t **code, bool bits64);
 void emit_op_sll(uint8_t **code, bool bits64);
 void emit_op_srl(uint8_t **code, bool bits64);
 void emit_op_sra(uint8_t **code, bool bits64);
-// By default extends to 32bit
-void emit_op_extend(uint8_t **code, uint8_t from, bool to64, bool fp);
-// By default reduces from 32bit
-void emit_op_reduce(uint8_t **code, bool from64, uint8_t to, bool fp);
+void emit_op_not(uint8_t **code, bool bits64);
+void emit_op_mod(uint8_t **code, bool bits64, bool u);
+void emit_op_neg(uint8_t **code, bool bits64, bool fp);
+// Extends 1 rank above
+// 0 -> 8bit
+// 1 -> 16bit
+// 2 -> 32bit
+// 3 -> 64bit
+void emit_op_extend(uint8_t **code, uint8_t size_class, bool u);
+// Reduces 1 rank below
+void emit_op_reduce(uint8_t **code, uint8_t size_class);
 void emit_op_f2u(uint8_t **code, bool bits64);
 void emit_op_f2i(uint8_t **code, bool bits64);
 void emit_op_i2f(uint8_t **code, bool bits64);
 void emit_op_u2f(uint8_t **code, bool bits64);
+void emit_op_f2d(uint8_t **code);
+void emit_op_d2f(uint8_t **code);
 void emit_op_push_eq(uint8_t **code, bool bits64, bool fp);
 void emit_op_push_ne(uint8_t **code, bool bits64, bool fp);
-void emit_op_push_gt(uint8_t **code, bool bits64, bool fp);
-void emit_op_push_lt(uint8_t **code, bool bits64, bool fp);
-void emit_op_push_ge(uint8_t **code, bool bits64, bool fp);
-void emit_op_push_le(uint8_t **code, bool bits64, bool fp);
+void emit_op_push_gt(uint8_t **code, bool bits64, bool fp, bool u);
+void emit_op_push_lt(uint8_t **code, bool bits64, bool fp, bool u);
+void emit_op_push_ge(uint8_t **code, bool bits64, bool fp, bool u);
+void emit_op_push_le(uint8_t **code, bool bits64, bool fp, bool u);
 void emit_op_ret(uint8_t **code);
 void emit_op_call(uint8_t **code, uint32_t codeoffs);
 void emit_op_call_indirect(uint8_t **code);
-void emit_op_extern_call(uint8_t **code, void *pfn);
+void emit_op_extern_call(uint8_t **code, uint32_t fn_idx);
 void emit_op_extern_call_indirect(uint8_t **code);
 // These instructions don't grow or shrink depending on the jump size
 // to help with compiling
 void emit_op_jump(uint8_t **code, int32_t offs);
-void emit_op_bne(uint8_t **code, int32_t offs);
-void emit_op_beq(uint8_t **code, int32_t offs);
+void emit_op_jump_indirect(uint8_t **code);
+// These pop off a 32bit value from the stack and check it, then branch
+void emit_op_bne(uint8_t **code, int32_t offs, bool bits64);
+void emit_op_beq(uint8_t **code, int32_t offs, bool bits64);
 void emit_op_imm_i8(uint8_t **code, int8_t imm);
 void emit_op_imm_i16(uint8_t **code, int16_t imm);
 void emit_op_imm_i32(uint8_t **code, int32_t imm);
@@ -143,6 +163,7 @@ void emit_op_imm_f32(uint8_t **code, float imm);
 void emit_op_imm_f64(uint8_t **code, double imm);
 void emit_op_imm_ptr(uint8_t **code, void *imm);
 // Expects size as u32 to be pushed onto the stack first
+void emit_op_alloc(uint8_t **code, uint32_t n);
 void emit_op_alloc_indirect(uint8_t **code);
 // Expects pointer to be pushed onto the stack first
 void emit_op_free_indirect(uint8_t **code);
