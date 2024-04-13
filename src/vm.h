@@ -20,7 +20,7 @@ typedef void (*vm_extern_fn_t)(vm_state_t *state);
 // pc, sp, and rp don't need to be initialized by the user
 //
 struct vm_state {
-    uint8_t *pc, *sp;
+    uint8_t *pc, *sp, *curr_instr;
     vm_callstack_t *rp;
 
     uint8_t *code;

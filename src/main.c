@@ -3,11 +3,11 @@
 #include "common.h"
 #include "vm.h"
 
-uint8_t code[512];
-uint8_t data[512];
-uint8_t stack[512];
-vm_callstack_t callstack[64];
-vm_extern_fn_t pfn[32];
+uint8_t code[32];
+uint8_t data[32];
+uint8_t stack[64];
+vm_callstack_t callstack[8];
+vm_extern_fn_t pfn[8];
 
 int main(int argc, char **argv) {
     vm_state_t vm = {
@@ -22,6 +22,13 @@ int main(int argc, char **argv) {
         .pfn = pfn,
         .pfn_size = arrsz(pfn),
     };
+    {
+        uint8_t *head = code;
+        emit_op_imm_i32(&head, 50);
+        emit_op_imm_i32(&head, 19);
+        emit_op_add(&head, false, false, false);
+        emit_op_ret(&head);
+    }
     for (const uint8_t *head = code;;) {
         if (head >= code + arrsz(code)) break;
         if (vm_opcode_log(&head, stdout) == op_illegal) break;

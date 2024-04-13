@@ -12,8 +12,8 @@ static inline vm_error_t vm_error_init(vm_state_t *state, vm_error_code_t code) 
         .stack_pointer = state->sp,
         .stack_size = state->stack + state->stack_size - state->sp,
         .program_counter = (intptr_t)state->pc - (intptr_t)state->code,
-        .callstack_len = state->rp - state->callstack,
-        .instr_pointer = state->pc,
+        .callstack_len = state->rp - state->callstack + 1,
+        .instr_pointer = state->curr_instr,
         .code_size = state->code_size,
     };
 }
@@ -543,9 +543,10 @@ test_op_template(>=, op_push_ge)
 test_op_template(<=, op_push_le)
 #undef test_op_template
 static inline bool run_op_ret(vm_state_t *state, vm_error_t *err, bool flag) {
-    vm_errout(state->callstack - 1 < state->callstack, vm_err_callstack_underflow);
-    const vm_callstack_t x = *state->callstack--;
+    vm_errout(state->rp < state->callstack, vm_err_callstack_underflow);
+    const vm_callstack_t x = *state->rp--;
     if (x.ret_loc == UINT32_MAX) {
+        *err = vm_error_init(state, vm_err_okay);
         return false;
     } else {
         state->pc = state->code + x.ret_loc;
@@ -554,20 +555,20 @@ static inline bool run_op_ret(vm_state_t *state, vm_error_t *err, bool flag) {
 }
 static inline bool run_op_call(vm_state_t *state, vm_error_t *err, bool flag) {
     const uint32_t loc = take_u32(&state->pc);
-    vm_errout(state->callstack + 1 >= state->callstack + state->callstack_size, vm_err_callstack_overflow);
-    state->callstack++;
-    state->callstack->ret_loc = state->pc - state->code;
-    state->callstack->stack_base = state->sp - state->stack;
+    vm_errout(state->rp + 1 >= state->rp + state->callstack_size, vm_err_callstack_overflow);
+    state->rp++;
+    state->rp->ret_loc = state->pc - state->code;
+    state->rp->stack_base = state->sp - state->stack;
     state->pc = state->code + loc;
     return true;
 }
 static inline bool run_op_call_indirect(vm_state_t *state, vm_error_t *err, bool flag) {
     uint32_t loc;
     vm_errout(!vm_state_pop_u32(state, &loc), vm_err_callstack_underflow);
-    vm_errout(state->callstack + 1 >= state->callstack + state->callstack_size, vm_err_callstack_overflow);
-    state->callstack++;
-    state->callstack->ret_loc = state->pc - state->code;
-    state->callstack->stack_base = state->sp - state->stack;
+    vm_errout(state->rp + 1 >= state->callstack + state->callstack_size, vm_err_callstack_overflow);
+    state->rp++;
+    state->rp->ret_loc = state->pc - state->code;
+    state->rp->stack_base = state->sp - state->stack;
     state->pc = state->code + loc;
     return true;
 }
@@ -637,18 +638,18 @@ static inline bool run_op_imm_i8(vm_state_t *state, vm_error_t *err, bool flag) 
     vm_errout(!vm_state_push_i8(state, imm), vm_err_stack_overflow);
     return true;
 }
-static inline bool run_op_imm_i16(vm_state_t *state, vm_error_t *err, bool flag) {
-    int16_t imm = take_i16(&state->pc);
+static inline bool run_op_imm_i16(vm_state_t *state, vm_error_t *err, bool size_class) {
+    int16_t imm = size_class ? take_i16(&state->pc) : take_i8(&state->pc);
     vm_errout(!vm_state_push_i16(state, imm), vm_err_stack_overflow);
     return true;
 }
-static inline bool run_op_imm_i32(vm_state_t *state, vm_error_t *err, bool flag) {
-    int32_t imm = take_i32(&state->pc);
+static inline bool run_op_imm_i32(vm_state_t *state, vm_error_t *err, bool size_class) {
+    int32_t imm = size_class ? take_i32(&state->pc) : take_i8(&state->pc);
     vm_errout(!vm_state_push_i32(state, imm), vm_err_stack_overflow);
     return true;
 }
-static inline bool run_op_imm_i64(vm_state_t *state, vm_error_t *err, bool flag) {
-    int64_t imm = take_i64(&state->pc);
+static inline bool run_op_imm_i64(vm_state_t *state, vm_error_t *err, bool size_class) {
+    int64_t imm = size_class ? take_i64(&state->pc) : take_i8(&state->pc);
     vm_errout(!vm_state_push_i64(state, imm), vm_err_stack_overflow);
     return true;
 }
@@ -657,18 +658,18 @@ static inline bool run_op_imm_u8(vm_state_t *state, vm_error_t *err, bool flag) 
     vm_errout(!vm_state_push_u8(state, imm), vm_err_stack_overflow);
     return true;
 }
-static inline bool run_op_imm_u16(vm_state_t *state, vm_error_t *err, bool flag) {
-    uint16_t imm = take_u16(&state->pc);
+static inline bool run_op_imm_u16(vm_state_t *state, vm_error_t *err, bool size_class) {
+    uint16_t imm = size_class ? take_i16(&state->pc) : take_i8(&state->pc);
     vm_errout(!vm_state_push_u16(state, imm), vm_err_stack_overflow);
     return true;
 }
-static inline bool run_op_imm_u32(vm_state_t *state, vm_error_t *err, bool flag) {
-    uint32_t imm = take_u32(&state->pc);
+static inline bool run_op_imm_u32(vm_state_t *state, vm_error_t *err, bool size_class) {
+    uint32_t imm = size_class ? take_i32(&state->pc) : take_i8(&state->pc);
     vm_errout(!vm_state_push_u32(state, imm), vm_err_stack_overflow);
     return true;
 }
-static inline bool run_op_imm_u64(vm_state_t *state, vm_error_t *err, bool flag) {
-    uint64_t imm = take_u64(&state->pc);
+static inline bool run_op_imm_u64(vm_state_t *state, vm_error_t *err, bool size_class) {
+    uint64_t imm = size_class ? take_i32(&state->pc) : take_i8(&state->pc);
     vm_errout(!vm_state_push_u64(state, imm), vm_err_stack_overflow);
     return true;
 }
@@ -715,6 +716,7 @@ static inline bool run_op_free_indirect(vm_state_t *state, vm_error_t *err, bool
 //
 static bool vm_state_run_instr(vm_state_t *state, vm_error_t *err) {
     vm_errout(state->pc > state->code + state->code_size, vm_err_code_segfault);
+    state->curr_instr = state->pc;
     const uint8_t byte = *state->pc++;
     const bool flag = byte & 0x80;
 
@@ -781,7 +783,7 @@ vm_pop_template(f32, float)
 vm_pop_template(f64, double)
 
 #define X(ENUM) case ENUM: return #ENUM;
-const char *vm_error_code_to_str(vm_error_code_t code) {
+static const char *vm_error_code_to_str(vm_error_code_t code) {
     switch (code) {
     VM_ERROR_CODES
     default: return "";
@@ -789,7 +791,8 @@ const char *vm_error_code_to_str(vm_error_code_t code) {
 }
 #undef X
 void vm_error_log(const vm_error_t err, FILE *out) {
-    fprintf(out, "vm_error_t {\n");
+    fprintf(out, "(vm_error_t){\n");
+    fprintf(out, "\terrcode: %s,\n", vm_error_code_to_str(err.errcode));
     fprintf(out, "\tprogram_counter: %ld,\n", err.program_counter);
     fprintf(out, "\tinstr: ");
     if (err.program_counter < err.code_size && err.instr_pointer) {
@@ -800,6 +803,7 @@ void vm_error_log(const vm_error_t err, FILE *out) {
     fprintf(out, "\n");
     fprintf(out, "\tstack_pointer: %p,\n", err.stack_pointer);
     fprintf(out, "\tstack_size: %zu,\n", err.stack_size);
+    fprintf(out, "\tcallstack_len: %zu,\n", err.callstack_len);
     fprintf(out, "}\n");
 }
 
