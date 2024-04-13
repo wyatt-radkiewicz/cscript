@@ -6,8 +6,10 @@
 #include <stdint.h>
 
 enum vm_opcode {
-	op_load,
-	op_store,
+	op_load_data,
+	op_store_data,
+	op_load_data_indirect,
+	op_store_data_indirect,
     op_load_indirect,
     op_store_indirect,
 
@@ -71,8 +73,11 @@ enum vm_opcode {
 };
 static_assert(vm_opcode_max < 64, "Number of opcodes must be under 64!");
 
-void emit_op_load(uint8_t **code, const void *p, uint32_t n);
-void emit_op_store(uint8_t **code, void *p, uint32_t n);
+void emit_op_load_data(uint8_t **code, uint32_t offs, uint32_t n);
+void emit_op_store_data(uint8_t **code, uint32_t offs, uint32_t n);
+// Expects the stack to have the offset
+void emit_op_load_data_indirect(uint8_t **code, uint32_t n);
+void emit_op_store_data_indirect(uint8_t **code, uint32_t n);
 // Expects the stack to have the pointer
 void emit_op_load_indirect(uint8_t **code, uint32_t n);
 void emit_op_store_indirect(uint8_t **code, uint32_t n);
@@ -109,7 +114,7 @@ void emit_op_push_lt(uint8_t **code, bool bits64, bool fp);
 void emit_op_push_ge(uint8_t **code, bool bits64, bool fp);
 void emit_op_push_le(uint8_t **code, bool bits64, bool fp);
 void emit_op_ret(uint8_t **code);
-void emit_op_call(uint8_t **code, void *to);
+void emit_op_call(uint8_t **code, uint32_t codeoffs);
 void emit_op_call_indirect(uint8_t **code);
 void emit_op_extern_call(uint8_t **code, void *pfn);
 void emit_op_extern_call_indirect(uint8_t **code);

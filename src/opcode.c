@@ -41,15 +41,33 @@ static inline void emit_ptr(uint8_t **code, const void *p) {
     emit_u64(code, (uintptr_t)p);
 }
 
-void emit_op_load(uint8_t **code, const void *p, uint32_t n) {
-    emit(op_load | size_class_u32(n));
-    emit_ptr(code, p);
+void emit_op_load_data(uint8_t **code, uint32_t offs, uint32_t n) {
+    emit(op_load_data | size_class_u32(offs) | size_class_u32(n));
+    if (size_class_u32(offs) || size_class_u32(n)) {
+        emit_u32(code, offs);
+        emit_u32(code, n);
+    } else {
+        emit(offs & 0xff);
+        emit(n & 0xff);
+    }
+}
+void emit_op_store_data(uint8_t **code, uint32_t offs, uint32_t n) {
+    emit(op_store_data | size_class_u32(offs) | size_class_u32(n));
+    if (size_class_u32(offs) || size_class_u32(n)) {
+        emit_u32(code, offs);
+        emit_u32(code, n);
+    } else {
+        emit(offs & 0xff);
+        emit(n & 0xff);
+    }
+}
+void emit_op_load_data_indirect(uint8_t **code, uint32_t n) {
+    emit(op_load_data_indirect | size_class_u32(n));
     if (size_class_u32(n)) emit_u32(code, n);
     else emit(n & 0xff);
 }
-void emit_op_store(uint8_t **code, void *p, uint32_t n) {
-    emit(op_store | size_class_u32(n));
-    emit_ptr(code, p);
+void emit_op_store_data_indirect(uint8_t **code, uint32_t n) {
+    emit(op_store_data_indirect | size_class_u32(n));
     if (size_class_u32(n)) emit_u32(code, n);
     else emit(n & 0xff);
 }
@@ -184,9 +202,9 @@ void emit_op_push_le(uint8_t **code, bool bits64, bool fp) {
 void emit_op_ret(uint8_t **code) {
     emit(op_ret);
 }
-void emit_op_call(uint8_t **code, void *to) {
+void emit_op_call(uint8_t **code, uint32_t codeoffs) {
     emit(op_call);
-    emit_ptr(code, to);
+    emit_u32(code, codeoffs);
 }
 void emit_op_call_indirect(uint8_t **code) {
     emit(op_call_indirect);
