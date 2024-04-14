@@ -561,7 +561,7 @@ lex_error_t lex_state_next(lex_state_t *state) {
 static const char *tok_to_str(lex_token_type_t type) {
     switch (type) {
     LEX_TOKENS
-    default: return "tok_***";
+    default: return "tok_undefined";
     }
 }
 #undef X
