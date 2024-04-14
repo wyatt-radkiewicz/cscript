@@ -9,6 +9,7 @@ static const char *keyword_strs[tok_num_keywords] = {
     [tok_fn]        = "fn",
     [tok_let]       = "let",
     [tok_if]        = "if",
+    [tok_as]        = "as",
     [tok_for]       = "for",
     [tok_while]     = "while",
     [tok_new]       = "new",

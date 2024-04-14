@@ -14,6 +14,7 @@ typedef struct ast ast_t;
     X(ast_stmt_let) \
     X(ast_stmt_expr) \
     X(ast_stmt_return) \
+    X(ast_stmt_void) \
      \
     X(ast_op_binary) \
     X(ast_op_unary) \

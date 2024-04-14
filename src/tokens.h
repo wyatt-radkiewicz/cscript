@@ -9,6 +9,7 @@
     X(tok_fn) \
     X(tok_let) \
     X(tok_if) \
+    X(tok_as) \
     X(tok_for) \
     X(tok_while) \
     X(tok_new) \
