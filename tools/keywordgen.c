@@ -1,7 +1,7 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "../src/lexer.h"
+#include "lexer.h"
 
 static const char *keyword_strs[tok_num_keywords] = {
     [tok_extern]    = "extern",
@@ -11,8 +11,7 @@ static const char *keyword_strs[tok_num_keywords] = {
     [tok_if]        = "if",
     [tok_for]       = "for",
     [tok_while]     = "while",
-    [tok_alloc]     = "alloc",
-    [tok_free]      = "free",
+    [tok_new]       = "new",
     [tok_return]    = "return",
     [tok_break]     = "break",
     [tok_continue]  = "continue",

@@ -11,8 +11,7 @@
     X(tok_if) \
     X(tok_for) \
     X(tok_while) \
-    X(tok_alloc) \
-    X(tok_free) \
+    X(tok_new) \
     X(tok_return) \
     X(tok_break) \
     X(tok_continue) \
@@ -63,6 +62,7 @@
     X(tok_lbrack) \
     X(tok_rbrack) \
     X(tok_dot) \
+    X(tok_dotdot) \
     X(tok_lbrace) \
     X(tok_rbrace) \
     X(tok_plus) \

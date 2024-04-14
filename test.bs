@@ -3,8 +3,13 @@ extern fn input_int() -> i32;
 
 let TEST: i32 = "";
 
+fn cpy<T>(from: &[T], to: &[T]) {
+    let len = min(lenof(from), lenof(to));
+    for let i = 0..len { to[i] = from[i]; }
+}
+
 static fn printn(n: i32) -> u0 {
-	let i: i32;
+	let i = new i32{5};
 	while i < n {
 		print_int(i);
 		i = i + 1;
@@ -18,45 +23,13 @@ fn main() -> i32 {
 	return 0;
 }
 
-// This is Cscript shabang. It tells the vm and compiler how much to allocate
-// for the script. This can be ommitted in lue of defaults that the program
-// gives. This allocates 3KB for the VM to run the code (besides dynamically
-// allocated objects and stack) Currently code, data, and funcs take up some space
-// bu they will be optimized for space in future releases of Cscript.
-
-////!code:1K,data:1K,funcs:1K
-//
-// let arr: [int] = [0, 1, 2, 3, 4, 5, 6];
-// let arr: [int];
-// let str: [char] = "hello";
-// let dynstr_ptr: *[char] = new [char; 5];
-// if dynstr_ptr == nullptr { return; }
-// let dynstr: &[char] = unwrap(dynstr_ptr);
-
-// Base types
-// int		(i32)
-// uint		(u32)
-// float	(f32)
-// char		(char)
-// &		refrences
-// ()		(const function pointer)
-// *		refrence counted pointers
-// extern *	const pointer in C (only can be cast to refrence)
-
-// Refrences can't be in structs, but pointers and pfn's can.
-// Pointers are always nullable pointers to dynamically allocated, refrence
-// counted VM objects.
-// Extern pointers are pointers to C objects, and are not refrence counted.
-// Pointers can only be created by using the new keyword. Which will take an
-// init expression which is either a literal, a struct initializer, or an
-// array initializer.
-// Pointers are also Monads. You either use Rust's
-// "if let inside = ptr {  }" syntax
-// or use the unwrap keyword like
-// "let inside: &int = unwrap ptr;" syntax.
-// The unwrap or if let syntax returns a refrence.
-
-// Compound types
-// structs
-// typedefs
+// [0, 0, 0, 0, 0]
+// [i32; 5]
+// 0
+// i32{0}
+// struct_s{}
+// struct_s{
+//     x: 5,
+//     y: 1,
+// }
 

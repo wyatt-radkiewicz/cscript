@@ -377,7 +377,12 @@ static lex_error_t donum(lex_state_t *state) {
         }
         if (*state->src == '.') {
             if (hex || binary) return lex_error_init(state, false);
-            if (state->next.type == tok_literal_f) return lex_error_init(state, false);
+            if (state->next.type == tok_literal_f) {
+                state->src--;
+                state->chr--;
+                state->next.data.str.len--;
+                break;
+            }
             state->next.type = tok_literal_f;
         }
 
@@ -442,7 +447,10 @@ lex_error_t lex_state_next(lex_state_t *state) {
     case ')': state->next.type = tok_rparen; break;
     case '[': state->next.type = tok_lbrack; break;
     case ']': state->next.type = tok_rbrack; break;
-    case '.': state->next.type = tok_dot; break;
+    case '.':
+        if (*state->src == '.') settok_len2(state, tok_dotdot);
+        else state->next.type = tok_dot;
+        break;
     case '{': state->next.type = tok_lbrace; break;
     case '}': state->next.type = tok_rbrace; break;
     case '!':
