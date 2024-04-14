@@ -15,9 +15,11 @@ $(PROG): $(OBJS)
 	$(CC) $(LDFLAGS) -o $@ $(OBJS)
 run: $(PROG)
 	$(PROG)
-tools: ext/hashmapgen.c src/csi.h
+tools: $(BUILD_DIR)/keywordgen
+
+$(BUILD_DIR)/keywordgen: tools/keywordgen.c src/lexer.h src/common.h
 	mkdir -p $(BUILD_DIR) 
-	$(CC) $(CFLAGS) $(LDFLAGS) -o $(BUILD_DIR)/hashmapgen ext/hashmapgen.c
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $(BUILD_DIR)/keywordgen tools/keywordgen.c
 
 # Compiling
 # This variable should be used as a macro which takes in

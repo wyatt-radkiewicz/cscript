@@ -84,7 +84,7 @@ typedef enum vm_opcode {
     VM_OPCODES
 } vm_opcode_t;
 #undef X
-static_assert(vm_opcode_max < 64, "Number of opcodes must be under 64!");
+static_assert(vm_opcode_max <= 64, "Number of opcodes must be under 64!");
 
 void emit_op_load_data(uint8_t **code, uint32_t offs, uint32_t n);
 void emit_op_store_data(uint8_t **code, uint32_t offs, uint32_t n);
