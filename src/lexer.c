@@ -381,6 +381,7 @@ static lex_error_t donum(lex_state_t *state) {
                 state->src--;
                 state->chr--;
                 state->next.data.str.len--;
+                state->next.type = tok_literal_u;
                 break;
             }
             state->next.type = tok_literal_f;
