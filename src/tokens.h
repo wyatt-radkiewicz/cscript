@@ -107,6 +107,7 @@
 #define X(ENUM) ENUM,
 typedef enum lex_token_type {
     LEX_TOKENS
+    tok_max,
 } lex_token_type_t;
 #undef X
 

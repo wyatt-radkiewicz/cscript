@@ -19,6 +19,7 @@ typedef struct ast ast_t;
     X(ast_op_unary) \
     X(ast_op_call) \
     X(ast_literal) \
+    X(ast_ident) \
      \
     X(ast_def_func)
 
@@ -44,6 +45,7 @@ typedef struct ast_error {
 
 typedef struct ast_state {
     lex_state_t lexer;
+    lex_token_t lasttok;
 
     ast_t *buf;
     size_t nused, buflen;

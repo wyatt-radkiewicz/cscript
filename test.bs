@@ -1,27 +1,29 @@
-extern fn print_int(val: i32) -> u0;
-extern fn input_int() -> i32;
+1 = 2 = 3
 
-let TEST: i32 = "";
-
-fn cpy<T>(from: &[T], to: &[T]) {
-    let len = min(lenof(from), lenof(to));
-    for let i = 0..len { to[i] = from[i]; }
-}
-
-static fn printn(n: i32) -> u0 {
-	let i = new i32{5};
-	while i < n {
-		print_int(i);
-		i = i + 1;
-	}
-}
-
-fn main() -> i32 {
-	let arr: [i32] = [0, 1, 2, 3, 4];
-	arr[2] = input_int();
-	printn(arr[2]);
-	return 0;
-}
+//extern fn print_int(val: i32) -> u0;
+//extern fn input_int() -> i32;
+//
+//let TEST: i32 = "";
+//
+//fn cpy<T>(from: &[T], to: &[T]) {
+//    let len = min(lenof(from), lenof(to));
+//    for let i = 0..len { to[i] = from[i]; }
+//}
+//
+//static fn printn(n: i32) -> u0 {
+//	let i = new i32{5};
+//	while i < n {
+//		print_int(i);
+//		i = i + 1;
+//	}
+//}
+//
+//fn main() -> i32 {
+//	let arr: [i32] = [0, 1, 2, 3, 4];
+//	arr[2] = input_int();
+//	printn(arr[2]);
+//	return 0;
+//}
 
 // [0, 0, 0, 0, 0]
 // [i32; 5]
