@@ -51,7 +51,7 @@
      \
     X(tok_eof) \
     X(tok_ident) \
-    X(tok_literal_i) \
+    X(tok_literal_u) \
     X(tok_literal_f) \
     X(tok_literal_c) \
     X(tok_literal_str) \
@@ -99,7 +99,10 @@
     X(tok_bxoreq) \
     X(tok_boreq) \
     X(tok_comma) \
+    X(tok_arrow) \
     X(tok_semicol)
+
+#define tok_undefined (tok_semicol + 1)
 
 #define X(ENUM) ENUM,
 typedef enum lex_token_type {

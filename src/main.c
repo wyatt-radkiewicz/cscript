@@ -1,7 +1,30 @@
+#include <stdlib.h>
 #include <stdio.h>
 
 #include "common.h"
 #include "vm.h"
+#include "lexer.h"
+
+// Testing function
+static char *load_file(const char *filepath) {
+	FILE *file = fopen(filepath, "r");
+	if (!file) return NULL;
+
+	fseek(file, 0, SEEK_END);
+	size_t len = ftell(file);
+	fseek(file, 0, SEEK_SET);
+
+	char *str = malloc(len + 1);
+	if (fread(str, 1, len, file) != len) {
+		free(str);
+		fclose(file);
+		return NULL;
+	}
+	str[len] = '\0';
+	fclose(file);
+
+	return str;
+}
 
 uint8_t code[32];
 uint8_t data[32];
@@ -41,6 +64,16 @@ int main(int argc, char **argv) {
         printf("\n");
     }
     vm_error_log(vm_state_run(&vm, 0), stdout);
+
+    char *filestr = load_file("test.bs");
+    lex_state_t lexer = lex_state_init((uint8_t *)filestr);
+    while (true) {
+        if (!lex_state_next(&lexer).okay) break;
+        lex_token_log(&lexer.tok, stdout);
+        printf("\n");
+        if (lexer.tok.type == tok_eof) break;
+    }
+    free(filestr);
 
     return 0;
 }

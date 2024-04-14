@@ -1,7 +1,7 @@
 extern fn print_int(val: i32) -> u0;
 extern fn input_int() -> i32;
 
-let TEST: i32 = 69;
+let TEST: i32 = "";
 
 static fn printn(n: i32) -> u0 {
 	let i: i32;

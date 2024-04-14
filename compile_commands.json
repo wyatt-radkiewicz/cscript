@@ -1,0 +1,38 @@
+[
+  {
+    "arguments": [
+      "/usr/bin/cc",
+      "-Isrc",
+      "-g",
+      "-O0",
+      "-Wall",
+      "-std=gnu2x",
+      "-DDEBUG",
+      "-c",
+      "-o",
+      "build_dbg/src/common.o",
+      "src/common.c"
+    ],
+    "directory": "/home/eklipsed/Documents/cscript",
+    "file": "/home/eklipsed/Documents/cscript/src/common.c",
+    "output": "/home/eklipsed/Documents/cscript/build_dbg/src/common.o"
+  },
+  {
+    "arguments": [
+      "/usr/bin/cc",
+      "-Isrc",
+      "-g",
+      "-O0",
+      "-Wall",
+      "-std=gnu2x",
+      "-DDEBUG",
+      "-c",
+      "-o",
+      "build_dbg/src/vm.o",
+      "src/vm.c"
+    ],
+    "directory": "/home/eklipsed/Documents/cscript",
+    "file": "/home/eklipsed/Documents/cscript/src/vm.c",
+    "output": "/home/eklipsed/Documents/cscript/build_dbg/src/vm.o"
+  }
+]

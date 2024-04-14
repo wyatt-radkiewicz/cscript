@@ -21,45 +21,67 @@ static inline uint32_t clo(uint32_t x) {
     return ~x ? __builtin_clz(~x) : 32;
 }
 
-static inline bool u8next_char(const uint8_t **str, uint32_t *c32, uint32_t *size) {
+static inline bool u8next_char_len(const uint8_t **str, uint32_t *c32, uint32_t *size, size_t len) {
     uint32_t n = clo(**str);
     *c32 = 0;
     if (size) *size = 1;
+    if (!len) {
+        *size = 0;
+        return false;
+    }
     switch (n) {
+    case 32:
     case 0:
         *c32 = *(*str)++;
         if (!*c32) --*str;
         return true;
     case 2:
+        if (len < 2) {
+            *size = len;
+            return false;
+        }
         if (size) *size = 2;
 
         *c32 |= *(*str)++ & 0x1f;
-        if ((*(*str) & 0xc0) != 0x80) return false;
+        if ((*(*str) & 0xc0) != 0x80 || *(*str) == 0) return false;
         *c32 |= *(*str)++ & 0x7f << 5;
         *c32 += 0x80;
         return true;
     case 3:
+        if (len < 3) {
+            *size = len;
+            return false;
+        }
         if (size) *size = 3;
+
         *c32 |= *(*str)++ & 0x1f;
-        if ((*(*str) & 0xc0) != 0x80) return false;
+        if ((*(*str) & 0xc0) != 0x80 || *(*str) == 0) return false;
         *c32 |= *(*str)++ & 0x7f << 5;
-        if ((*(*str) & 0xc0) != 0x80) return false;
+        if ((*(*str) & 0xc0) != 0x80 || *(*str) == 0) return false;
         *c32 |= *(*str)++ & 0x7f << (5+6);
         *c32 += 0x800;
         return true;
     case 4:
+        if (len < 4) {
+            *size = len;
+            return false;
+        }
         if (size) *size = 4;
+
         *c32 |= *(*str)++ & 0x1f;
-        if ((*(*str) & 0xc0) != 0x80) return false;
+        if ((*(*str) & 0xc0) != 0x80 || *(*str) == 0) return false;
         *c32 |= *(*str)++ & 0x7f << 5;
-        if ((*(*str) & 0xc0) != 0x80) return false;
+        if ((*(*str) & 0xc0) != 0x80 || *(*str) == 0) return false;
         *c32 |= *(*str)++ & 0x7f << (5+6);
-        if ((*(*str) & 0xc0) != 0x80) return false;
+        if ((*(*str) & 0xc0) != 0x80 || *(*str) == 0) return false;
         *c32 |= *(*str)++ & 0x7f << (5+12);
         *c32 += 0x10000;
         return true;
     default: return false;
     }
+}
+static inline bool u8next_char(const uint8_t **str, uint32_t *c32, uint32_t *size) {
+    return u8next_char_len(str, c32, size, 4);
 }
 
 // Implementation of FNV-1a
@@ -87,6 +109,14 @@ static inline uint32_t strview_hash(strview_t str) {
     hash *= 16777619;
     return hash;
 }
+
+// Returns how many characters it would right to the buffer if it were the
+// size of an infintley sized buffer (including the null terminator)
+//
+// Returns 0 if it couldn't convert the utf-8 string to ascii
+//
+// Will set a null terminator in buf if it can
+size_t u8_to_ascii(u8strview_t str, strview_t buf);
 
 #endif
 

@@ -2,7 +2,7 @@ SRCS := $(shell find $(SRC_DIR) -type f -name "*.c" )
 OBJS := $(patsubst %.c,$(BUILD_DIR)/%.o,$(SRCS))
 
 CFLAGS       := -I$(SRC_DIR) $(CFLAGS) $(DEPS_CFLAGS)
-LDFLAGS      := $(LDFLAGS)
+LDFLAGS      := $(LDFLAGS) -lm
 
 ifeq ($(TARGET),dbg)
 CFLAGS += -g -O0 -Wall -std=gnu2x -DDEBUG
@@ -12,7 +12,7 @@ CFLAGS += -O2 -Wall -std=gnu2x
 endif
 
 $(PROG): $(OBJS)
-	$(CC) $(LDFLAGS) -o $@ $(OBJS)
+	$(CC) -o $@ $(OBJS) $(LDFLAGS)
 run: $(PROG)
 	$(PROG)
 tools: $(BUILD_DIR)/keywordgen
