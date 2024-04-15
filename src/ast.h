@@ -22,6 +22,8 @@ typedef struct ast ast_t;
     X(ast_literal) \
     X(ast_ident) \
      \
+    X(ast_con_extern) \
+     \
     X(ast_def_func)
 
 #define X(ENUM) ENUM,

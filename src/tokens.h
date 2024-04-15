@@ -45,6 +45,8 @@
     X(tok_c32) \
     X(tok_b8) \
     X(tok_u0)
+#define tok_types_start tok_i8
+#define tok_types_last tok_u0
 #define tok_num_keywords (tok_u0 + 1)
 #define LEX_TOKENS \
     LEX_TOKENS_KEYWORDS \

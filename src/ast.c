@@ -131,9 +131,16 @@ static bool ast_state_error(ast_state_t *state, bool lexer, const char *msg, ...
     return true;
 }
 
-static bool ast_next_token(ast_state_t *state) {
+static bool ast_next_token(ast_state_t *state, bool noeof) {
     state->lasttok = state->lexer.tok;
-    if (lex_state_next(&state->lexer).okay) return true;
+    if (lex_state_next(&state->lexer).okay) {
+        if (noeof && state->lexer.tok.type == tok_eof) {
+            ast_state_error(state, false, "Unexpected end of file.");
+            return false;
+        } else {
+            return true;
+        }
+    }
     ast_state_error(state, true, "Invalid token");
     return false;
 }
@@ -147,12 +154,12 @@ static const char *tok_to_str(lex_token_type_t type) {
 }
 #undef X
 
-static bool ast_eat_token(ast_state_t *state, lex_token_type_t type) {
+static bool ast_eat_token(ast_state_t *state, bool noeof, lex_token_type_t type) {
     if (state->lexer.tok.type != type) {
         ast_state_error(state, false, "Expected token %s", tok_to_str(type));
         return false;
     }
-    if (!ast_next_token(state)) return false;
+    if (!ast_next_token(state, noeof)) return false;
     return true;
 }
 
@@ -182,21 +189,21 @@ static ast_t *parse_pod(ast_state_t *state, parse_prec_t prec) {
 }
 static ast_t *parse_literal(ast_state_t *state, parse_prec_t prec) {
     ast_t *node = ast_alloc(state, ast_literal);
+    if (!ast_next_token(state, false)) return NULL;
     if (!node) return NULL;
-    if (!ast_next_token(state)) return NULL;
     return node;
 }
 // TODO: Parse struct initialization
 static ast_t *parse_ident(ast_state_t *state, parse_prec_t prec) {
     ast_t *node = ast_alloc(state, ast_ident);
+    if (!ast_next_token(state, false)) return NULL;
     if (!node) return NULL;
-    if (!ast_next_token(state)) return NULL;
     return node;
 }
 static ast_t *parse_prefix(ast_state_t *state, parse_prec_t prec) {
     ast_t *node = ast_alloc(state, ast_op_unary);
+    if (!ast_next_token(state, false)) return NULL;
     if (!node) return NULL;
-    if (!ast_next_token(state)) return NULL;
     node->child = parse_expr(state, prec);
     if (!node->child) {
         ast_state_error(state, false, "Expected expression after prefix operand");
@@ -206,18 +213,17 @@ static ast_t *parse_prefix(ast_state_t *state, parse_prec_t prec) {
 }
 static ast_t *parse_postfix(ast_state_t *state, ast_t *left, parse_prec_t prec) {
     ast_t *node = ast_alloc(state, ast_op_unary);
+    if (!ast_next_token(state, false)) return NULL;
     if (!node) return NULL;
-    if (!ast_next_token(state)) return NULL;
     node->child = left;
     return node;
 }
 static ast_t *parse_infix(ast_state_t *state, ast_t *left, parse_prec_t prec) {
     ast_t *node = ast_alloc(state, ast_op_binary);
+    if (!ast_next_token(state, false)) return NULL;
     if (!node) return NULL;
-    if (!ast_next_token(state)) return NULL;
     node->a = left;
-    if (prec != prec_assign) prec--;
-    if (!(node->b = parse_expr(state, prec))) {
+    if (!(node->b = parse_expr(state, prec == prec_assign ? prec - 1 : prec))) {
         ast_state_error(state, false, "Expected expression after infix operand");
         return NULL;
     }
@@ -240,46 +246,74 @@ static ast_t *parse_expr(ast_state_t *state, parse_prec_t prec) {
 }
 
 static ast_t *parse_type(ast_state_t *state) {
-    return NULL;
+    if (state->lexer.tok.type < tok_types_start
+        && state->lexer.tok.type > tok_types_last) {
+        ast_state_error(state, false, "Expected type");
+        return NULL;
+    }
+    ast_t *node = ast_alloc(state, ast_type_pod);
+    if (!ast_next_token(state, false)) return NULL;
+    if (!node) return NULL;
+    return node;
 }
 
 static ast_t *parse_stmt(ast_state_t *state);
-static ast_t *parse_stmt_let(ast_state_t *state) {
-    return NULL;
+static ast_t *parse_let(ast_state_t *state) {
+    if (!ast_eat_token(state, true, tok_let)) return NULL;
+    ast_t *node = ast_alloc(state, ast_stmt_let);
+    if (!node) return NULL;
+    if (!ast_next_token(state, true)) return NULL;
+    if (state->lexer.tok.type == tok_colon) {
+        if (!ast_next_token(state, true)) return NULL;
+        if (!(node->a = parse_type(state))) return NULL;
+    }
+    if (state->lexer.tok.type == tok_eq) {
+        if (!ast_next_token(state, true)) return NULL;
+        if (!(node->b = parse_expr(state, prec_ternary))) {
+            ast_state_error(state, false, "Expected expression");
+            return NULL;
+        }
+    } else if (!node->a) {
+        ast_state_error(state, false, "Can not infer type of variable when it is not initialized!");
+    }
+    return node;
 }
 static ast_t *parse_stmt_group(ast_state_t *state) {
     ast_t *node = ast_alloc(state, ast_stmt_group);
     if (!node) return NULL;
 
     ast_t **last = &node->child, *curr = NULL;
-    if (!ast_eat_token(state, tok_lbrace)) return NULL;
+    if (!ast_eat_token(state, true, tok_lbrace)) return NULL;
     while (state->lexer.tok.type != tok_rbrace) {
         if (!ast_error_eof(state)) return NULL;
-        curr = parse_stmt(state);
-        if (!curr) return NULL;
+        if (!(curr = parse_stmt(state))) continue;
         *last = curr;
         last = &curr->next;
     }
-    if (!ast_next_token(state)) return NULL;
+    if (!ast_next_token(state, false)) return NULL;
 
     return node;
 }
 static ast_t *parse_stmt(ast_state_t *state) {
     ast_t *node = NULL;
 
-    bool expect_semicol = true;
     switch (state->lexer.tok.type) {
-    case tok_semicol: break;
+    case tok_semicol:
+        if (!(node = ast_alloc(state, ast_stmt_void))) return NULL;
+        if (!ast_next_token(state, false)) return NULL;
+        break;
     case tok_return:
         if (!(node = ast_alloc(state, ast_stmt_return))) return NULL;
+        if (!ast_next_token(state, true)) return NULL;
         node->child = parse_expr(state, prec_full);
+        if (!ast_eat_token(state, false, tok_semicol)) return NULL;
         break;
     case tok_let:
-        if (!(node = parse_stmt_let(state))) return NULL;
+        if (!(node = parse_let(state))) return NULL;
+        if (!ast_eat_token(state, false, tok_semicol)) return NULL;
         break;
     case tok_lbrace:
         if (!(node = parse_stmt_group(state))) return NULL;
-        expect_semicol = false;
         break;
     default: {
         if (!(node = ast_alloc(state, ast_stmt_expr))) return NULL;
@@ -287,38 +321,83 @@ static ast_t *parse_stmt(ast_state_t *state) {
             ast_state_error(state, false, "Expected statement");
             return NULL;
         }
+        if (!ast_eat_token(state, false, tok_semicol)) return NULL;
         } break;
     }
 
-    if (expect_semicol && !ast_eat_token(state, tok_semicol)) return NULL;
     return node;
 }
 static ast_t *parse_def_func(ast_state_t *state) {
-    return NULL;
+    if (!ast_eat_token(state, true, tok_fn)) return NULL;
+    ast_t *node = ast_alloc(state, ast_def_func);
+    if (!node) return NULL;
+    if (!ast_next_token(state, true)) return NULL;
+    if (!ast_eat_token(state, true, tok_lparen)) return NULL;
+
+    ast_t **last = &node->a, *curr = NULL;
+    while (state->lexer.tok.type != tok_rparen) {
+        if (!(curr = ast_alloc(state, ast_var))) return NULL;
+        if (!ast_eat_token(state, true, tok_ident)) return NULL;
+        if (!ast_eat_token(state, true, tok_colon)) return NULL;
+        if (!(curr->child = parse_type(state))) return NULL;
+        if (state->lexer.tok.type == tok_comma
+            && !ast_next_token(state, true)) return NULL;
+        *last = curr;
+        last = &curr->next;
+    }
+    if (!ast_eat_token(state, true, tok_rparen)) return NULL;
+    if (state->lexer.tok.type != tok_arrow) {
+        if (!(node->b = ast_alloc(state, ast_type_pod))) return NULL;
+        node->b->token = (lex_token_t){
+            .type = tok_u0,
+            .line = state->lexer.tok.line,
+            .chr = state->lexer.tok.chr,
+        };
+    } else {
+        if (!ast_next_token(state, true)) return NULL;
+        if (!(node->b = parse_type(state))) return NULL;
+    }
+
+    if (!(node->child = parse_stmt_group(state))) {
+        ast_state_error(state, false, "Expected function body");
+        return NULL;
+    }
+
+    return node;
 }
 
 
 static ast_t *parse_top_level(ast_state_t *state) {
     switch (state->lexer.tok.type) {
-    case tok_let: return parse_stmt_let(state);
+    case tok_extern: {
+        if (!ast_next_token(state, true)) return NULL;
+        ast_t *node = ast_alloc(state, ast_con_extern);
+        if (!node) return NULL;
+        if (!(node->child = parse_def_func(state))) return NULL;
+        return node;
+        }
+    case tok_let: {
+        ast_t *node = parse_let(state);
+        if (!ast_eat_token(state, false, tok_semicol)) return NULL;
+        return node;
+        }
     case tok_fn: return parse_def_func(state);
-    default: return NULL;
+    default: {
+        ast_state_error(state, false, "Expected top level declaration.");
+    } return NULL;
     }
 }
 
 ast_t *ast_build(ast_state_t *state) {
     ast_t *root = NULL, **last, *curr;
 
-    if (!ast_next_token(state)) return root;
-    return parse_expr(state, prec_full);
-
     last = &root;
-    if (!ast_next_token(state)) return root;
+    if (!ast_next_token(state, false)) return root;
     while (state->lexer.tok.type != tok_eof) {
         curr = parse_top_level(state);
+        if (!curr) break;
         *last = curr;
         last = &curr->next;
-        if (!curr || !ast_next_token(state)) break;
     }
 
     return root;
@@ -371,7 +450,10 @@ static void ast_log_recurrsive(const ast_t *ast, FILE *out, int32_t tabs) {
     }
     print_tabs(out, tabs);
     fprintf(out, "}%s", ast->next ? ",\n" : "");
-    if (ast->next) ast_log_recurrsive(ast->next, out, tabs);
+    if (ast->next) {
+        print_tabs(out, tabs);
+        ast_log_recurrsive(ast->next, out, tabs);
+    }
 }
 
 void ast_log(const ast_t *ast, FILE *out) {
