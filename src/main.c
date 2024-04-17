@@ -4,9 +4,10 @@
 #include "lexer.h"
 #include "vm.h"
 #include "ast.h"
+#include "compiler.h"
 
 // Testing function
-static char *load_file(const char *filepath) {
+static char *loadfile(const char *filepath) {
 	FILE *file = fopen(filepath, "r");
 	if (!file) return NULL;
 
@@ -26,28 +27,119 @@ static char *load_file(const char *filepath) {
 	return str;
 }
 
-uint8_t code[32];
-uint8_t data[32];
+static void print_i32(vm_state_t *vm) {
+    int32_t x;
+    vm_state_pop_i32(vm, &x);
+    printf("print_int: %d\n", x);
+}
+
 uint8_t stack[64];
 vm_callstack_t callstack[8];
-vm_extern_fn_t pfn[8];
+
+uint8_t code[32];
+uint8_t data[128];
+strview_t externfn_names[] = {
+    (strview_t){ .str = "print_i32", .len = sizeof("print_i32")-1 },
+};
+vm_extern_fn_t externfn_ptrs[] = {
+    print_i32,
+};
+strview_t internfn_names[32];
+uint32_t internfn_locs[32];
+comp_typebuf_t typebuf[64];
+error_t errors[16];
+comp_struct_t structs[32];
+uint32_t typedefs[32];
+comp_pfn_t pfns[32];
+comp_fn_t fns[64];
+strview_t scopenames[64];
+comp_scope_t scopes[8];
 
 ast_t ast[512];
-ast_error_t ast_errors[10];
 
 int main(int argc, char **argv) {
-    char *filestr = load_file("test.bs");
+    char *filestr = loadfile("test.bs");
     ast_state_t ast_state = {
         .lexer = lex_state_init((uint8_t *)filestr),
         .buf = ast,
         .buflen = arrsz(ast),
-        .errbuf = ast_errors,
-        .errbuflen = arrsz(ast_errors),
+        .errbuf = errors,
+        .errbuflen = arrsz(errors),
     };
-    ast_log(ast_build(&ast_state), stdout);
-    printf("\n");
-    for (int i = 0; i < ast_state.nerrs; i++) ast_error_log(ast_errors + i, stdout);
-    free(filestr);
+    comp_resources_t res = {
+        .code = code,
+        .code_len = arrsz(code),
 
+        .data = data,
+        .data_len = arrsz(data),
+
+        .ast = ast_build(&ast_state),
+
+        .externfn_name = externfn_names,
+        .externfn_ptr = externfn_ptrs,
+        .externfn_len = arrsz(externfn_ptrs),
+
+        .internfn_name = internfn_names,
+        .internfn_loc = internfn_locs,
+        .infernfn_len = arrsz(internfn_names),
+
+        .typebuf = typebuf,
+        .typebuf_len = arrsz(typebuf),
+
+        .error = errors,
+        .error_len = arrsz(errors),
+        .num_errors = ast_state.nerrs,
+
+        .structs = structs,
+        .structs_len = arrsz(structs),
+
+        .typedefs = typedefs,
+        .typedef_len = arrsz(typedefs),
+
+        .pfns = pfns,
+        .pfns_len = arrsz(pfns),
+
+        .fns = fns,
+        .fns_len = arrsz(fns),
+
+        .scopenames = scopenames,
+        .scopenames_len = arrsz(scopenames),
+
+        .scopes = scopes,
+        .scopes_len = arrsz(scopes),
+    };
+    ast_log(res.ast, stdout);
+    printf("\n");
+
+    if (!res.num_errors) compile(&res);
+    for (int i = 0; i < res.num_errors; i++) {
+        error_log(res.error + i, stdout);
+        printf("\n");
+    }
+    
+    vm_state_t vm = {
+        .code = code,
+        .code_size = arrsz(code),
+
+        .data = data,
+        .data_size = arrsz(data),
+
+        .pfn = externfn_ptrs,
+        .pfn_size = arrsz(externfn_ptrs),
+
+        .callstack = callstack,
+        .callstack_size = arrsz(callstack),
+        
+        .stack = stack,
+        .stack_size = arrsz(stack),
+    };
+    vm_error_log(vm_state_run(&vm, res.internfn_loc[0], true), stdout);
+    for (const uint8_t *codeptr = code;
+        codeptr - code < arrsz(code);) {
+        vm_opcode_log(&codeptr, stdout);
+        printf("\n");
+    }
+
+    free(filestr);
     return 0;
 }

@@ -732,14 +732,24 @@ static bool vm_state_run_instr(vm_state_t *state, vm_error_t *err) {
 
     return true;
 }
-vm_error_t vm_state_run(vm_state_t *state, uint32_t offs) {
+vm_error_t vm_state_run(vm_state_t *state, uint32_t offs, bool reset) {
     state->pc = state->code + offs;
-    state->sp = state->stack + state->stack_size;
-    state->rp = state->callstack;
-    *state->rp = (vm_callstack_t){
-        .ret_loc = UINT32_MAX,
-        .stack_base = UINT32_MAX,
-    };
+    if (reset) {
+        state->sp = state->stack + state->stack_size;
+        state->rp = state->callstack;
+        *state->rp = (vm_callstack_t){
+            .ret_loc = UINT32_MAX,
+            .stack_base = UINT32_MAX,
+        };
+    } else {
+        if (state->rp - state->callstack + 1 >= state->callstack_size) {
+            return vm_error_init(state, vm_err_callstack_overflow);
+        }
+        *(++state->rp) = (vm_callstack_t){
+            .ret_loc = UINT32_MAX,
+            .stack_base = UINT32_MAX,
+        };
+    }
 
     vm_error_t err;
     while (vm_state_run_instr(state, &err));

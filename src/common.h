@@ -4,6 +4,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <string.h>
 
 #define arrsz(ARR) (sizeof(ARR)/sizeof((ARR)[0]))
 
@@ -17,8 +18,33 @@ typedef struct u8strview {
     size_t size;
 } u8strview_t;
 
+#define ERROR_CATEGORIES \
+    X(error_category_lexer) \
+    X(error_category_parser) \
+    X(error_category_compiler)
+
+#define X(ENUM) ENUM,
+typedef enum error_category {
+    ERROR_CATEGORIES
+} error_category_t;
+#undef X
+
+typedef struct error {
+    char msg[512];
+
+    error_category_t category;
+    int32_t line, chr;
+} error_t;
+
+#include <stdio.h>
+void error_log(const error_t *err, FILE *out);
+
 static inline uint32_t clo(uint32_t x) {
     return ~x ? __builtin_clz(~x) : 32;
+}
+
+static inline bool strview_eq(const strview_t a, const strview_t b) {
+    return a.len == b.len && memcmp(a.str, b.str, a.len) == 0;
 }
 
 static inline bool u8next_char_len(const uint8_t **str, uint32_t *c32, uint32_t *size, size_t len) {

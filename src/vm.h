@@ -75,7 +75,7 @@ typedef struct vm_error {
     size_t stack_size, callstack_len;
 } vm_error_t;
 
-vm_error_t vm_state_run(vm_state_t *state, uint32_t offs);
+vm_error_t vm_state_run(vm_state_t *state, uint32_t offs, bool reset);
 // Push instructions will align the data to the alignment they are supposed to be
 bool vm_state_push_i8(vm_state_t *state, int8_t x);
 bool vm_state_push_i16(vm_state_t *state, int16_t x);
