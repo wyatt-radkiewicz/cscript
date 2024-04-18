@@ -120,11 +120,9 @@ static bool comptime_cast(comp_state_t *state,
         return false;
     }
 
-    var->type = typeto;
 #define from_type(TYID, TYFROM) \
 case type_##TYID: { \
     const TYFROM x = comptime_pop_##TYID(state, var->loc); \
-    state->dsz = var->loc; \
     switch (tolvl->type) { \
     case type_i8: \
         if (!comptime_push_i8(state, &var->loc, x)) return false; \
@@ -137,6 +135,9 @@ case type_##TYID: { \
         else return true; \
     case type_c16: case type_u16: \
         if (!comptime_push_u16(state, &var->loc, x)) return false; \
+        else return true; \
+    case type_i32: \
+        if (!comptime_push_i32(state, &var->loc, x)) return false; \
         else return true; \
     case type_c32: case type_u32: \
         if (!comptime_push_u32(state, &var->loc, x)) return false; \
@@ -156,6 +157,7 @@ case type_##TYID: { \
     default: return false; \
     } \
 }
+    var->type = typeto;
     switch (fromlvl->type) {
     from_type(i8, int8_t)
     case type_b8: case type_c8: from_type(u8, uint8_t)
@@ -240,6 +242,49 @@ static bool comptime_expr(comp_state_t *state,
         if (!comptime_push_literal_type(state, expr, ret)) return false;
         return true;
     case ast_op_unary:
+        if (expr->token.type == tok_minus) {
+            comp_type_t innerty;
+            if (!comp_get_expr_type(state, &innerty, expr->child)) return false;
+            if (!comp_is_arithmetic_type(state, innerty.lvls[0])) {
+                comp_error(state, "Expected arithmetic type for unary '-'");
+                return false;
+            }
+            innerty.lvls[0] = comp_get_type_promotion_single(state, innerty.lvls[0]);
+
+            if (!comptime_expr(state, errnocomp, ret, expr->child)) return false;
+            if (!comptime_cast(state, ret, &innerty)) return false;
+            switch (ret->type.lvls[0].type) {
+            case type_i32: *(int32_t *)(state->res->data + ret->loc) *= -1; break;
+            case type_u32: {
+                uint32_t x = comptime_pop_u32(state, ret->loc);
+                
+                if (x <= (uint32_t)INT32_MAX+1) {
+                    innerty.lvls[0].type = type_i32;
+                    ret->type.lvls[0].type = type_i32;
+                    if (!comptime_push_i32(state, &ret->loc, x == (uint32_t)INT32_MAX+1 ? INT32_MIN : -(int32_t)x)) {
+                        return false;
+                    }
+                } else {
+                    innerty.lvls[0].type = type_i64;
+                    ret->type.lvls[0].type = type_i64;
+                    if (!comptime_push_i64(state, &ret->loc, -(int64_t)x)) {
+                        return false;
+                    }
+                }
+            } return true;
+            case type_i64: *(int64_t *)(state->res->data + ret->loc) *= -1; break;
+            case type_u64: {
+                uint64_t x = comptime_pop_u64(state, ret->loc);
+                innerty.lvls[0].type = type_i64;
+                ret->type.lvls[0].type = type_i64;
+                if (!comptime_push_i64(state, &ret->loc, -(int64_t)x)) return false;
+            } return true;
+            case type_f32: *(float *)(state->res->data + ret->loc) *= -1.0f; break;
+            case type_f64: *(double *)(state->res->data + ret->loc) *= -1.0f; break;
+            default: assert(false && "Expected arithemtic type comptime '-'");
+            }
+            return true;
+        }
         assert(false && "TODO: unary operators for compile time expressions!");
         break;
     case ast_op_call:
@@ -255,6 +300,13 @@ static bool comptime_expr(comp_state_t *state,
         }
         if (expr->token.type == tok_comma) {
             assert(false && "TODO: comma operator in compile time expressions!");
+        }
+        if (expr->token.type == tok_as) {
+            comp_type_t totype;
+            if (!comp_get_type(state, expr->b, &totype)) return false;
+            if (!comptime_expr(state, true, ret, expr->a)) return false;
+            if (!comptime_cast(state, ret, &totype)) return false;
+            return true;
         }
 
         // The rest from here on out is arithmetic operations

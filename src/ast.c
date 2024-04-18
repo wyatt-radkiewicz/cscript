@@ -79,7 +79,7 @@ static const parser_rule_t parser_rules[tok_max+1] = {
     [tok_dot]           = { .prefix = NULL, .infix = parse_infix, .prec = prec_postfix },
     [tok_arrow]         = { .prefix = NULL, .infix = parse_infix, .prec = prec_postfix },
     [tok_plus]          = { .prefix = NULL, .infix = parse_infix, .prec = prec_addit },
-    [tok_minus]         = { .prefix = NULL, .infix = parse_infix, .prec = prec_addit },
+    [tok_minus]         = { .prefix = parse_prefix, .infix = parse_infix, .prec = prec_addit },
     [tok_not]           = { .prefix = parse_prefix, .infix = NULL, .prec = prec_prefix },
     [tok_bnot]          = { .prefix = parse_prefix, .infix = NULL, .prec = prec_prefix },
     [tok_star]          = { .prefix = parse_prefix, .infix = parse_infix, .prec = prec_mulpli },
@@ -239,13 +239,22 @@ static ast_t *parse_ident(ast_state_t *state, parse_prec_t prec) {
     return node;
 }
 static ast_t *parse_prefix(ast_state_t *state, parse_prec_t prec) {
-    ast_t *node = ast_alloc(state, ast_op_unary);
-    if (!ast_next_token(state, false)) return NULL;
-    if (!node) return NULL;
-    node->child = parse_expr(state, prec);
-    if (!node->child) {
-        ast_state_error(state, false, "Expected expression after prefix operand");
-        return NULL;
+    ast_t *node = NULL;
+    if (state->lexer.tok.type != tok_lparen) {
+        if (!(node = ast_alloc(state, ast_op_unary))) return NULL;
+        if (!ast_next_token(state, false)) return NULL;
+        node->child = parse_expr(state, prec);
+        if (!node->child) {
+            ast_state_error(state, false, "Expected expression after prefix operand");
+            return NULL;
+        }
+    } else {
+        if (!ast_next_token(state, false)) return NULL;
+        if (!(node = parse_expr(state, prec))) {
+            ast_state_error(state, false, "Expected expression inside parenthesis");
+            return NULL;
+        }
+        if (!ast_eat_token(state, true, tok_rparen)) return NULL;
     }
     return node;
 }

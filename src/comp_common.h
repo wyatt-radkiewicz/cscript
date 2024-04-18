@@ -308,9 +308,9 @@ static comp_var_t *comp_get_scopevar(comp_state_t *state,
     return NULL;
 }
 
-static bool comp_get_expr_type(comp_state_t *state,
-                               comp_type_t *ret, 
-                               const ast_t *expr) {
+static bool comp_get_expr_type_recurr(comp_state_t *state,
+                                      comp_type_t *ret, 
+                                      const ast_t *expr) {
     comp_update_line(state, expr);
     switch (expr->type) {
     case ast_literal: return comp_get_literal_type(state, expr, ret);
@@ -327,7 +327,7 @@ static bool comp_get_expr_type(comp_state_t *state,
         } break;
     case ast_op_unary: {
         comp_type_t child;
-        if (!comp_get_expr_type(state, &child, expr->child)) return false;
+        if (!comp_get_expr_type_recurr(state, &child, expr->child)) return false;
         if (expr->token.type == tok_not) {
             if (!comp_is_truthy_type(state, child.lvls[0])) return false;
             *ret = (comp_type_t){
@@ -336,11 +336,21 @@ static bool comp_get_expr_type(comp_state_t *state,
             };
             return true;
         }
+        if (expr->token.type == tok_band) {
+            if (ret->num_lvls + 1 > MAX_TYPE_NESTING) {
+                comp_error(state, "Hit max type nesting!");
+                return false;
+            }
+            memmove(ret->lvls + 1, ret->lvls, ret->num_lvls++);
+            ret->lvls[0] = (comp_type_lvl_t){.type = type_ref};
+            return true;
+        }
         if (expr->token.type == tok_star) {
-            *ret = (comp_type_t){
-                .lvls[0] = (comp_type_lvl_t){.type = type_ptr},
-                .num_lvls = 1,
-            };
+            if (ret->lvls[0].type != type_ptr || ret->num_lvls < 2) {
+                comp_error(state, "Can only derefrence pointers!");
+                return false;
+            }
+            memmove(ret->lvls, ret->lvls + 1, --ret->num_lvls);
             return true;
         }
         if (!comp_is_arithmetic_type(state, child.lvls[0])) return false;
@@ -351,8 +361,8 @@ static bool comp_get_expr_type(comp_state_t *state,
     } return true;
     case ast_op_ternary: {
         comp_type_t ont, onf;
-        if (!comp_get_expr_type(state, &ont, expr->a)) return false;
-        if (!comp_get_expr_type(state, &onf, expr->b)) return false;
+        if (!comp_get_expr_type_recurr(state, &ont, expr->a)) return false;
+        if (!comp_get_expr_type_recurr(state, &onf, expr->b)) return false;
         if (comp_types_exacteq(state, false, ont, onf)) {
             *ret = ont;
             return true;
@@ -365,9 +375,21 @@ static bool comp_get_expr_type(comp_state_t *state,
         if (!comp_get_type_promotion(state, ont, onf, ret)) return false;
     } return true;
     case ast_op_binary: {
+        if (expr->token.type == tok_as) {
+            comp_type_t left, right;
+            if (!comp_get_expr_type_recurr(state, &left, expr->a)) return false;
+            if (!comp_get_type(state, expr->b, &right)) return false;
+            if (!comp_is_arithmetic_type(state, left.lvls[0])
+                || !comp_is_arithmetic_type(state, right.lvls[0])) {
+                comp_error(state, "Cast operations must have arithmetic types!");
+                return false;
+            }
+            *ret = right;
+            return true;
+        }
         if (expr->token.type == tok_dot || expr->token.type == tok_arrow) {
             comp_type_t left;
-            if (!comp_get_expr_type(state, &left, expr->a)) return false;
+            if (!comp_get_expr_type_recurr(state, &left, expr->a)) return false;
             if (!comp_get_underlying_typedef(state, &left)) return false;
             if (expr->token.type == tok_dot) {
                 if (left.lvls[0].type != type_struct && left.num_lvls != 2) {
@@ -404,8 +426,8 @@ static bool comp_get_expr_type(comp_state_t *state,
         }
         if (expr->token.type == tok_eq) {
             comp_type_t left, right;
-            if (!comp_get_expr_type(state, &left, expr->a)) return false;
-            if (!comp_get_expr_type(state, &right, expr->b)) return false;
+            if (!comp_get_expr_type_recurr(state, &left, expr->a)) return false;
+            if (!comp_get_expr_type_recurr(state, &right, expr->b)) return false;
             if (comp_types_exacteq(state, false, left, right)) {
                 *ret = left;
                 return true;
@@ -425,8 +447,8 @@ static bool comp_get_expr_type(comp_state_t *state,
             || expr->token.type == tok_lshifteq || expr->token.type == tok_rshifteq
             || expr->token.type == tok_bandeq || expr->token.type == tok_bxoreq) {
             comp_type_t left, right;
-            if (!comp_get_expr_type(state, &left, expr->a)) return false;
-            if (!comp_get_expr_type(state, &right, expr->b)) return false;
+            if (!comp_get_expr_type_recurr(state, &left, expr->a)) return false;
+            if (!comp_get_expr_type_recurr(state, &right, expr->b)) return false;
             if (!comp_is_arithmetic_type(state, left.lvls[0])
                 || !comp_is_arithmetic_type(state, right.lvls[0])) {
                 comp_error(state, "Arithmetic equal operators must have arithmetic types!");
@@ -438,20 +460,26 @@ static bool comp_get_expr_type(comp_state_t *state,
         }
         if (expr->token.type == tok_comma) {
             comp_type_t left;
-            if (!comp_get_expr_type(state, &left, expr->a)) return false;
+            if (!comp_get_expr_type_recurr(state, &left, expr->a)) return false;
             *ret = left;
             return true;
         }
 
         comp_type_t left, right;
-        if (!comp_get_expr_type(state, &left, expr->a)) return false;
-        if (!comp_get_expr_type(state, &right, expr->b)) return false;
+        if (!comp_get_expr_type_recurr(state, &left, expr->a)) return false;
+        if (!comp_get_expr_type_recurr(state, &right, expr->b)) return false;
         comp_update_line(state, expr);
         if (!comp_get_type_promotion(state, left, right, ret)) return false;
     } return true;
     default: comp_error(state, "Expecting expression");
     }
     return false;
+}
+static bool comp_get_expr_type(comp_state_t *state,
+                               comp_type_t *ret, 
+                               const ast_t *expr) {
+    *ret = (comp_type_t){0};
+    return comp_get_expr_type_recurr(state, ret, expr);
 }
 
 #endif

@@ -1,4 +1,4 @@
-let global: i32 = 1 + 69;
+let global: i32 = -(1 + 69 as f32);
 
 struct TestStruct {
     a: i32,
