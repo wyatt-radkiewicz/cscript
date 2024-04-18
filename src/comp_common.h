@@ -156,6 +156,16 @@ static bool comp_get_typesize(comp_state_t *state, uint32_t *ret, const comp_typ
     }
 }
 
+static bool comp_is_pod_type(comp_state_t *state, comp_type_lvl_t type) {
+    switch (type.type) {
+    case type_arr: case type_struct:
+        return false;
+    case type_typedef:
+        return comp_is_pod_type(state, state->res->typebuf[type.id].type.lvls[0]);
+    }
+    return true;
+}
+
 static bool comp_is_arithmetic_type(comp_state_t *state, comp_type_lvl_t type) {
     switch (type.type) {
     case type_u0: case type_ptr: case type_ref: case type_arr:
@@ -225,6 +235,7 @@ static bool comp_get_literal_type(comp_state_t *state, const ast_t *literal, com
         return false;
     }
 
+    *type = (comp_type_t){.num_lvls = 1};
     comp_type_lvl_t *lvl = type->lvls;
     const lex_token_t *tok = &literal->token;
     switch (tok->type) {
@@ -435,8 +446,6 @@ static bool comp_get_expr_type(comp_state_t *state,
         comp_type_t left, right;
         if (!comp_get_expr_type(state, &left, expr->a)) return false;
         if (!comp_get_expr_type(state, &right, expr->b)) return false;
-        if (!comp_is_arithmetic_type(state, left.lvls[0])
-            || !comp_is_arithmetic_type(state, right.lvls[0])) return false;
         comp_update_line(state, expr);
         if (!comp_get_type_promotion(state, left, right, ret)) return false;
     } return true;

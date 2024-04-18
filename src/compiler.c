@@ -22,6 +22,8 @@ static void comp_globals(comp_state_t *state) {
                 comp_error(state, "Ran out of storage in data segment!");
                 return;
             }
+
+            assert(false && "TODO: Undefined global vars!");
         }
 
         comp_var_t var;
@@ -30,6 +32,10 @@ static void comp_globals(comp_state_t *state) {
             comp_error(state, "Expected compile time expression!");
             return;
         }
+        comp_type_t type;
+        if (!comp_get_type(state, node->a, &type)) type = var.type;
+        if (!comptime_cast(state, &var, &type)) return;
+        if (!comp_add_var_to_scope(state, &var, node->token.data.str)) return;
     }
 }
 

@@ -17,6 +17,48 @@ static bool comptime_push(comp_state_t *state,
     return true;
 }
 
+#define comptime_push_template(TYNAME, TYPE) \
+static bool comptime_push_##TYNAME(comp_state_t *state, uint32_t *loc, TYPE i) { \
+    if (!comptime_push(state, sizeof(TYPE), alignof(TYPE), loc)) return false; \
+    *(TYPE *)(state->res->data + *loc) = i; \
+    return true; \
+}
+comptime_push_template(i8, int8_t)
+comptime_push_template(b8, uint8_t)
+comptime_push_template(u8, uint8_t)
+comptime_push_template(c8, uint8_t)
+comptime_push_template(i16, int16_t)
+comptime_push_template(u16, uint16_t)
+comptime_push_template(c16, uint16_t)
+comptime_push_template(i32, int32_t)
+comptime_push_template(u32, uint32_t)
+comptime_push_template(c32, uint32_t)
+comptime_push_template(i64, int64_t)
+comptime_push_template(u64, uint64_t)
+comptime_push_template(f32, float)
+comptime_push_template(f64, double)
+#undef comptime_push_template
+#define comptime_pop_template(TYNAME, TYPE) \
+static TYPE comptime_pop_##TYNAME(comp_state_t *state, uint32_t loc) { \
+    state->dsz = loc; \
+    return *(TYPE *)(state->res->data + state->dsz); \
+}
+comptime_pop_template(i8, int8_t)
+comptime_pop_template(b8, uint8_t)
+comptime_pop_template(u8, uint8_t)
+comptime_pop_template(c8, uint8_t)
+comptime_pop_template(i16, int16_t)
+comptime_pop_template(u16, uint16_t)
+comptime_pop_template(c16, uint16_t)
+comptime_pop_template(i32, int32_t)
+comptime_pop_template(u32, uint32_t)
+comptime_pop_template(c32, uint32_t)
+comptime_pop_template(i64, int64_t)
+comptime_pop_template(u64, uint64_t)
+comptime_pop_template(f32, float)
+comptime_pop_template(f64, double)
+#undef comptime_pop_template
+
 static bool comptime_push_literal_type(comp_state_t *state, const ast_t *literal, comp_var_t *var) {
     comp_update_line(state, literal);
     if (literal->type != ast_literal) {
@@ -32,70 +74,21 @@ static bool comptime_push_literal_type(comp_state_t *state, const ast_t *literal
         .scope_id = UINT32_MAX,
     };
 
-    comp_type_lvl_t *lvl = var->type.lvls;
     const lex_token_t *tok = &literal->token;
-    switch (tok->type) {
-    case tok_literal_u:
-        if (tok->data.u64 <= INT32_MAX) {
-            lvl->type = type_i32;
-            if (!comptime_push(state, 4, 4, &var->loc)) return false;
-            int32_t x = tok->data.u64;
-            memcpy(state->res->data + var->loc, &x, sizeof(x));
-        } else if (tok->data.u64 <= UINT32_MAX) {
-            lvl->type = type_u32;
-            if (!comptime_push(state, 4, 4, &var->loc)) return false;
-            uint32_t x = tok->data.u64;
-            memcpy(state->res->data + var->loc, &x, sizeof(x));
-        } else if (tok->data.u64 <= INT64_MAX) {
-            lvl->type = type_i64;
-            if (!comptime_push(state, 8, 8, &var->loc)) return false;
-            int64_t x = tok->data.u64;
-            memcpy(state->res->data + var->loc, &x, sizeof(x));
-        } else {
-            lvl->type = type_u64;
-            if (!comptime_push(state, 8, 8, &var->loc)) return false;
-            uint64_t x = tok->data.u64;
-            memcpy(state->res->data + var->loc, &x, sizeof(x));
-        }
-        break;
-    case tok_true:
-    case tok_false:
-        lvl->type = type_b8;
-        if (!comptime_push(state, 1, 1, &var->loc)) return false;
-        uint8_t x = tok->type == tok_true ? 1 : 0;
-        memcpy(state->res->data + var->loc, &x, sizeof(x));
-        break;
-    case tok_literal_f:
-        lvl->type = type_f64;
-        if (!comptime_push(state, 8, 8, &var->loc)) return false;
-        memcpy(state->res->data + var->loc, &tok->data.f64, sizeof(tok->data.f64));
-        break;
-    case tok_literal_c:
-        switch (tok->data.chr.bits) {
-        case 8: {
-            lvl->type = type_c8;
-            if (!comptime_push(state, 1, 1, &var->loc)) return false;
-            int8_t x = tok->data.chr.c32;
-            memcpy(state->res->data + var->loc, &x, sizeof(x));
-        } break;
-        case 16: {
-            lvl->type = type_c16;
-            if (!comptime_push(state, 2, 2, &var->loc)) return false;
-            int16_t x = tok->data.chr.c32;
-            memcpy(state->res->data + var->loc, &x, sizeof(x));
-        } break;
-        case 32: {
-            lvl->type = type_c32;
-            if (!comptime_push(state, 4, 4, &var->loc)) return false;
-            memcpy(state->res->data + var->loc, &tok->data.chr.c32, sizeof(tok->data.chr.c32));
-        } break;
-        }
-        break;
-    default:
-        comp_error(state, "Expected literal!");
-        return false;
+    if (!comp_get_literal_type(state, literal, &var->type)) return false;
+    switch (var->type.lvls[0].type) {
+    case type_i32: return comptime_push_i32(state, &var->loc, tok->data.u64);
+    case type_u32: return comptime_push_u32(state, &var->loc, tok->data.u64);
+    case type_i64: return comptime_push_i64(state, &var->loc, tok->data.u64);
+    case type_u64: return comptime_push_u64(state, &var->loc, tok->data.u64);
+    case type_f64: return comptime_push_f64(state, &var->loc, tok->data.f64);
+    case type_c8: return comptime_push_c8(state, &var->loc, tok->data.chr.c32);
+    case type_c16: return comptime_push_c16(state, &var->loc, tok->data.chr.c32);
+    case type_c32: return comptime_push_c32(state, &var->loc, tok->data.chr.c32);
+    case type_b8: return comptime_push_b8(state, &var->loc, tok->type == tok_true);
+    default: comp_error(state, "Unknown literal type!");
     }
-    return true;
+    return false;
 }
 
 // Will cast to a type of size bigger than the previous if needed
@@ -107,6 +100,7 @@ static bool comptime_cast(comp_state_t *state,
     comp_type_t typeto = *type, typefrom = var->type;
     if (!comp_get_underlying_typedef(state, &typeto)) return false;
     if (!comp_get_underlying_typedef(state, &typefrom)) return false;
+    if (comp_types_exacteq(state, false, typeto, typefrom)) return true;
 
     const comp_type_lvl_t *tolvl = typeto.lvls;
     comp_type_lvl_t *fromlvl = typefrom.lvls;
@@ -127,40 +121,52 @@ static bool comptime_cast(comp_state_t *state,
     }
 
     var->type = typeto;
-#define conv_to(TYID, TYTO) \
-case TYID: \
-    if (!comptime_push(state, sizeof(TYTO), alignof(TYTO), &var->loc)) return false; \
-    *(TYTO *)(state->res->data + var->loc) = (TYTO)x; \
-    return true;
 #define from_type(TYID, TYFROM) \
-case TYID: { \
-    const TYFROM x = *(TYFROM *)(state->res->data + var->loc); \
+case type_##TYID: { \
+    const TYFROM x = comptime_pop_##TYID(state, var->loc); \
     state->dsz = var->loc; \
     switch (tolvl->type) { \
-    conv_to(type_i8, int8_t) \
-    case type_b8: case type_c8: conv_to(type_u8, uint8_t) \
-    conv_to(type_i16, int16_t) \
-    case type_c16: conv_to(type_u16, uint16_t) \
-    conv_to(type_i32, int32_t) \
-    case type_c32: conv_to(type_u32, uint32_t) \
-    conv_to(type_i64, int64_t) \
-    conv_to(type_u64, uint64_t) \
-    conv_to(type_f32, float) \
-    conv_to(type_f64, double) \
+    case type_i8: \
+        if (!comptime_push_i8(state, &var->loc, x)) return false; \
+        else return true; \
+    case type_b8: case type_c8: case type_u8: \
+        if (!comptime_push_u8(state, &var->loc, x)) return false; \
+        else return true; \
+    case type_i16: \
+        if (!comptime_push_i16(state, &var->loc, x)) return false; \
+        else return true; \
+    case type_c16: case type_u16: \
+        if (!comptime_push_u16(state, &var->loc, x)) return false; \
+        else return true; \
+    case type_c32: case type_u32: \
+        if (!comptime_push_u32(state, &var->loc, x)) return false; \
+        else return true; \
+    case type_i64: \
+        if (!comptime_push_i64(state, &var->loc, x)) return false; \
+        else return true; \
+    case type_u64: \
+        if (!comptime_push_u64(state, &var->loc, x)) return false; \
+        else return true; \
+    case type_f32: \
+        if (!comptime_push_f32(state, &var->loc, x)) return false; \
+        else return true; \
+    case type_f64: \
+        if (!comptime_push_f64(state, &var->loc, x)) return false; \
+        else return true; \
     default: return false; \
     } \
 }
     switch (fromlvl->type) {
-    from_type(type_i8, int8_t)
-    case type_b8: case type_c8: from_type(type_u8, uint8_t)
-    from_type(type_i16, int16_t)
-    case type_c16: from_type(type_u16, uint16_t)
-    from_type(type_i32, int32_t)
-    case type_c32: from_type(type_u32, uint32_t)
-    from_type(type_i64, int64_t)
-    from_type(type_u64, uint64_t)
-    from_type(type_f32, float)
-    from_type(type_f64, double)
+    from_type(i8, int8_t)
+    case type_b8: case type_c8: from_type(u8, uint8_t)
+    from_type(i16, int16_t)
+    case type_c16: from_type(u16, uint16_t)
+    from_type(i32, int32_t)
+    case type_c32: from_type(u32, uint32_t)
+    from_type(i64, int64_t)
+    from_type(u64, uint64_t)
+    from_type(f32, float)
+    from_type(f64, double)
     default: return false;
     }
 #undef from_type
@@ -169,13 +175,59 @@ case TYID: { \
     return true;
 }
 
+#define binary_op_type(OP, TYPE, NAME) \
+    case type_##NAME: { \
+        TYPE bx = comptime_pop_##NAME(state, b->loc); \
+        TYPE ax = comptime_pop_##NAME(state, a->loc); \
+        comptime_push_##NAME(state, &ret->loc, ax OP bx); \
+        } return true;
+#define binary_float_ops(OP) \
+        binary_op_type(OP, float, f32) \
+        binary_op_type(OP, double, f64)
+#define binary_op_template(OP, TOK) \
+    case TOK: { \
+        switch (a->type.lvls[0].type) { \
+        binary_op_type(OP, int8_t, i8) \
+        binary_op_type(OP, uint8_t, u8) \
+        binary_op_type(OP, uint8_t, b8) \
+        binary_op_type(OP, uint8_t, c8) \
+        binary_op_type(OP, int16_t, i16) \
+        binary_op_type(OP, uint16_t, u16) \
+        binary_op_type(OP, uint16_t, c16) \
+        binary_op_type(OP, int32_t, i32) \
+        binary_op_type(OP, uint32_t, u32) \
+        binary_op_type(OP, uint32_t, c32) \
+        binary_op_type(OP, int64_t, i64) \
+        binary_op_type(OP, uint64_t, u64) \
+        binary_float_ops(OP) \
+        default: break; \
+        } \
+    }
 // Expects both sides to be of the same type
 static bool comptime_op_binary(comp_state_t *state,
+                               lex_token_type_t op,
                                comp_var_t *ret,
-                               comp_var_t *left, comp_var_t *right,
-                               const ast_t *leftast, const ast_t *rightast) {
-    return true;
+                               comp_var_t *a, comp_var_t *b) {
+    *ret = *a;
+    switch (op) {
+    binary_op_template(+, tok_plus)
+    binary_op_template(-, tok_minus)
+    binary_op_template(*, tok_star)
+    binary_op_template(/, tok_slash)
+#undef binary_float_ops
+#define binary_float_ops(OP)
+    binary_op_template(<<, tok_lshift)
+    binary_op_template(<<, tok_rshift)
+    binary_op_template(|, tok_bor)
+    binary_op_template(^, tok_bxor)
+    binary_op_template(&, tok_band)
+    default: break;
+    }
+    return false;
 }
+#undef binary_float_ops
+#undef binary_op_template
+#undef binary_op_type
 
 // Compile time expressions use the data segment as a make shift stack.
 static bool comptime_expr(comp_state_t *state,
@@ -185,8 +237,14 @@ static bool comptime_expr(comp_state_t *state,
     comp_update_line(state, expr);
     switch (expr->type) {
     case ast_literal:
-        
+        if (!comptime_push_literal_type(state, expr, ret)) return false;
         return true;
+    case ast_op_unary:
+        assert(false && "TODO: unary operators for compile time expressions!");
+        break;
+    case ast_op_call:
+        if (errnocomp) comp_error(state, "Can not call functions in a compile time expression!");
+        return false;
     case ast_op_binary: {
         if (expr->token.type == tok_arrow) {
             if (errnocomp) comp_error(state, "Can not use pointers in compile time expressions!");
@@ -203,19 +261,21 @@ static bool comptime_expr(comp_state_t *state,
         comp_type_t tyleft, tyright;
         if (!comp_get_expr_type(state, &tyleft, expr->a)
             || !comp_get_expr_type(state, &tyright, expr->b)) return false;
-        if (!comp_is_arithmetic_type(state, tyleft.lvls[0])
-            || !comp_is_arithmetic_type(state, tyright.lvls[0])) {
-            comp_error(state, "Arithmetic operations must occur on arithmetic types!");
+        comp_type_t commonty;
+        if (!comp_get_type_promotion(state, tyleft, tyright, &commonty)) {
+            if (errnocomp) comp_error(state, "Can not manipulate state in a compile time expression!");
+            //comp_error(state, "Arithmetic operations must occur on arithmetic types!");
             return false;
         }
 
         comp_var_t left, right;
-        if (!comptime_expr(state, errnocomp, &left, expr->a)
-            || !comptime_expr(state, errnocomp, &right, expr->b)) return false;
-        if (!comptime_op_binary(state, ret, &left, &right, expr->a, expr->b)) return false;
-
-        comp_error(state, "Can not manipulate state in a compile time expression!");
-        return false;
+        if (!comptime_expr(state, errnocomp, &left, expr->a)) return false;
+        if (!comptime_cast(state, &left, &commonty)) return false;
+        if (!comptime_expr(state, errnocomp, &right, expr->b)) return false;
+        if (!comptime_cast(state, &right, &commonty)) return false;
+        assert(comp_types_exacteq(state, false, left.type, right.type));
+        if (!comptime_op_binary(state, expr->token.type, ret, &left, &right)) return false;
+        return true;
     }
     default:
         comp_error(state, "Expecting expression");
