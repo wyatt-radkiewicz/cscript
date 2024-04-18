@@ -359,6 +359,17 @@ static bool comp_get_expr_type_recurr(comp_state_t *state,
             .num_lvls = 1,
         };
     } return true;
+    case ast_init_struct: {
+        // TODO: Do pod init inits from typedefs and sturct inits from typedefs as well
+        for (uint32_t i = 0; i < state->num_structs; i++) {
+            if (strview_eq(expr->token.data.str, state->res->structs[i].name)) {
+                ret->lvls[0] = (comp_type_lvl_t){
+                    .type = type_struct,
+                    .id = i,
+                };
+            }
+        }
+    } return false;
     case ast_op_ternary: {
         comp_type_t ont, onf;
         if (!comp_get_expr_type_recurr(state, &ont, expr->a)) return false;
