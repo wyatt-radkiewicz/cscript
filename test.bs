@@ -1,3 +1,5 @@
+let global: i32 = 1;
+
 struct TestStruct {
     a: i32,
     b: i32,

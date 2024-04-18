@@ -6,6 +6,7 @@
 #include "ast.h"
 
 #define MAX_TYPE_NESTING 12
+#define COMP_MAX_ALIGN 8
 
 typedef enum comp_type_inf {
     type_i8,
@@ -52,6 +53,7 @@ typedef struct comp_struct {
     strview_t name;
 
     uint32_t type_loc, num_members;
+    uint32_t align, size;
 } comp_struct_t;
 
 typedef struct comp_fn {
@@ -64,6 +66,8 @@ typedef struct comp_fn {
 
 typedef struct comp_typebuf {
     comp_type_t type;
+
+    int32_t offs;
     strview_t name;
 } comp_typebuf_t;
 
@@ -85,6 +89,7 @@ typedef struct comp_var {
         void *ptr;
     };
 
+    strview_t name;
     bool lvalue, inscope;
     uint32_t scope_id;
 } comp_var_t;
@@ -137,8 +142,8 @@ typedef struct comp_resources {
     comp_fn_t *fns;
     size_t fns_len;
 
-    strview_t *scopenames;
-    size_t scopenames_len;
+    comp_var_t *scopevars;
+    size_t scopevars_len;
 
     comp_scope_t *scopes;
     size_t scopes_len;

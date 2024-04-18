@@ -52,7 +52,7 @@ comp_struct_t structs[32];
 uint32_t typedefs[32];
 comp_pfn_t pfns[32];
 comp_fn_t fns[64];
-strview_t scopenames[64];
+comp_var_t scopevars[64];
 comp_scope_t scopes[8];
 
 ast_t ast[512];
@@ -102,8 +102,8 @@ int main(int argc, char **argv) {
         .fns = fns,
         .fns_len = arrsz(fns),
 
-        .scopenames = scopenames,
-        .scopenames_len = arrsz(scopenames),
+        .scopevars = scopevars,
+        .scopevars_len = arrsz(scopevars),
 
         .scopes = scopes,
         .scopes_len = arrsz(scopes),

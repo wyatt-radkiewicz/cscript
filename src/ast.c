@@ -68,7 +68,8 @@ static const parser_rule_t parser_rules[tok_max+1] = {
     [tok_literal_f]     = { .prefix = parse_literal, .infix = NULL, .prec = prec_zero },
     [tok_literal_c]     = { .prefix = parse_literal, .infix = NULL, .prec = prec_zero },
     [tok_literal_str]   = { .prefix = parse_literal, .infix = NULL, .prec = prec_zero },
-    [tok_null]          = { .prefix = parse_literal, .infix = NULL, .prec = prec_zero },
+    [tok_true]          = { .prefix = parse_literal, .infix = NULL, .prec = prec_zero },
+    [tok_false]         = { .prefix = parse_literal, .infix = NULL, .prec = prec_zero },
     [tok_as]            = { .prefix = NULL, .infix = parse_infix, .prec = prec_as },
 
     [tok_plusplus]      = { .prefix = parse_prefix, .infix = parse_postfix, .prec = prec_postfix },
@@ -76,6 +77,7 @@ static const parser_rule_t parser_rules[tok_max+1] = {
     [tok_lparen]        = { .prefix = parse_prefix, .infix = parse_postfix, .prec = prec_postfix },
     [tok_lbrack]        = { .prefix = parse_init_array, .infix = parse_postfix, .prec = prec_postfix },
     [tok_dot]           = { .prefix = NULL, .infix = parse_infix, .prec = prec_postfix },
+    [tok_arrow]         = { .prefix = NULL, .infix = parse_infix, .prec = prec_postfix },
     [tok_plus]          = { .prefix = NULL, .infix = parse_infix, .prec = prec_addit },
     [tok_minus]         = { .prefix = NULL, .infix = parse_infix, .prec = prec_addit },
     [tok_not]           = { .prefix = parse_prefix, .infix = NULL, .prec = prec_prefix },
@@ -251,7 +253,27 @@ static ast_t *parse_postfix(ast_state_t *state, ast_t *left, parse_prec_t prec) 
     ast_t *node = ast_alloc(state, ast_op_unary);
     if (!ast_next_token(state, false)) return NULL;
     if (!node) return NULL;
-    node->child = left;
+    if (node->token.type == tok_lbrack) {
+        node->type = ast_op_binary;
+        node->a = left;
+        if (!(node->b = parse_expr(state, prec_ternary))) return NULL;
+        if (!ast_eat_token(state, true, tok_rbrack)) return NULL;
+    } else if (node->token.type == tok_lparen) {
+        node->type = ast_op_call;
+        node->a = left;
+        
+        ast_t **last = &node->b, *curr = NULL;
+        while (state->lexer.tok.type != tok_rparen) {
+            if (!(curr = parse_expr(state, prec_ternary))) return NULL;
+            if (state->lexer.tok.type == tok_comma
+                && !ast_eat_token(state, true, tok_comma)) return NULL;
+            *last = curr;
+            last = &curr->next;
+        }
+        if (!ast_eat_token(state, true, tok_rparen)) return NULL;
+    } else {
+        node->child = left;
+    }
     return node;
 }
 static ast_t *parse_infix(ast_state_t *state, ast_t *left, parse_prec_t prec) {
@@ -263,6 +285,11 @@ static ast_t *parse_infix(ast_state_t *state, ast_t *left, parse_prec_t prec) {
         if (!(node->b = parse_type(state))) return NULL;
     } else if (!(node->b = parse_expr(state, prec == prec_assign ? prec - 1 : prec))) {
         ast_state_error(state, false, "Expected expression after infix operand");
+        return NULL;
+    }
+    if ((node->token.type == tok_dot || node->token.type == tok_arrow)
+        && node->b->type != ast_ident) {
+        ast_state_error(state, false, "Expected identifier after struct access");
         return NULL;
     }
     return node;
@@ -278,6 +305,18 @@ static ast_t *parse_expr(ast_state_t *state, parse_prec_t prec) {
     while (rule->infix && prec >= rule->prec) {
         if (!(eval = rule->infix(state, eval, rule->prec))) return NULL;
         rule = &parser_rules[state->lexer.tok.type];
+    }
+
+    // Ternary expressions
+    if (state->lexer.tok.type == tok_qmark && prec >= prec_ternary) {
+        ast_t *node = ast_alloc(state, ast_op_ternary);
+        if (!node) return NULL;
+        node->child = eval;
+        if (!ast_next_token(state, true)) return NULL;
+        if (!(node->a = parse_expr(state, prec_full))) return NULL;
+        if (!ast_eat_token(state, true, tok_colon)) return NULL;
+        if (!(node->b = parse_expr(state, prec_full))) return NULL;
+        return node;
     }
 
     return eval;
@@ -327,6 +366,10 @@ static ast_t *parse_type(ast_state_t *state) {
         case tok_extern:
             if (!ast_next_token(state, true)) return NULL;
             if (!(child = ast_alloc(state, ast_type_extern))) return NULL;
+            break;
+        case tok_static:
+            if (!ast_next_token(state, true)) return NULL;
+            if (!(child = ast_alloc(state, ast_type_static))) return NULL;
             break;
         case tok_star:
             if (!ast_next_token(state, true)) return NULL;

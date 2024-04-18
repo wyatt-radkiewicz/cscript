@@ -10,7 +10,7 @@ static const char *error_category_as_str(error_category_t category) {
 #undef X
 
 void error_log(const error_t *err, FILE *out) {
-    fprintf(out, "ast_error_t{\n");
+    fprintf(out, "error_t{\n");
     fprintf(out, "    msg: \"%s\",\n", err->msg);
     fprintf(out, "    line: %d,\n", err->line);
     fprintf(out, "    chr: %d,\n", err->chr);
