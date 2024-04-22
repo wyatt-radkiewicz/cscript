@@ -39,6 +39,10 @@ typedef struct error {
 #include <stdio.h>
 void error_log(const error_t *err, FILE *out);
 
+static inline uint32_t alignu(uint32_t x, uint32_t a) {
+    return x ? ((x - 1) / a + 1) * a : 0;
+}
+
 static inline uint32_t clo(uint32_t x) {
     return ~x ? __builtin_clz(~x) : 32;
 }

@@ -228,7 +228,11 @@ static ast_t *parse_ident(ast_state_t *state, parse_prec_t prec) {
         if (!ast_next_token(state, true)) return NULL;
         ast_t **last = &node->child, *curr = NULL;
         while (state->lexer.tok.type != tok_rbrace) {
-            if (!(curr = parse_var(state))) return NULL;
+            if (!(curr = ast_alloc(state, ast_namedexpr))) return NULL;
+            if (!ast_eat_token(state, true, tok_ident)) return NULL;
+            if (!ast_eat_token(state, true, tok_colon)) return NULL;
+            if (!(curr->child = parse_expr(state, prec_ternary))) return NULL;
+            
             if (state->lexer.tok.type == tok_comma
                 && !ast_next_token(state, true)) return NULL;
             *last = curr;
@@ -414,12 +418,13 @@ skip_attribs:
         return root;
     }
 
-    if (state->lexer.tok.type < tok_types_start
+    if (state->lexer.tok.type != tok_ident
+        && state->lexer.tok.type < tok_types_start
         && state->lexer.tok.type > tok_types_last) {
         ast_state_error(state, false, "Expected type");
         return NULL;
     }
-    ast_t *child = ast_alloc(state, ast_type_pod);
+    ast_t *child = ast_alloc(state, state->lexer.tok.type == tok_ident ? ast_type_ident : ast_type_pod);
     if (!ast_next_token(state, false)) return NULL;
     if (!child) return NULL;
     *last = child;
@@ -507,6 +512,10 @@ static ast_t *parse_def_struct(ast_state_t *state) {
     ast_t *node = ast_alloc(state, ast_def_struct);
     if (!node) return NULL;
     if (!ast_eat_token(state, true, tok_ident)) return NULL;
+    if (state->lexer.tok.type == tok_semicol) {
+        if (!ast_next_token(state, true)) return NULL;
+        return node;
+    }
     if (!ast_eat_token(state, true, tok_lbrace)) return NULL;
 
     ast_t **last = &node->child, *curr = NULL;

@@ -256,6 +256,61 @@ static bool comptime_typed_expr(comp_state_t *state,
                                 comp_var_t *ret,
                                 const ast_t *expr,
                                 const comp_type_t *deftype);
+static bool comptime_expr_init_struct(comp_state_t *state,
+                                      bool errnocomp,
+                                      comp_var_t *ret,
+                                      const ast_t *expr,
+                                      comp_struct_t *strct) {
+    comp_update_line(state, expr);
+    *ret = (comp_var_t){
+        .loc = state->dsz,
+        .loctype = var_loc_data,
+        .scope_id = UINT32_MAX,
+        .type = (comp_type_t){
+            .lvls[0] = (comp_type_lvl_t){
+                .type = type_struct,
+                .id = strct - state->res->structs,
+            },
+            .num_lvls = 1,
+        },
+    };
+
+    {
+        uint32_t aligndsz = alignu(state->dsz, strct->align);
+        if (aligndsz > state->res->data_len) {
+            comp_error(state, "Ran out of data segment space!");
+            return false;
+        }
+    }
+    uint32_t currsz = 0;
+    for (uint32_t i = strct->type_loc; i < strct->type_loc + strct->num_members; i++) {
+        comp_typebuf_t *tybuf = state->res->typebuf + i;
+        
+        const ast_t *init = expr->child;
+        for (; init; init = init->next) {
+            comp_update_line(state, init);
+            if (strview_eq(init->token.data.str, tybuf->name)) break;
+        }
+
+        if (init) {
+            comp_var_t tmp;
+            if (!comptime_typed_expr(state, errnocomp, &tmp, init->child, &tybuf->type)) return false;
+            currsz += state->dsz - tmp.loc;
+        }
+
+        uint32_t needsz = i+1 == strct->type_loc + strct->num_members
+                          ? strct->size
+                          : state->res->typebuf[i+1].offs;
+        if (state->dsz + (needsz - currsz) > state->res->data_len) {
+            comp_error(state, "Ran out of data segement space!");
+            return false;
+        }
+        memset(state->res->data + state->dsz, 0, needsz - currsz);
+        state->dsz += needsz - currsz;
+    }
+
+    return true;
+}
 // Compile time expressions use the data segment as a make shift stack.
 static bool comptime_expr(comp_state_t *state,
                           bool errnocomp,
@@ -264,34 +319,50 @@ static bool comptime_expr(comp_state_t *state,
                           const comp_type_t *arrtype) {
     comp_update_line(state, expr);
     switch (expr->type) {
+    case ast_init_struct: {
+        for (uint32_t t = 0; t < state->num_typedefs; t++) {
+            comp_typebuf_t *typebuf = state->res->typebuf + state->res->typedefs[t];
+            if (strview_eq(expr->token.data.str, typebuf->name) && typebuf->type.lvls[0].type == type_struct) {
+                return comptime_expr_init_struct(state, errnocomp, ret, expr, state->res->structs + typebuf->type.lvls[0].id);
+            }
+        }
+        for (uint32_t i = 0; i < state->num_structs; i++) {
+            comp_struct_t *strct = state->res->structs + i;
+            if (strview_eq(expr->token.data.str, strct->name)) {
+                return comptime_expr_init_struct(state, errnocomp, ret, expr, strct);
+            }
+        }
+        comp_error(state, "Unknown struct!");
+        return false;
+    }
     case ast_init_array: {
-            assert(((expr = expr->child) || !arrtype) && "Array init must have initializers!");
-            comp_type_t innerty;
-            if (arrtype) innerty = *arrtype;
-            else if (!comp_get_expr_type(state, &innerty, expr)) return false;
-            *ret = (comp_var_t){
-                .loc = state->dsz,
-                .inscope = false,
-                .lvalue = false,
-                .scope_id = UINT32_MAX,
-                .loctype = var_loc_data,
-                .type = (comp_type_t){
-                    .lvls[0].type = type_arr,
-                    .num_lvls = 1,
-                },
-            };
-            if (ret->type.num_lvls + innerty.num_lvls > MAX_TYPE_NESTING) {
-                comp_error(state, "Hit max type nesting");
-                return false;
-            }
-            memcpy(ret->type.lvls + 1, innerty.lvls, sizeof(innerty.lvls[0]) * innerty.num_lvls);
-            ret->type.num_lvls += innerty.num_lvls;
-            for (; expr; expr = expr->next) {
-                comp_update_line(state, expr);
-                if (!comptime_typed_expr(state, errnocomp, &(comp_var_t){0}, expr, &innerty)) return false;
-                ret->type.lvls[0].id++;
-            }
-        } return true;
+        assert(((expr = expr->child) || !arrtype) && "Array init must have initializers!");
+        comp_type_t innerty;
+        if (arrtype) innerty = *arrtype;
+        else if (!comp_get_expr_type(state, &innerty, expr)) return false;
+        *ret = (comp_var_t){
+            .loc = state->dsz,
+            .inscope = false,
+            .lvalue = false,
+            .scope_id = UINT32_MAX,
+            .loctype = var_loc_data,
+            .type = (comp_type_t){
+                .lvls[0].type = type_arr,
+                .num_lvls = 1,
+            },
+        };
+        if (ret->type.num_lvls + innerty.num_lvls > MAX_TYPE_NESTING) {
+            comp_error(state, "Hit max type nesting");
+            return false;
+        }
+        memcpy(ret->type.lvls + 1, innerty.lvls, sizeof(innerty.lvls[0]) * innerty.num_lvls);
+        ret->type.num_lvls += innerty.num_lvls;
+        for (; expr; expr = expr->next) {
+            comp_update_line(state, expr);
+            if (!comptime_typed_expr(state, errnocomp, &(comp_var_t){0}, expr, &innerty)) return false;
+            ret->type.lvls[0].id++;
+        }
+    } return true;
     case ast_literal:
         if (!comptime_push_literal_type(state, expr, ret)) return false;
         return true;

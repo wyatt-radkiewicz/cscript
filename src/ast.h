@@ -8,6 +8,7 @@ typedef struct ast ast_t;
 
 #define AST_TYPES \
     X(ast_var) \
+    X(ast_namedexpr) \
     X(ast_type_pod) \
     X(ast_type_array) \
     X(ast_type_ident) \

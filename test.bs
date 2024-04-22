@@ -1,10 +1,19 @@
-let arr = [0.0, 1, 2, 3, 4];
+//let arr = [0.0, 1, 2, 3, 4];
 //let global: i32 = -(1 + 69 as f32);
 
 struct TestStruct {
     a: i32,
     b: i32,
+    c: i8,
+    d: u64,
 }
+
+let test: TestStruct = TestStruct{
+    d: 64,
+    c: 25,
+    a: 69,
+    b: 420,
+};
 
 extern fn print_i32(val: i32);
 

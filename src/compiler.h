@@ -52,6 +52,7 @@ typedef struct comp_type {
 typedef struct comp_struct {
     strview_t name;
 
+    bool defined;
     uint32_t type_loc, num_members;
     uint32_t align, size;
 } comp_struct_t;

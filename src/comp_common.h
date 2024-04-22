@@ -385,13 +385,23 @@ static bool comp_get_expr_type_recurr(comp_state_t *state,
         };
     } return true;
     case ast_init_struct: {
-        // TODO: Do pod init inits from typedefs and sturct inits from typedefs as well
+        for (uint32_t t = 0; t < state->num_typedefs; t++) {
+            comp_typebuf_t *typebuf = state->res->typebuf + state->res->typedefs[t];
+            if (strview_eq(expr->token.data.str, typebuf->name)) {
+                *ret = typebuf->type;
+                return true;
+            }
+        }
         for (uint32_t i = 0; i < state->num_structs; i++) {
             if (strview_eq(expr->token.data.str, state->res->structs[i].name)) {
-                ret->lvls[0] = (comp_type_lvl_t){
-                    .type = type_struct,
-                    .id = i,
+                *ret = (comp_type_t){
+                    .lvls[0] = (comp_type_lvl_t){
+                        .type = type_struct,
+                        .id = i,
+                    },
+                    .num_lvls = 1,
                 };
+                return true;
             }
         }
     } return false;
