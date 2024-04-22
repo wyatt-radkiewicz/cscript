@@ -1,6 +1,7 @@
 #ifndef _common_h_
 #define _common_h_
 
+#include <assert.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -40,6 +41,7 @@ typedef struct error {
 void error_log(const error_t *err, FILE *out);
 
 static inline uint32_t alignu(uint32_t x, uint32_t a) {
+    assert(a);
     return x ? ((x - 1) / a + 1) * a : 0;
 }
 

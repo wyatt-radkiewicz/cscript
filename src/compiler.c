@@ -254,16 +254,15 @@ only_defin:
 void compile(comp_resources_t *res) {
     comp_state_t state = {
         .res = res,
-        .scope_top = -1,
-        .stack_top = 0,
+        .scopes_top = 0,
     };
     if (res->scopes_len < 1) {
         comp_error(&state, "Need more scope buffer room to start compiling.");
         return;
     }
     res->scopes[0] = (comp_scope_t){
-        .scope_base = state.scope_top,
-        .stack_base = state.stack_top,
+        .scope_base = 0,
+        .stack_base = UINT32_MAX,
     };
 
     for (const ast_t *node = res->ast; node; node = node->next) {

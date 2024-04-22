@@ -103,7 +103,14 @@ static bool comptime_cast(comp_state_t *state,
     comp_type_t typeto = *type, typefrom = var->type;
     if (!comp_get_underlying_typedef(state, &typeto)) return false;
     if (!comp_get_underlying_typedef(state, &typefrom)) return false;
-    if (comp_types_exacteq(state, false, 0, typeto, typefrom)) return true;
+    if (comp_types_exacteq(state, false, 0, typeto, typefrom)) {
+        if (typeto.num_lvls > 1 && !comp_types_exacteq(state, true, 1, typeto, typefrom)) return true;
+        if (~typeto.lvls[0].quals & qual_const && typefrom.lvls[0].quals & qual_const) {
+            comp_error(state, "Can't cast const type to non-const");
+            return false;
+        }
+        var->type.lvls[0].quals = typeto.lvls[0].quals;
+    }
 
     const comp_type_lvl_t *tolvl = typeto.lvls;
     comp_type_lvl_t *fromlvl = typefrom.lvls;
@@ -369,6 +376,45 @@ static bool comptime_expr(comp_state_t *state,
             ret->type.lvls[0].id++;
         }
     } return true;
+    case ast_ident: {
+        for (uint32_t i = 0; i < state->res->scopes[state->scopes_top].scope_base; i++) {
+            comp_var_t *var = state->res->scopevars + i;
+            if (strview_eq(var->name, expr->token.data.str)) {
+                if (~var->type.lvls[0].quals & qual_const) {
+                    comp_error(state, "Can not use non-const variable in comptime expression.");
+                    return false;
+                }
+
+                uint32_t aligndsz = alignu(state->dsz, comp_get_typealign(state, var->type, 0));
+                if (!aligndsz) return false;
+                if (aligndsz > state->res->data_len) {
+                    comp_error(state, "Ran out of data segment space.");
+                    return false;
+                }
+                state->dsz = aligndsz;
+                uint32_t size;
+                if (!comp_get_typesize(state, &size, var->type, 0)) return false;
+                if (state->dsz + size > state->res->data_len) {
+                    comp_error(state, "Ran out of data segment space");
+                    return false;
+                }
+
+                // Copy the data over since never can you edit a const variable anyway
+                *ret = (comp_var_t){
+                    .loc = state->dsz,
+                    .inscope = false,
+                    .lvalue = false,
+                    .scope_id = UINT32_MAX,
+                    .loctype = var_loc_data,
+                    .type = var->type,
+                };
+                memcpy(state->res->data + state->dsz, state->res->data + var->loc, size);
+                state->dsz += size;
+                return true;
+            }
+        }
+        comp_error(state, "Identifier not found");
+    } return false;
     case ast_literal:
         if (!comptime_push_literal_type(state, expr, ret)) return false;
         return true;

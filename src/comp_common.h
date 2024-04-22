@@ -12,8 +12,7 @@ typedef struct comp_state {
 
     int32_t line, chr;
 
-    uint32_t scope_top, stack_top;
-
+    uint32_t scopes_top;
     uint32_t csz, dsz;
     uint32_t num_ifns, num_typebufs,
              num_structs, num_typedefs,
@@ -303,21 +302,23 @@ static bool comp_types_exacteq(comp_state_t *state,
 static bool comp_add_var_to_scope(comp_state_t *state,
                                   comp_var_t *var,
                                   strview_t name) {
-    if (state->scope_top + 1 == state->res->scopevars_len - 1) {
+    comp_scope_t *scope = state->res->scopes + state->scopes_top;
+    if (scope->scope_base + 1 == state->res->scopevars_len - 1) {
         comp_error(state, "Ran out of scope storage!");
         return false;
     }
     var->lvalue = true;
     var->inscope = true;
     var->name = name;
-    var->scope_id = ++state->scope_top;
-    state->res->scopevars[state->scope_top] = *var;
+    var->scope_id = scope->scope_base;
+    state->res->scopevars[scope->scope_base++] = *var;
     return true;
 }
 
 static comp_var_t *comp_get_scopevar(comp_state_t *state,
                                      strview_t name) {
-    for (int32_t i = state->scope_top; i > -1; i--) {
+    comp_scope_t *scope = state->res->scopes + state->scopes_top;
+    for (int32_t i = scope->scope_base - 1; i > -1; i--) {
         comp_var_t *var = state->res->scopevars + i;
         if (strview_eq(name, var->name)) {
             return var;

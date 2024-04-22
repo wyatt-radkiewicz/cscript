@@ -100,11 +100,6 @@ typedef struct comp_scope {
     uint32_t scope_base, stack_base;
 } comp_scope_t;
 
-typedef struct comp_scope_entry {
-    strview_t name;
-    comp_var_t var;
-} comp_scope_entry_t;
-
 // Resources needed by the compiler to compile the code
 typedef struct comp_resources {
     uint8_t *code;

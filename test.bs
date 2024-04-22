@@ -1,6 +1,8 @@
 //let arr = [0.0, 1, 2, 3, 4];
 //let global: i32 = -(1 + 69 as f32);
 
+let MAX: const i32 = 3;
+
 struct TestInner {
     x: f32,
     y: f32,
@@ -8,7 +10,7 @@ struct TestInner {
 
 struct TestStruct {
     a: i8,
-    b: [i32; 3],
+    b: [i32; MAX],
     c: TestInner,
     d: u64,
 }
