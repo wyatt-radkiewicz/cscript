@@ -94,9 +94,12 @@ static bool comptime_push_literal_type(comp_state_t *state, const ast_t *literal
 // Will cast to a type of size bigger than the previous if needed
 // Will in place edit var to reflect the new type
 // ONLY works on latest push object into the data segment!!!
+// newloc is used as where the last variable was on the stack (negating the
+// alignment of the variable its casting from)
 static bool comptime_cast(comp_state_t *state,
                           comp_var_t *var,
-                          const comp_type_t *type) {
+                          const comp_type_t *type,
+                          uint32_t newloc) {
     comp_type_t typeto = *type, typefrom = var->type;
     if (!comp_get_underlying_typedef(state, &typeto)) return false;
     if (!comp_get_underlying_typedef(state, &typefrom)) return false;
@@ -143,6 +146,7 @@ static bool comptime_cast(comp_state_t *state,
 #define from_type(TYID, TYFROM) \
 case type_##TYID: { \
     const TYFROM x = comptime_pop_##TYID(state, var->loc); \
+    state->dsz = newloc; \
     switch (tolvl->type) { \
     case type_i8: \
         if (!comptime_push_i8(state, &var->loc, x)) return false; \
@@ -281,6 +285,7 @@ static bool comptime_expr_init_struct(comp_state_t *state,
             comp_error(state, "Ran out of data segment space!");
             return false;
         }
+        state->dsz = aligndsz;
     }
     uint32_t currsz = 0;
     for (uint32_t i = strct->type_loc; i < strct->type_loc + strct->num_members; i++) {
@@ -307,6 +312,7 @@ static bool comptime_expr_init_struct(comp_state_t *state,
         }
         memset(state->res->data + state->dsz, 0, needsz - currsz);
         state->dsz += needsz - currsz;
+        currsz = needsz;
     }
 
     return true;
@@ -376,8 +382,9 @@ static bool comptime_expr(comp_state_t *state,
             }
             innerty.lvls[0] = comp_get_type_promotion_single(state, innerty.lvls[0]);
 
+            const uint32_t loc = state->dsz;
             if (!comptime_expr(state, errnocomp, ret, expr->child, NULL)) return false;
-            if (!comptime_cast(state, ret, &innerty)) return false;
+            if (!comptime_cast(state, ret, &innerty, loc)) return false;
             switch (ret->type.lvls[0].type) {
             case type_i32: *(int32_t *)(state->res->data + ret->loc) *= -1; break;
             case type_u32: {
@@ -428,9 +435,10 @@ static bool comptime_expr(comp_state_t *state,
         }
         if (expr->token.type == tok_as) {
             comp_type_t totype;
+            const uint32_t loc = state->dsz;
             if (!comp_get_type(state, expr->b, &totype)) return false;
             if (!comptime_expr(state, true, ret, expr->a, NULL)) return false;
-            if (!comptime_cast(state, ret, &totype)) return false;
+            if (!comptime_cast(state, ret, &totype, loc)) return false;
             return true;
         }
 
@@ -446,10 +454,12 @@ static bool comptime_expr(comp_state_t *state,
         }
 
         comp_var_t left, right;
+        uint32_t loc = state->dsz;
         if (!comptime_expr(state, errnocomp, &left, expr->a, NULL)) return false;
-        if (!comptime_cast(state, &left, &commonty)) return false;
+        if (!comptime_cast(state, &left, &commonty, loc)) return false;
+        loc = state->dsz;
         if (!comptime_expr(state, errnocomp, &right, expr->b, NULL)) return false;
-        if (!comptime_cast(state, &right, &commonty)) return false;
+        if (!comptime_cast(state, &right, &commonty, loc)) return false;
         assert(comp_types_exacteq(state, false, 0, left.type, right.type));
         if (!comptime_op_binary(state, expr->token.type, ret, &left, &right)) return false;
         return true;
@@ -480,6 +490,7 @@ static bool comptime_typed_expr(comp_state_t *state,
 
         assert(false && "TODO: Undefined typed vars!");
     } else {
+        const uint32_t loc = state->dsz;
         if (deftype && deftype->lvls[0].type == type_arr) {
             comp_type_t innerty = *deftype;
             assert(comp_remove_type_lvls(state, &innerty, 1));
@@ -491,7 +502,7 @@ static bool comptime_typed_expr(comp_state_t *state,
             comp_error(state, "Expected compile time expression!");
             return false;
         }
-        if (deftype && !comptime_cast(state, ret, deftype)) return false;
+        if (deftype && !comptime_cast(state, ret, deftype, loc)) return false;
     }
 
     return true;

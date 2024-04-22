@@ -60,11 +60,12 @@ skip_cvrs:
     case ast_type_array: {
         lvl->type = type_arr;
         comp_var_t lenvar;
+        uint32_t loc = state->dsz;
         if (!comptime_expr(state, true, &lenvar, (*node)->b, NULL)) return false;
         if (!comptime_cast(state, &lenvar, &(comp_type_t){
             .lvls[0] = (comp_type_lvl_t){ .type = type_u32 },
             .num_lvls = 1,
-        })) {
+        }, loc)) {
             comp_error(state, "Array length should be an integer.");
             return false;
         }
@@ -195,7 +196,7 @@ static comp_struct_t *comp_struct(comp_state_t *state, const ast_t *node) {
         return NULL;
     }
     comp_struct_t *strct = state->res->structs + state->num_structs;
-    *strct = (comp_struct_t){0};
+    *strct = (comp_struct_t){.type_loc = state->num_typebufs};
     strct->name = node->token.data.str;
 
     for (uint32_t i = 0; i < state->num_structs; i++) {
