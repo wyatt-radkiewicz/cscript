@@ -1,4 +1,5 @@
-let global: i32 = -(1 + 69 as f32);
+let arr = [0.0, 1, 2, 3, 4];
+//let global: i32 = -(1 + 69 as f32);
 
 struct TestStruct {
     a: i32,

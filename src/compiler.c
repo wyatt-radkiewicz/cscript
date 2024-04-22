@@ -5,36 +5,16 @@
 static void comp_globals(comp_state_t *state) {
     for (const ast_t *node = state->res->ast; node; node = node->next) {
         comp_update_line(state, node);
-        if (node->type != ast_stmt_let) continue;
-        if (!node->b) {
-            comp_update_line(state, node->a);
-            comp_type_t type;
-            if (!comp_get_type(state, node->a, &type)) {
-                comp_error(state, "A 'let' statement without an initializer needs a type annotation!");
-                return;
-            }
-            uint32_t size;
-            if (!comp_get_typesize(state, &size, type.lvls[0])) {
-                comp_error(state, "Type does not have a valid size");
-                return;
-            }
-            if (state->dsz + size > state->res->data_len) {
-                comp_error(state, "Ran out of storage in data segment!");
-                return;
-            }
-
-            assert(false && "TODO: Undefined global vars!");
-        }
-
         comp_var_t var;
-        comp_update_line(state, node->b);
-        if (!comptime_expr(state, true, &var, node->b)) {
-            comp_error(state, "Expected compile time expression!");
-            return;
+        if (node->type != ast_stmt_let) continue;
+        if (node->a) {
+            comp_type_t type;
+            if (!comp_get_type(state, node->a, &type)) return;
+            if (!comptime_typed_expr(state, true, &var, node->b, &type)) return;
+        } else {
+            if (!comptime_expr(state, true, &var, node->b, NULL)) return;
         }
-        comp_type_t type;
-        if (!comp_get_type(state, node->a, &type)) type = var.type;
-        if (!comptime_cast(state, &var, &type)) return;
+
         if (!comp_add_var_to_scope(state, &var, node->token.data.str)) return;
     }
 }
@@ -78,9 +58,28 @@ skip_cvrs:
         }
         comp_error(state, "Use of undeclared identifier");
         return false;
-        break;
     case ast_type_pfn: break;
-    case ast_type_array: break;
+    case ast_type_array: {
+        lvl->type = type_arr;
+        comp_var_t lenvar;
+        if (!comptime_expr(state, true, &lenvar, (*node)->b, NULL)) return false;
+        if (!comptime_cast(state, &lenvar, &(comp_type_t){
+            .lvls[0] = (comp_type_lvl_t){ .type = type_u32 },
+            .num_lvls = 1,
+        })) {
+            comp_error(state, "Array length should be an integer.");
+            return false;
+        }
+        uint32_t len = comptime_pop_u32(state, lenvar.loc);
+        if (len >= (uint32_t)1 << 24) {
+            comp_error(state, "Array length too long (can not be represented in type)");
+            return false;
+        }
+        lvl->id = len;
+        *node = (*node)->a;
+        comp_update_line(state, *node);
+        return true;
+        }
     default: return false; // Shouldn't be reachable
     }
 found_ident:
@@ -141,8 +140,8 @@ static comp_fn_t *comp_new_func_sig(comp_state_t *state, const ast_t *fndef) {
         if (!comp_get_type(state, param->child, &typebuf->type)) return NULL;
         typebuf->name = param->token.data.str;
         uint32_t align, size;
-        if (!(align = comp_get_typealign(state, typebuf->type.lvls[0]))) return NULL;
-        if (!comp_get_typesize(state, &size, typebuf->type.lvls[0])) return NULL;
+        if (!(align = comp_get_typealign(state, typebuf->type, 0))) return NULL;
+        if (!comp_get_typesize(state, &size, typebuf->type, 0)) return NULL;
         if (params_size) params_size--;
         params_size = (params_size / align + 1) * align;
         typebuf->offs = params_size;
@@ -215,14 +214,14 @@ static comp_struct_t *comp_new_struct(comp_state_t *state, const ast_t *node) {
         if (!comp_get_type(state, node_mbr->child, &typebuf->type)) return NULL;
 
         uint32_t align;
-        if (!(align = comp_get_typealign(state, typebuf->type.lvls[0]))) {
+        if (!(align = comp_get_typealign(state, typebuf->type, 0))) {
             comp_error(state, "Type doesn't have an alignment!");
             return 0;
         }
         if (align > strct->align) strct->align = align;
         
         uint32_t size;
-        if (!comp_get_typesize(state, &size, typebuf->type.lvls[0])) {
+        if (!comp_get_typesize(state, &size, typebuf->type, 0)) {
             return NULL;
         }
 

@@ -100,14 +100,34 @@ static bool comptime_cast(comp_state_t *state,
     comp_type_t typeto = *type, typefrom = var->type;
     if (!comp_get_underlying_typedef(state, &typeto)) return false;
     if (!comp_get_underlying_typedef(state, &typefrom)) return false;
-    if (comp_types_exacteq(state, false, typeto, typefrom)) return true;
+    if (comp_types_exacteq(state, false, 0, typeto, typefrom)) return true;
 
     const comp_type_lvl_t *tolvl = typeto.lvls;
     comp_type_lvl_t *fromlvl = typefrom.lvls;
 
     // TODO: Arrays
     assert(var->loctype == var_loc_data);
-    if (tolvl->type == type_arr) return false;
+    if (tolvl->type == type_arr) {
+        if (!comp_types_exacteq(state, false, 1, typeto, typefrom)) {
+            comp_error(state, "Can not cast to array of different type!");
+            return false;
+        }
+        if (tolvl->id < fromlvl->id) {
+            comp_error(state, "Array initializer too big to fit into type!");
+            return false;
+        }
+        uint32_t innersize;
+        if (!comp_get_typesize(state, &innersize, typefrom, 1)) return false;
+        if (state->dsz + innersize * (tolvl->id - fromlvl->id) > state->res->data_len) {
+            comp_error(state, "Array runs out of data segment storage!");
+            return false;
+        }
+        uint32_t nbytes = innersize * (tolvl->id - fromlvl->id);
+        memset(state->res->data + state->dsz, 0, nbytes);
+        state->dsz += nbytes;
+        fromlvl->id = tolvl->id;
+        return true;
+    }
     if (fromlvl->type == type_struct
         && tolvl->type == type_struct
         && fromlvl->id != tolvl->id) {
@@ -231,13 +251,47 @@ static bool comptime_op_binary(comp_state_t *state,
 #undef binary_op_template
 #undef binary_op_type
 
+static bool comptime_typed_expr(comp_state_t *state,
+                                bool errnocomp,
+                                comp_var_t *ret,
+                                const ast_t *expr,
+                                const comp_type_t *deftype);
 // Compile time expressions use the data segment as a make shift stack.
 static bool comptime_expr(comp_state_t *state,
                           bool errnocomp,
                           comp_var_t *ret,
-                          const ast_t *expr) {
+                          const ast_t *expr,
+                          const comp_type_t *arrtype) {
     comp_update_line(state, expr);
     switch (expr->type) {
+    case ast_init_array: {
+            assert(((expr = expr->child) || !arrtype) && "Array init must have initializers!");
+            comp_type_t innerty;
+            if (arrtype) innerty = *arrtype;
+            else if (!comp_get_expr_type(state, &innerty, expr)) return false;
+            *ret = (comp_var_t){
+                .loc = state->dsz,
+                .inscope = false,
+                .lvalue = false,
+                .scope_id = UINT32_MAX,
+                .loctype = var_loc_data,
+                .type = (comp_type_t){
+                    .lvls[0].type = type_arr,
+                    .num_lvls = 1,
+                },
+            };
+            if (ret->type.num_lvls + innerty.num_lvls > MAX_TYPE_NESTING) {
+                comp_error(state, "Hit max type nesting");
+                return false;
+            }
+            memcpy(ret->type.lvls + 1, innerty.lvls, sizeof(innerty.lvls[0]) * innerty.num_lvls);
+            ret->type.num_lvls += innerty.num_lvls;
+            for (; expr; expr = expr->next) {
+                comp_update_line(state, expr);
+                if (!comptime_typed_expr(state, errnocomp, &(comp_var_t){0}, expr, &innerty)) return false;
+                ret->type.lvls[0].id++;
+            }
+        } return true;
     case ast_literal:
         if (!comptime_push_literal_type(state, expr, ret)) return false;
         return true;
@@ -251,7 +305,7 @@ static bool comptime_expr(comp_state_t *state,
             }
             innerty.lvls[0] = comp_get_type_promotion_single(state, innerty.lvls[0]);
 
-            if (!comptime_expr(state, errnocomp, ret, expr->child)) return false;
+            if (!comptime_expr(state, errnocomp, ret, expr->child, NULL)) return false;
             if (!comptime_cast(state, ret, &innerty)) return false;
             switch (ret->type.lvls[0].type) {
             case type_i32: *(int32_t *)(state->res->data + ret->loc) *= -1; break;
@@ -304,7 +358,7 @@ static bool comptime_expr(comp_state_t *state,
         if (expr->token.type == tok_as) {
             comp_type_t totype;
             if (!comp_get_type(state, expr->b, &totype)) return false;
-            if (!comptime_expr(state, true, ret, expr->a)) return false;
+            if (!comptime_expr(state, true, ret, expr->a, NULL)) return false;
             if (!comptime_cast(state, ret, &totype)) return false;
             return true;
         }
@@ -321,11 +375,11 @@ static bool comptime_expr(comp_state_t *state,
         }
 
         comp_var_t left, right;
-        if (!comptime_expr(state, errnocomp, &left, expr->a)) return false;
+        if (!comptime_expr(state, errnocomp, &left, expr->a, NULL)) return false;
         if (!comptime_cast(state, &left, &commonty)) return false;
-        if (!comptime_expr(state, errnocomp, &right, expr->b)) return false;
+        if (!comptime_expr(state, errnocomp, &right, expr->b, NULL)) return false;
         if (!comptime_cast(state, &right, &commonty)) return false;
-        assert(comp_types_exacteq(state, false, left.type, right.type));
+        assert(comp_types_exacteq(state, false, 0, left.type, right.type));
         if (!comptime_op_binary(state, expr->token.type, ret, &left, &right)) return false;
         return true;
     }
@@ -333,5 +387,42 @@ static bool comptime_expr(comp_state_t *state,
         comp_error(state, "Expecting expression");
         return false;
     }
+}
+
+// Compile an expression that expects a certain type
+static bool comptime_typed_expr(comp_state_t *state,
+                                bool errnocomp,
+                                comp_var_t *ret,
+                                const ast_t *expr,
+                                const comp_type_t *deftype) {
+    comp_update_line(state, expr);
+    if (!expr) {
+        uint32_t size;
+        if (!comp_get_typesize(state, &size, *deftype, 0)) {
+            comp_error(state, "Type does not have a valid size");
+            return false;
+        }
+        if (state->dsz + size > state->res->data_len) {
+            comp_error(state, "Ran out of storage in data segment!");
+            return false;
+        }
+
+        assert(false && "TODO: Undefined typed vars!");
+    } else {
+        if (deftype && deftype->lvls[0].type == type_arr) {
+            comp_type_t innerty = *deftype;
+            assert(comp_remove_type_lvls(state, &innerty, 1));
+            if (!comptime_expr(state, true, ret, expr, &innerty)) {
+                comp_error(state, "Expected compile time expression!");
+                return false;
+            }
+        } else if (!comptime_expr(state, true, ret, expr, NULL)) {
+            comp_error(state, "Expected compile time expression!");
+            return false;
+        }
+        if (deftype && !comptime_cast(state, ret, deftype)) return false;
+    }
+
+    return true;
 }
 

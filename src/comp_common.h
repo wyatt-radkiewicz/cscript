@@ -88,8 +88,15 @@ static bool comp_get_underlying_typedef(comp_state_t *state, comp_type_t *type) 
     return true;
 }
 
-static uint32_t comp_get_typealign(comp_state_t *state, const comp_type_lvl_t lvl) {
-    switch (lvl.type) {
+static uint32_t comp_get_typealign(comp_state_t *state,
+                                   const comp_type_t type,
+                                   uint32_t lvlidx) {
+    if (lvlidx >= type.num_lvls) {
+        comp_error(state, "Can not get type alignment");
+        return 0;
+    }
+    const comp_type_lvl_t *lvl = type.lvls + lvlidx;
+    switch (lvl->type) {
     case type_b8: case type_c8:
     case type_i8: case type_u8:
         return 1;
@@ -105,19 +112,28 @@ static uint32_t comp_get_typealign(comp_state_t *state, const comp_type_lvl_t lv
     // so its always a uint32_t
     case type_pfn: return 4;
     case type_u0: return 1;
-    // TODO: Do arrays
-    case type_arr: return 0;
+    case type_arr:
+        return comp_get_typealign(state, type, lvlidx+1);
     case type_struct:
-        return state->res->structs[lvl.id].align;
-    case type_typedef: return comp_get_typealign(state, state->res->typebuf[lvl.id].type.lvls[0]);
+        return state->res->structs[lvl->id].align;
+    case type_typedef:
+        return comp_get_typealign(state, state->res->typebuf[lvl->id].type, 0);
     default:
         comp_error(state, "Unknown type: no alignment");
         return 0;
     }
 }
 
-static bool comp_get_typesize(comp_state_t *state, uint32_t *ret, const comp_type_lvl_t lvl) {
-    switch (lvl.type) {
+static bool comp_get_typesize(comp_state_t *state,
+                              uint32_t *ret,
+                              const comp_type_t type,
+                              uint32_t lvlidx) {
+    if (lvlidx >= type.num_lvls) {
+        comp_error(state, "Can not get type size");
+        return false;
+    }
+    const comp_type_lvl_t *lvl = type.lvls + lvlidx;
+    switch (lvl->type) {
     case type_b8: case type_c8:
     case type_i8: case type_u8:
         *ret = 1;
@@ -142,14 +158,15 @@ static bool comp_get_typesize(comp_state_t *state, uint32_t *ret, const comp_typ
     case type_u0:
         *ret = 0;
         return true;
-    // TODO: Do arrays
     case type_arr:
-        *ret = 0;
-        return false;
-    case type_struct:
-        *ret = state->res->structs[lvl.id].size;
+        if (!comp_get_typesize(state, ret, type, lvlidx+1)) return false;
+        *ret *= lvl->id;
         return true;
-    case type_typedef: return comp_get_typesize(state, ret, state->res->typebuf[lvl.id].type.lvls[0]);
+    case type_struct:
+        *ret = state->res->structs[lvl->id].size;
+        return true;
+    case type_typedef:
+        return comp_get_typesize(state, ret, state->res->typebuf[lvl->id].type, 0);
     default:
         comp_error(state, "Unknown type: no size!");
         return 0;
@@ -267,12 +284,13 @@ static bool comp_get_literal_type(comp_state_t *state, const ast_t *literal, com
 
 static bool comp_types_exacteq(comp_state_t *state,
                                bool check_cvrs,
+                               uint32_t startlvl,
                                comp_type_t a,
                                comp_type_t b) {
     if (!comp_get_underlying_typedef(state, &a)) return false;
     if (!comp_get_underlying_typedef(state, &b)) return false;
     if (a.num_lvls != b.num_lvls) return false;
-    for (uint32_t i = 0; i < a.num_lvls; i++) {
+    for (uint32_t i = startlvl; i < a.num_lvls; i++) {
         const comp_type_lvl_t *alvl = a.lvls + i, *blvl = b.lvls + i;
         if (check_cvrs && alvl->quals != blvl->quals) return false;
         if (alvl->id != blvl->id || alvl->type != blvl->type) return false;
@@ -306,6 +324,13 @@ static comp_var_t *comp_get_scopevar(comp_state_t *state,
         }
     }
     return NULL;
+}
+
+static bool comp_remove_type_lvls(comp_state_t *state, comp_type_t *type, uint32_t nlvls) {
+    if (nlvls >= type->num_lvls) return false;
+    memmove(type->lvls, type->lvls + nlvls, (type->num_lvls - nlvls) * sizeof(*type->lvls));
+    type->num_lvls -= nlvls;
+    return true;
 }
 
 static bool comp_get_expr_type_recurr(comp_state_t *state,
@@ -374,7 +399,7 @@ static bool comp_get_expr_type_recurr(comp_state_t *state,
         comp_type_t ont, onf;
         if (!comp_get_expr_type_recurr(state, &ont, expr->a)) return false;
         if (!comp_get_expr_type_recurr(state, &onf, expr->b)) return false;
-        if (comp_types_exacteq(state, false, ont, onf)) {
+        if (comp_types_exacteq(state, false, 0, ont, onf)) {
             *ret = ont;
             return true;
         }
@@ -439,7 +464,7 @@ static bool comp_get_expr_type_recurr(comp_state_t *state,
             comp_type_t left, right;
             if (!comp_get_expr_type_recurr(state, &left, expr->a)) return false;
             if (!comp_get_expr_type_recurr(state, &right, expr->b)) return false;
-            if (comp_types_exacteq(state, false, left, right)) {
+            if (comp_types_exacteq(state, false, 0, left, right)) {
                 *ret = left;
                 return true;
             }

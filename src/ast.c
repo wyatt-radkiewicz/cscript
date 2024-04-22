@@ -202,7 +202,7 @@ static ast_t *parse_init_array(ast_state_t *state, parse_prec_t prec) {
     if (!node) return NULL;
     if (!ast_eat_token(state, true, tok_lbrack)) return NULL;
     ast_t **last = &node->child, *curr = NULL;
-    while (state->lexer.tok.type != tok_rbrace) {
+    while (state->lexer.tok.type != tok_rbrack) {
         if (!(curr = parse_expr(state, prec_assign))) break;
         *last = curr;
         last = &curr->next;
