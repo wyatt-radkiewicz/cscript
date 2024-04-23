@@ -1,6 +1,12 @@
 #include "comp_common.h"
 #include "comptime.h"
 
+static bool comp_check_code_size(comp_state_t *state) {
+    if (state->code - state->res->code < state->res->code_len) return true;
+    comp_error(state, "Ran out of code segment space!");
+    return false;
+}
+
 static bool comp_global(comp_state_t *state, const ast_t *node) {
     comp_update_line(state, node);
     comp_var_t var;
@@ -124,13 +130,13 @@ static comp_fn_t *comp_new_func_sig(comp_state_t *state, const ast_t *fndef) {
             return NULL;
         }
     }
-    comp_fn_t *fn = state->res->fns + state->res->fns_len++;
+    comp_fn_t *fn = state->res->fns + state->num_fns++;
     *fn = (comp_fn_t){
         .name = fndef->token.data.str,
         .types_loc = state->num_typebufs,
     };
     
-    size_t params_size = 0;
+    //size_t params_size = 0;
     for (const ast_t *param = fndef->a;
         param;
         param = param->next, fn->num_types++) {
@@ -141,17 +147,16 @@ static comp_fn_t *comp_new_func_sig(comp_state_t *state, const ast_t *fndef) {
         uint32_t align, size;
         if (!(align = comp_get_typealign(state, typebuf->type, 0))) return NULL;
         if (!comp_get_typesize(state, &size, typebuf->type, 0)) return NULL;
-        if (params_size) params_size--;
-        params_size = (params_size / align + 1) * align;
-        typebuf->offs = params_size;
-        params_size += size;
+        fn->stack_base = alignu(fn->stack_base, align);
+        typebuf->offs = fn->stack_base;
+        fn->stack_base += size;
     }
-    params_size = (params_size / COMP_MAX_ALIGN + 1) * COMP_MAX_ALIGN;
 
     for (uint32_t i = fn->types_loc; i < fn->types_loc + fn->num_types; i++) {
         comp_typebuf_t *const typebuf = state->res->typebuf + i;
-        typebuf->offs -= params_size;
+        typebuf->offs = fn->stack_base - typebuf->offs;
     }
+    fn->stack_base = -fn->stack_base; // Put it in the negatives
 
     comp_typebuf_t *typebuf = comp_alloc_next_type(state);
     if (!typebuf) return NULL;
@@ -251,10 +256,133 @@ only_defin:
     return strct;
 }
 
+static bool comp_push_literal_type(comp_state_t *state, const ast_t *literal, comp_var_t *var) {
+    comp_update_line(state, literal);
+    if (literal->type != ast_literal) {
+        comp_error(state, "Expected literal!");
+        return false;
+    }
+    comp_scope_t *scope = state->res->scopes + state->scopes_top;
+
+    *var = (comp_var_t){
+        .type.num_lvls = 1,
+        .loctype = var_loc_stack,
+        .lvalue = false,
+        .inscope = false,
+        .scope_id = UINT32_MAX,
+    };
+
+    const lex_token_t *tok = &literal->token;
+    if (!comp_get_literal_type(state, literal, &var->type)) return false;
+    switch (var->type.lvls[0].type) {
+    case type_i32: emit_op_imm_i32(&state->code, &scope->stack_base, tok->data.u64); break;
+    case type_u32: emit_op_imm_u32(&state->code, &scope->stack_base, tok->data.u64); break;
+    case type_i64: emit_op_imm_i64(&state->code, &scope->stack_base, tok->data.u64); break;
+    case type_u64: emit_op_imm_u64(&state->code, &scope->stack_base, tok->data.u64); break;
+    case type_f64: emit_op_imm_f64(&state->code, &scope->stack_base, tok->data.f64); break;
+    case type_c8: emit_op_imm_i8(&state->code, &scope->stack_base, tok->data.chr.c32); break;
+    case type_c16: emit_op_imm_i16(&state->code, &scope->stack_base, tok->data.chr.c32); break;
+    case type_c32: emit_op_imm_i32(&state->code, &scope->stack_base, tok->data.chr.c32); break;
+    case type_b8: emit_op_imm_u8(&state->code, &scope->stack_base, tok->type == tok_true); break;
+    default: comp_error(state, "Unknown literal type!"); return false;
+    }
+    var->loc = scope->stack_base;
+    return comp_check_code_size(state);
+}
+
+static bool comp_expr(comp_state_t *state, const ast_t *node, comp_var_t *ret) {
+    comp_scope_t *scope = state->res->scopes + state->scopes_top;
+
+    if (!node) return false;
+    switch (node->type) {
+    case ast_literal: return comp_push_literal_type(state, node, ret);
+    case ast_op_call: {
+        if (node->a->type != ast_ident) assert(0 && "Implement function pointers!");
+        for (uint32_t i = 0; i < state->num_fns; i++) {
+            comp_fn_t *fn = state->res->fns + i;
+            if (strview_eq(fn->name, node->a->token.data.str)) {
+                int32_t stack = scope->stack_base;
+                scope->stack_base = alignid(scope->stack_base, COMP_MAX_ALIGN);
+                const ast_t *arg = node->b;
+                for (uint32_t j = fn->types_loc; j < fn->types_loc + fn->num_types; j++, arg = arg->next) {
+                    if (!arg) {
+                        comp_error(state, "Missing function arguments");
+                        return false;
+                    }
+                    comp_update_line(state, arg);
+                    //comp_typebuf_t *tybuf = state->res->typebuf + j;
+
+                    if (!comp_expr(state, arg, &(comp_var_t){0})) return false;
+                }
+                if (arg) {
+                    comp_error(state, "Too many arguments passed to function");
+                    return false;
+                }
+
+                if (fn->is_extern) emit_op_extern_call(&state->code, fn->loc);
+                else emit_op_call(&state->code, fn->loc);
+                if (!comp_check_code_size(state)) return false;
+
+                // TODO: Handle return
+                emit_op_add_stack(&state->code, &scope->stack_base, stack - scope->stack_base);
+                return true;
+            }
+        }
+    } return false;
+    default: assert(false && "Expression feature not supported! (yet)");
+    }
+}
+
+static bool comp_stmt_group(comp_state_t *state, const ast_t *node) {
+    if (state->scopes_top + 1 >= state->res->scopes_len) {
+        comp_error(state, "Number of scopes exceeded allocated amount");
+        return false;
+    }
+    comp_scope_t *scope = state->res->scopes + ++state->scopes_top;
+    *scope = state->res->scopes[state->scopes_top-1];
+   
+    for (const ast_t *curr = node->child; curr; curr = curr->next) {
+        switch (curr->type) {
+        case ast_stmt_group:
+            if (!comp_stmt_group(state, curr)) return false;
+            break;
+        case ast_stmt_expr: {
+            int32_t stack = scope->stack_base;
+            if (!comp_expr(state, curr->child, &(comp_var_t){0})) return false;
+            emit_op_add_stack(&state->code, &scope->stack_base, stack - scope->stack_base);
+            if (!comp_check_code_size(state)) return false;
+            } break;
+        default: assert(0 && "comp_stmt_group: expected statement!");
+        }
+    }
+
+    emit_op_add_stack(&state->code, &scope->stack_base, state->res->scopes[state->scopes_top-1].stack_base - scope->stack_base);
+    if (!comp_check_code_size(state)) return false;
+    state->scopes_top--;
+
+    return true;
+}
+
+static comp_fn_t *comp_fn(comp_state_t *state, const ast_t *node) {
+    if (node->type != ast_def_func) return NULL;
+    comp_fn_t *sig = comp_new_func_sig(state, node);
+    if (!sig || !node->child) {
+        comp_error(state, "Invalid function signature.");
+        return NULL;
+    }
+    sig->loc = state->code - state->res->code;
+    state->res->scopes->stack_base = sig->stack_base;
+    if (!comp_stmt_group(state, node->child)) return NULL;
+    emit_op_ret(&state->code);
+    if (!comp_check_code_size(state)) return NULL;
+    return sig;
+}
+
 void compile(comp_resources_t *res) {
     comp_state_t state = {
         .res = res,
         .scopes_top = 0,
+        .code = res->code,
     };
     if (res->scopes_len < 1) {
         comp_error(&state, "Need more scope buffer room to start compiling.");
@@ -262,13 +390,14 @@ void compile(comp_resources_t *res) {
     }
     res->scopes[0] = (comp_scope_t){
         .scope_base = 0,
-        .stack_base = UINT32_MAX,
+        .stack_base = 0,
     };
 
     for (const ast_t *node = res->ast; node; node = node->next) {
         comp_struct(&state, node);
         comp_global(&state, node);
         comp_extern_fn(&state, node);
+        comp_fn(&state, node);
     }
 }
 

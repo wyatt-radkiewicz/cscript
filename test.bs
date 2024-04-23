@@ -1,33 +1,10 @@
-//let arr = [0.0, 1, 2, 3, 4];
-//let global: i32 = -(1 + 69 as f32);
-
-let MAX: const i32 = 3;
-
-struct TestInner {
-    x: f32,
-    y: f32,
-}
-
-struct TestStruct {
-    a: i8,
-    b: [i32; MAX],
-    c: TestInner,
-    d: u64,
-}
-
-let test = TestStruct{
-    d: 64,
-    c: TestInner{
-        x: 13.0,
-        y: 37.0,
-    },
-    a: 69,
-    b: [ 420, 421, 422 ],
-};
-
 extern fn print_i32(val: i32);
 
-//extern fn print_int(val: i32) -> u0;
+fn main() -> b8 {
+    print_i32(8);
+    //return true;
+}
+
 //extern fn input_int() -> i32;
 //
 //let TEST: i32 = "";

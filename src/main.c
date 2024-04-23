@@ -28,8 +28,7 @@ static char *loadfile(const char *filepath) {
 }
 
 static void print_i32(vm_state_t *vm) {
-    int32_t x;
-    vm_state_pop_i32(vm, &x);
+    int32_t x = *(int32_t *)vm->sp;
     printf("print_int: %d\n", x);
 }
 
@@ -108,7 +107,7 @@ int main(int argc, char **argv) {
         .scopes = scopes,
         .scopes_len = arrsz(scopes),
     };
-    ast_log(res.ast, stdout);
+    //ast_log(res.ast, stdout);
     printf("\n");
 
     if (!res.num_errors) compile(&res);

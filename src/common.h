@@ -44,6 +44,18 @@ static inline uint32_t alignu(uint32_t x, uint32_t a) {
     assert(a);
     return x ? ((x - 1) / a + 1) * a : 0;
 }
+static inline int32_t aligniu(int32_t x, int32_t a) {
+    assert(a);
+    if (x == 0) return 0;
+    else if (x > 0) return ((x - 1) / a + 1) * a;
+    else return x / a * a;
+}
+static inline int32_t alignid(int32_t x, int32_t a) {
+    assert(a);
+    if (x == 0) return 0;
+    else if (x > 0) return x / a * a;
+    else return (x / a - 1) * a;
+}
 
 static inline uint32_t clo(uint32_t x) {
     return ~x ? __builtin_clz(~x) : 32;

@@ -86,6 +86,9 @@ typedef enum vm_opcode {
 #undef X
 static_assert(vm_opcode_max <= 64, "Number of opcodes must be under 64!");
 
+// Any function with an sp paramter, uses that to update it as a virtual stack
+// pointer.
+
 void emit_op_load_data(uint8_t **code, uint32_t offs, uint32_t n);
 void emit_op_store_data(uint8_t **code, uint32_t offs, uint32_t n);
 // Expects the stack to have the offset
@@ -105,8 +108,8 @@ void emit_op_store_stack(uint8_t **code, int32_t offs, uint32_t n);
 // stack as well
 void emit_op_load_stack_indirect(uint8_t **code, int32_t offs, uint32_t n);
 void emit_op_store_stack_indirect(uint8_t **code, int32_t offs, uint32_t n);
-void emit_op_sub_stack(uint8_t **code, uint32_t n);
-void emit_op_add_stack(uint8_t **code, uint32_t n);
+void emit_op_sub_stack(uint8_t **code, int32_t *sp, uint32_t n);
+void emit_op_add_stack(uint8_t **code, int32_t *sp, uint32_t n);
 void emit_op_add(uint8_t **code, bool bits64, bool u, bool fp);
 void emit_op_sub(uint8_t **code, bool bits64, bool u, bool fp);
 void emit_op_mul(uint8_t **code, bool bits64, bool u, bool fp);
@@ -152,17 +155,17 @@ void emit_op_jump_indirect(uint8_t **code);
 // These pop off a 32bit value from the stack and check it, then branch
 void emit_op_bne(uint8_t **code, int32_t offs, bool bits64);
 void emit_op_beq(uint8_t **code, int32_t offs, bool bits64);
-void emit_op_imm_i8(uint8_t **code, int8_t imm);
-void emit_op_imm_i16(uint8_t **code, int16_t imm);
-void emit_op_imm_i32(uint8_t **code, int32_t imm);
-void emit_op_imm_i64(uint8_t **code, int64_t imm);
-void emit_op_imm_u8(uint8_t **code, uint8_t imm);
-void emit_op_imm_u16(uint8_t **code, uint16_t imm);
-void emit_op_imm_u32(uint8_t **code, uint32_t imm);
-void emit_op_imm_u64(uint8_t **code, uint64_t imm);
-void emit_op_imm_f32(uint8_t **code, float imm);
-void emit_op_imm_f64(uint8_t **code, double imm);
-void emit_op_imm_ptr(uint8_t **code, void *imm);
+void emit_op_imm_i8(uint8_t **code, int32_t *sp, int8_t imm);
+void emit_op_imm_i16(uint8_t **code, int32_t *sp, int16_t imm);
+void emit_op_imm_i32(uint8_t **code, int32_t *sp, int32_t imm);
+void emit_op_imm_i64(uint8_t **code, int32_t *sp, int64_t imm);
+void emit_op_imm_u8(uint8_t **code, int32_t *sp, uint8_t imm);
+void emit_op_imm_u16(uint8_t **code, int32_t *sp, uint16_t imm);
+void emit_op_imm_u32(uint8_t **code, int32_t *sp, uint32_t imm);
+void emit_op_imm_u64(uint8_t **code, int32_t *sp, uint64_t imm);
+void emit_op_imm_f32(uint8_t **code, int32_t *sp, float imm);
+void emit_op_imm_f64(uint8_t **code, int32_t *sp, double imm);
+void emit_op_imm_ptr(uint8_t **code, int32_t *sp, void *imm);
 // Expects size as u32 to be pushed onto the stack first
 void emit_op_alloc(uint8_t **code, uint32_t n);
 void emit_op_alloc_indirect(uint8_t **code);

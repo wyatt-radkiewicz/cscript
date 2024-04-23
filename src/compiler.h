@@ -61,6 +61,7 @@ typedef struct comp_fn {
     strview_t name;
 
     bool is_extern;
+    int32_t stack_base;
     uint32_t loc;
     uint32_t types_loc, num_types;
 } comp_fn_t;
@@ -97,7 +98,8 @@ typedef struct comp_var {
 
 typedef struct comp_scope {
     // These bases are the tops of the stack and scope at the start of this scope
-    uint32_t scope_base, stack_base;
+    uint32_t scope_base;
+    int32_t stack_base;
 } comp_scope_t;
 
 // Resources needed by the compiler to compile the code

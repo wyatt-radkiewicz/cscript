@@ -1,3 +1,6 @@
+#include <stdalign.h>
+
+#include "common.h"
 #include "opcode.h"
 
 //
@@ -147,15 +150,19 @@ void emit_op_store_stack_indirect(uint8_t **code, int32_t offs, uint32_t n) {
         emit_i8(code, n);
     }
 }
-void emit_op_sub_stack(uint8_t **code, uint32_t n) {
+void emit_op_sub_stack(uint8_t **code, int32_t *sp, uint32_t n) {
+    if (!n) return;
     emit_u8(code, op_sub_stack | size_class_u32(n));
     if (size_class_u32(n)) emit_u32(code, n);
     else emit_u8(code, n & 0xff);
+    *sp -= n;
 }
-void emit_op_add_stack(uint8_t **code, uint32_t n) {
+void emit_op_add_stack(uint8_t **code, int32_t *sp, uint32_t n) {
+    if (!n) return;
     emit_u8(code, op_add_stack | size_class_u32(n));
     if (size_class_u32(n)) emit_u32(code, n);
     else emit_u8(code, n & 0xff);
+    *sp += n;
 }
 void emit_op_add(uint8_t **code, bool bits64, bool u, bool fp) {
     assert(!(fp && u) && "Can not have unsigned bit and fp bit both set!");
@@ -294,55 +301,77 @@ void emit_op_beq(uint8_t **code, int32_t offs, bool bits64) {
     emit_u8(code, op_beq | bits64 << 7);
     emit_i32(code, offs);
 }
-void emit_op_imm_i8(uint8_t **code, int8_t imm) {
+void emit_op_imm_i8(uint8_t **code, int32_t *sp, int8_t imm) {
+    int32_t diff = *sp - alignid(*sp, alignof(int8_t));
     emit_u8(code, op_imm_i8);
     emit_i8(code, imm);
+    *sp -= sizeof(imm) + diff;
 }
-void emit_op_imm_i16(uint8_t **code, int16_t imm) {
+void emit_op_imm_i16(uint8_t **code, int32_t *sp, int16_t imm) {
+    int32_t diff = *sp - alignid(*sp, alignof(int16_t));
     emit_u8(code, op_imm_i16 | size_class_i32(imm));
     if (size_class_i32(imm)) emit_i16(code, imm);
     else emit_i8(code, imm);
+    *sp -= sizeof(imm) + diff;
 }
-void emit_op_imm_i32(uint8_t **code, int32_t imm) {
+void emit_op_imm_i32(uint8_t **code, int32_t *sp, int32_t imm) {
+    int32_t diff = *sp - alignid(*sp, alignof(int32_t));
     emit_u8(code, op_imm_i32 | size_class_i32(imm));
     if (size_class_i32(imm)) emit_i32(code, imm);
     else emit_i8(code, imm);
+    *sp -= sizeof(imm) + diff;
 }
-void emit_op_imm_i64(uint8_t **code, int64_t imm) {
+void emit_op_imm_i64(uint8_t **code, int32_t *sp, int64_t imm) {
+    int32_t diff = *sp - alignid(*sp, alignof(int64_t));
     emit_u8(code, op_imm_i64 | size_class_i64(imm));
     if (size_class_i64(imm)) emit_i64(code, imm);
     else emit_i8(code, imm);
+    *sp -= sizeof(imm) + diff;
 }
-void emit_op_imm_u8(uint8_t **code, uint8_t imm) {
+void emit_op_imm_u8(uint8_t **code, int32_t *sp, uint8_t imm) {
+    int32_t diff = *sp - alignid(*sp, alignof(uint8_t));
     emit_u8(code, op_imm_u8);
     emit_u8(code, imm);
+    *sp -= sizeof(imm) + diff;
 }
-void emit_op_imm_u16(uint8_t **code, uint16_t imm) {
+void emit_op_imm_u16(uint8_t **code, int32_t *sp, uint16_t imm) {
+    int32_t diff = *sp - alignid(*sp, alignof(uint16_t));
     emit_u8(code, op_imm_u16 | size_class_u16(imm));
     if (size_class_u16(imm)) emit_u16(code, imm);
     else emit_u8(code, imm & 0xff);
+    *sp -= sizeof(imm) + diff;
 }
-void emit_op_imm_u32(uint8_t **code, uint32_t imm) {
+void emit_op_imm_u32(uint8_t **code, int32_t *sp, uint32_t imm) {
+    int32_t diff = *sp - alignid(*sp, alignof(uint32_t));
     emit_u8(code, op_imm_u32 | size_class_u32(imm));
     if (size_class_u32(imm)) emit_u32(code, imm);
     else emit_u8(code, imm & 0xff);
+    *sp -= sizeof(imm) + diff;
 }
-void emit_op_imm_u64(uint8_t **code, uint64_t imm) {
+void emit_op_imm_u64(uint8_t **code, int32_t *sp, uint64_t imm) {
+    int32_t diff = *sp - alignid(*sp, alignof(uint64_t));
     emit_u8(code, op_imm_u64 | size_class_u64(imm));
     if (size_class_u64(imm)) emit_u64(code, imm);
     else emit_u8(code, imm & 0xff);
+    *sp -= sizeof(imm) + diff;
 }
-void emit_op_imm_f32(uint8_t **code, float imm) {
+void emit_op_imm_f32(uint8_t **code, int32_t *sp, float imm) {
+    int32_t diff = *sp - alignid(*sp, alignof(float));
     emit_u8(code, op_imm_f32);
     emit_f32(code, imm);
+    *sp -= sizeof(imm) + diff;
 }
-void emit_op_imm_f64(uint8_t **code, double imm) {
+void emit_op_imm_f64(uint8_t **code, int32_t *sp, double imm) {
+    int32_t diff = *sp - alignid(*sp, alignof(double));
     emit_u8(code, op_imm_f64);
     emit_f64(code, imm);
+    *sp -= sizeof(imm) + diff;
 }
-void emit_op_imm_ptr(uint8_t **code, void *imm) {
+void emit_op_imm_ptr(uint8_t **code, int32_t *sp, void *imm) {
+    int32_t diff = *sp - alignid(*sp, alignof(void *));
     emit_u8(code, op_imm_ptr);
     emit_ptr(code, imm);
+    *sp -= sizeof(imm) + diff;
 }
 void emit_op_alloc(uint8_t **code, uint32_t n) {
     emit_u8(code, op_alloc | size_class_u32(n));

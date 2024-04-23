@@ -12,12 +12,14 @@ typedef struct comp_state {
 
     int32_t line, chr;
 
+    // Scope 0 is also known as the function scope
     uint32_t scopes_top;
-    uint32_t csz, dsz;
+    uint32_t dsz;
     uint32_t num_ifns, num_typebufs,
              num_structs, num_typedefs,
              num_pfns, num_fns;
     size_t intbuf_len;
+    uint8_t *code;
 } comp_state_t;
 
 static bool comp_error(comp_state_t *state, const char *msg, ...) {
