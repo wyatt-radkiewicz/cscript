@@ -108,7 +108,7 @@ int main(int argc, char **argv) {
         .scopes_len = arrsz(scopes),
     };
     //ast_log(res.ast, stdout);
-    printf("\n");
+    //printf("\n");
 
     if (!res.num_errors) compile(&res);
     for (int i = 0; i < res.num_errors; i++) {

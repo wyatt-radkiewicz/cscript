@@ -115,29 +115,8 @@ static bool comptime_cast(comp_state_t *state,
     const comp_type_lvl_t *tolvl = typeto.lvls;
     comp_type_lvl_t *fromlvl = typefrom.lvls;
 
-    // TODO: Arrays
     assert(var->loctype == var_loc_data);
-    if (tolvl->type == type_arr) {
-        if (!comp_types_exacteq(state, false, 1, typeto, typefrom)) {
-            comp_error(state, "Can not cast to array of different type!");
-            return false;
-        }
-        if (tolvl->id < fromlvl->id) {
-            comp_error(state, "Array initializer too big to fit into type!");
-            return false;
-        }
-        uint32_t innersize;
-        if (!comp_get_typesize(state, &innersize, typefrom, 1)) return false;
-        if (state->dsz + innersize * (tolvl->id - fromlvl->id) > state->res->data_len) {
-            comp_error(state, "Array runs out of data segment storage!");
-            return false;
-        }
-        uint32_t nbytes = innersize * (tolvl->id - fromlvl->id);
-        memset(state->res->data + state->dsz, 0, nbytes);
-        state->dsz += nbytes;
-        fromlvl->id = tolvl->id;
-        return true;
-    }
+    if (tolvl->type == type_arr) return false;
     if (fromlvl->type == type_struct
         && tolvl->type == type_struct
         && fromlvl->id != tolvl->id) {
@@ -351,7 +330,10 @@ static bool comptime_expr(comp_state_t *state,
     case ast_init_array: {
         assert(((expr = expr->child) || !arrtype) && "Array init must have initializers!");
         comp_type_t innerty;
-        if (arrtype) innerty = *arrtype;
+        if (arrtype) {
+            innerty = *arrtype;
+            if (!comp_remove_type_lvls(state, &innerty, 1)) return false;
+        }
         else if (!comp_get_expr_type(state, &innerty, expr)) return false;
         *ret = (comp_var_t){
             .loc = state->dsz,
@@ -374,6 +356,18 @@ static bool comptime_expr(comp_state_t *state,
             comp_update_line(state, expr);
             if (!comptime_typed_expr(state, errnocomp, &(comp_var_t){0}, expr, &innerty)) return false;
             ret->type.lvls[0].id++;
+        }
+        if (arrtype) {
+            uint32_t innersize, diff;
+            if (!comp_get_typesize(state, &innersize, innerty, 1)) return false;
+            diff = arrtype->lvls[0].id - ret->type.lvls[0].id;
+            if (state->dsz + innersize * diff > state->res->data_len) {
+                comp_error(state, "Array runs out of data segment storage!");
+                return false;
+            }
+            uint32_t nbytes = innersize * diff;
+            memset(state->res->data + state->dsz, 0, nbytes);
+            state->dsz += nbytes;
         }
     } return true;
     case ast_ident: {
@@ -538,9 +532,8 @@ static bool comptime_typed_expr(comp_state_t *state,
     } else {
         const uint32_t loc = state->dsz;
         if (deftype && deftype->lvls[0].type == type_arr) {
-            comp_type_t innerty = *deftype;
-            assert(comp_remove_type_lvls(state, &innerty, 1));
-            if (!comptime_expr(state, true, ret, expr, &innerty)) {
+            //assert(comp_remove_type_lvls(state, &innerty, 1));
+            if (!comptime_expr(state, true, ret, expr, deftype)) {
                 comp_error(state, "Expected compile time expression!");
                 return false;
             }

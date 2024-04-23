@@ -97,11 +97,11 @@ void emit_op_store_data_indirect(uint8_t **code, uint32_t n);
 // Expects the stack to have the pointer
 void emit_op_load_indirect(uint8_t **code, uint32_t n);
 void emit_op_store_indirect(uint8_t **code, uint32_t n);
+void emit_op_load_stack(uint8_t **code, int32_t offs, uint32_t n);
+void emit_op_store_stack(uint8_t **code, int32_t offs, uint32_t n);
 // Stack loading operations start from the call stack base pointer
 // (the callstack base pointer points to the top of the stack at when the
 //  call operation was ran)
-void emit_op_load_stack(uint8_t **code, int32_t offs, uint32_t n);
-void emit_op_store_stack(uint8_t **code, int32_t offs, uint32_t n);
 // Expects the stack to have the offset pushed on
 // (the offset after the offset itself is pushed on of course)
 // The offs value there will be added onto the offset found on the
@@ -128,21 +128,21 @@ void emit_op_neg(uint8_t **code, bool bits64, bool fp);
 // 1 -> 16bit
 // 2 -> 32bit
 // 3 -> 64bit
-void emit_op_extend(uint8_t **code, uint8_t size_class, bool u);
+void emit_op_extend(uint8_t **code, int32_t *sp, uint8_t size_class, bool u);
 // Reduces 1 rank below
-void emit_op_reduce(uint8_t **code, uint8_t size_class);
+void emit_op_reduce(uint8_t **code, int32_t *sp, uint8_t size_class);
 void emit_op_f2u(uint8_t **code, bool bits64);
 void emit_op_f2i(uint8_t **code, bool bits64);
 void emit_op_i2f(uint8_t **code, bool bits64);
 void emit_op_u2f(uint8_t **code, bool bits64);
-void emit_op_f2d(uint8_t **code);
-void emit_op_d2f(uint8_t **code);
-void emit_op_push_eq(uint8_t **code, bool bits64, bool fp);
-void emit_op_push_ne(uint8_t **code, bool bits64, bool fp);
-void emit_op_push_gt(uint8_t **code, bool bits64, bool fp, bool u);
-void emit_op_push_lt(uint8_t **code, bool bits64, bool fp, bool u);
-void emit_op_push_ge(uint8_t **code, bool bits64, bool fp, bool u);
-void emit_op_push_le(uint8_t **code, bool bits64, bool fp, bool u);
+void emit_op_f2d(uint8_t **code, int32_t *sp);
+void emit_op_d2f(uint8_t **code, int32_t *sp);
+void emit_op_push_eq(uint8_t **code, int32_t *sp, bool bits64, bool fp);
+void emit_op_push_ne(uint8_t **code, int32_t *sp, bool bits64, bool fp);
+void emit_op_push_gt(uint8_t **code, int32_t *sp, bool bits64, bool fp, bool u);
+void emit_op_push_lt(uint8_t **code, int32_t *sp, bool bits64, bool fp, bool u);
+void emit_op_push_ge(uint8_t **code, int32_t *sp, bool bits64, bool fp, bool u);
+void emit_op_push_le(uint8_t **code, int32_t *sp, bool bits64, bool fp, bool u);
 void emit_op_ret(uint8_t **code);
 void emit_op_call(uint8_t **code, uint32_t codeoffs);
 void emit_op_call_indirect(uint8_t **code);

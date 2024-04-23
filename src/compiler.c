@@ -290,7 +290,330 @@ static bool comp_push_literal_type(comp_state_t *state, const ast_t *literal, co
     return comp_check_code_size(state);
 }
 
-static bool comp_expr(comp_state_t *state, const ast_t *node, comp_var_t *ret) {
+static bool comp_cast(comp_state_t *state,
+                      comp_var_t *var,
+                      const comp_type_t *type,
+                      uint32_t topbefore) {
+    comp_type_t typeto = *type, typefrom = var->type;
+    if (!comp_get_underlying_typedef(state, &typeto)) return false;
+    if (!comp_get_underlying_typedef(state, &typefrom)) return false;
+    if (comp_types_exacteq(state, false, 0, typeto, typefrom)) {
+        if (typeto.num_lvls > 1 && !comp_types_exacteq(state, true, 1, typeto, typefrom)) return true;
+        if (~typeto.lvls[0].quals & qual_const && typefrom.lvls[0].quals & qual_const) {
+            comp_error(state, "Can't cast const type to non-const");
+            return false;
+        }
+        var->type.lvls[0].quals = typeto.lvls[0].quals;
+    }
+
+    const comp_type_lvl_t *tolvl = typeto.lvls;
+    comp_type_lvl_t *fromlvl = typefrom.lvls;
+    comp_scope_t *scope = state->res->scopes + state->scopes_top;
+
+    assert(var->loctype == var_loc_stack);
+    if (tolvl->type == type_arr) return false;
+    if (fromlvl->type == type_struct
+        && tolvl->type == type_struct
+        && fromlvl->id != tolvl->id) {
+        comp_error(state, "Can not cast a struct to a struct of another type!");
+        return false;
+    }
+    if ((fromlvl->type == type_ref || fromlvl->type == type_ptr)
+        && fromlvl->type != tolvl->type) {
+        comp_error(state, "Can't cast refrences or pointers!");
+        return false;
+    }
+
+    var->type = typeto;
+    topbefore = alignid(topbefore - 1, comp_get_typealign(state, typeto, 0));
+    switch (fromlvl->type) {
+    case type_b8: case type_u8: case type_c8: case type_i8: {
+        const bool u = fromlvl->type == type_u8;
+        switch (tolvl->type) {
+        case type_i8: case type_c8: case type_u8: return true;
+        case type_b8:
+            if (fromlvl->type == type_b8) return true;
+            emit_op_extend(&state->code, &scope->stack_base, 0, u);
+            emit_op_extend(&state->code, &scope->stack_base, 1, u);
+            emit_op_imm_i32(&state->code, &scope->stack_base, 0);
+            emit_op_push_ne(&state->code, &scope->stack_base, false, false);
+            emit_op_store_stack(&state->code, topbefore - scope->stack_base, 1);
+            emit_op_add_stack(&state->code, &scope->stack_base, topbefore - scope->stack_base);
+            if (!comp_check_code_size(state)) return false;
+            return true;
+        case type_i16: case type_u16:
+            emit_op_extend(&state->code, &scope->stack_base, 0, u);
+            if (!comp_check_code_size(state)) return false;
+            return true;
+        case type_i32: case type_u32: case type_c32:
+            emit_op_extend(&state->code, &scope->stack_base, 0, u);
+            emit_op_extend(&state->code, &scope->stack_base, 1, u);
+            if (!comp_check_code_size(state)) return false;
+            return true;
+        case type_i64: case type_u64:
+            emit_op_extend(&state->code, &scope->stack_base, 0, u);
+            emit_op_extend(&state->code, &scope->stack_base, 1, u);
+            emit_op_extend(&state->code, &scope->stack_base, 2, u);
+            if (!comp_check_code_size(state)) return false;
+            return true;
+        case type_f32:
+            emit_op_extend(&state->code, &scope->stack_base, 0, u);
+            emit_op_extend(&state->code, &scope->stack_base, 1, u);
+            if (u) emit_op_u2f(&state->code, false);
+            else emit_op_i2f(&state->code, false);
+            if (!comp_check_code_size(state)) return false;
+            return true;
+        case type_f64:
+            emit_op_extend(&state->code, &scope->stack_base, 0, u);
+            emit_op_extend(&state->code, &scope->stack_base, 1, u);
+            emit_op_extend(&state->code, &scope->stack_base, 2, u);
+            if (u) emit_op_u2f(&state->code, true);
+            else emit_op_i2f(&state->code, true);
+            if (!comp_check_code_size(state)) return false;
+            return true;
+        }
+    } return false;
+    case type_u16: case type_i16: {
+        const bool u = fromlvl->type == type_u16;
+        switch (tolvl->type) {
+        case type_i8: case type_c8: case type_u8:
+            emit_op_reduce(&state->code, &scope->stack_base, 1);
+            emit_op_store_stack(&state->code, topbefore - scope->stack_base, 1);
+            emit_op_add_stack(&state->code, &scope->stack_base, topbefore - scope->stack_base);
+            if (!comp_check_code_size(state)) return false;
+            return true;
+        case type_b8:
+            emit_op_extend(&state->code, &scope->stack_base, 1, u);
+            emit_op_imm_i32(&state->code, &scope->stack_base, 0);
+            emit_op_push_ne(&state->code, &scope->stack_base, false, false);
+            emit_op_store_stack(&state->code, topbefore - scope->stack_base, 1);
+            emit_op_add_stack(&state->code, &scope->stack_base, topbefore - scope->stack_base);
+            if (!comp_check_code_size(state)) return false;
+            return true;
+        case type_i16: case type_u16: case type_c16: return true;
+        case type_i32: case type_u32: case type_c32:
+            emit_op_extend(&state->code, &scope->stack_base, 1, u);
+            if (!comp_check_code_size(state)) return false;
+            return true;
+        case type_i64: case type_u64:
+            emit_op_extend(&state->code, &scope->stack_base, 1, u);
+            emit_op_extend(&state->code, &scope->stack_base, 2, u);
+            if (!comp_check_code_size(state)) return false;
+            return true;
+        case type_f32:
+            emit_op_extend(&state->code, &scope->stack_base, 1, u);
+            if (u) emit_op_u2f(&state->code, false);
+            else emit_op_i2f(&state->code, false);
+            if (!comp_check_code_size(state)) return false;
+            return true;
+        case type_f64:
+            emit_op_extend(&state->code, &scope->stack_base, 1, u);
+            emit_op_extend(&state->code, &scope->stack_base, 2, u);
+            if (u) emit_op_u2f(&state->code, true);
+            else emit_op_i2f(&state->code, true);
+            if (!comp_check_code_size(state)) return false;
+            return true;
+        }
+    } return false;
+    case type_i32: case type_u32: {
+        const bool u = fromlvl->type == type_u32;
+        switch (tolvl->type) {
+        case type_i8: case type_c8: case type_u8:
+            emit_op_reduce(&state->code, &scope->stack_base, 2);
+            emit_op_reduce(&state->code, &scope->stack_base, 1);
+            emit_op_store_stack(&state->code, topbefore - scope->stack_base, 1);
+            emit_op_add_stack(&state->code, &scope->stack_base, topbefore - scope->stack_base);
+            if (!comp_check_code_size(state)) return false;
+            return true;
+        case type_b8:
+            emit_op_imm_i32(&state->code, &scope->stack_base, 0);
+            emit_op_push_ne(&state->code, &scope->stack_base, false, false);
+            emit_op_store_stack(&state->code, topbefore - scope->stack_base, 1);
+            emit_op_add_stack(&state->code, &scope->stack_base, topbefore - scope->stack_base);
+            if (!comp_check_code_size(state)) return false;
+            return true;
+        case type_i16: case type_u16: case type_c16:
+            emit_op_reduce(&state->code, &scope->stack_base, 2);
+            emit_op_store_stack(&state->code, topbefore - scope->stack_base, 2);
+            emit_op_add_stack(&state->code, &scope->stack_base, topbefore - scope->stack_base);
+            if (!comp_check_code_size(state)) return false;
+            return true;
+        case type_i32: case type_u32: case type_c32: return true;
+        case type_i64: case type_u64:
+            emit_op_extend(&state->code, &scope->stack_base, 2, false);
+            if (!comp_check_code_size(state)) return false;
+            return true;
+        case type_f32:
+            if (u) emit_op_u2f(&state->code, false);
+            else emit_op_i2f(&state->code, false);
+            if (!comp_check_code_size(state)) return false;
+            return true;
+        case type_f64:
+            emit_op_extend(&state->code, &scope->stack_base, 2, false);
+            if (u) emit_op_u2f(&state->code, true);
+            else emit_op_i2f(&state->code, true);
+            if (!comp_check_code_size(state)) return false;
+            return true;
+        }
+    } return false;
+    case type_i64: case type_u64: {
+        const bool u = fromlvl->type == type_u64;
+        switch (tolvl->type) {
+        case type_i8: case type_c8: case type_u8:
+            emit_op_reduce(&state->code, &scope->stack_base, 3);
+            emit_op_reduce(&state->code, &scope->stack_base, 2);
+            emit_op_reduce(&state->code, &scope->stack_base, 1);
+            emit_op_store_stack(&state->code, topbefore - scope->stack_base, 1);
+            emit_op_add_stack(&state->code, &scope->stack_base, topbefore - scope->stack_base);
+            if (!comp_check_code_size(state)) return false;
+            return true;
+        case type_b8:
+            emit_op_reduce(&state->code, &scope->stack_base, 3);
+            emit_op_imm_i32(&state->code, &scope->stack_base, 0);
+            emit_op_push_ne(&state->code, &scope->stack_base, false, false);
+            emit_op_store_stack(&state->code, topbefore - scope->stack_base, 1);
+            emit_op_add_stack(&state->code, &scope->stack_base, topbefore - scope->stack_base);
+            if (!comp_check_code_size(state)) return false;
+            return true;
+        case type_i16: case type_u16: case type_c16:
+            emit_op_reduce(&state->code, &scope->stack_base, 3);
+            emit_op_reduce(&state->code, &scope->stack_base, 2);
+            emit_op_store_stack(&state->code, topbefore - scope->stack_base, 2);
+            emit_op_add_stack(&state->code, &scope->stack_base, topbefore - scope->stack_base);
+            if (!comp_check_code_size(state)) return false;
+            return true;
+        case type_i32: case type_u32: case type_c32:
+            emit_op_reduce(&state->code, &scope->stack_base, 3);
+            emit_op_store_stack(&state->code, topbefore - scope->stack_base, 4);
+            emit_op_add_stack(&state->code, &scope->stack_base, topbefore - scope->stack_base);
+            if (!comp_check_code_size(state)) return false;
+            return true;
+        case type_i64: case type_u64: return true;
+        case type_f32:
+            emit_op_reduce(&state->code, &scope->stack_base, 3);
+            if (u) emit_op_u2f(&state->code, false);
+            else emit_op_i2f(&state->code, false);
+            emit_op_store_stack(&state->code, topbefore - scope->stack_base, 4);
+            emit_op_add_stack(&state->code, &scope->stack_base, topbefore - scope->stack_base);
+            if (!comp_check_code_size(state)) return false;
+            return true;
+        case type_f64:
+            if (u) emit_op_u2f(&state->code, true);
+            else emit_op_i2f(&state->code, true);
+            if (!comp_check_code_size(state)) return false;
+            return true;
+        }
+    } return false;
+    case type_f32:
+        switch (tolvl->type) {
+        case type_i8: case type_c8: case type_u8:
+            if (tolvl->type == type_u8) emit_op_f2u(&state->code, false);
+            else emit_op_f2i(&state->code, false);
+            emit_op_reduce(&state->code, &scope->stack_base, 2);
+            emit_op_reduce(&state->code, &scope->stack_base, 1);
+            emit_op_store_stack(&state->code, topbefore - scope->stack_base, 1);
+            emit_op_add_stack(&state->code, &scope->stack_base, topbefore - scope->stack_base);
+            if (!comp_check_code_size(state)) return false;
+            return true;
+        case type_b8:
+            emit_op_f2u(&state->code, false);
+            emit_op_imm_i32(&state->code, &scope->stack_base, 0);
+            emit_op_push_ne(&state->code, &scope->stack_base, false, false);
+            emit_op_store_stack(&state->code, topbefore - scope->stack_base, 1);
+            emit_op_add_stack(&state->code, &scope->stack_base, topbefore - scope->stack_base);
+            if (!comp_check_code_size(state)) return false;
+            return true;
+        case type_i16: case type_u16: case type_c16:
+            if (tolvl->type == type_u16) emit_op_f2u(&state->code, false);
+            else emit_op_f2i(&state->code, false);
+            emit_op_reduce(&state->code, &scope->stack_base, 2);
+            emit_op_store_stack(&state->code, topbefore - scope->stack_base, 2);
+            emit_op_add_stack(&state->code, &scope->stack_base, topbefore - scope->stack_base);
+            if (!comp_check_code_size(state)) return false;
+            return true;
+        case type_i32: case type_u32: case type_c32:
+            if (tolvl->type == type_u32) emit_op_f2u(&state->code, false);
+            else emit_op_f2i(&state->code, false);
+            if (!comp_check_code_size(state)) return false;
+            return true;
+        case type_i64: case type_u64:
+            if (tolvl->type == type_u64) emit_op_f2u(&state->code, false);
+            else emit_op_f2i(&state->code, false);
+            emit_op_extend(&state->code, &scope->stack_base, 2, tolvl->type == type_u64);
+            if (!comp_check_code_size(state)) return false;
+            return true;
+        case type_f32: return true;
+        case type_f64:
+            emit_op_f2d(&state->code, &scope->stack_base);
+            if (!comp_check_code_size(state)) return false;
+            return true;
+        }
+    return false;
+    case type_f64:
+        switch (tolvl->type) {
+        case type_i8: case type_c8: case type_u8:
+            if (tolvl->type == type_u8) emit_op_f2u(&state->code, true);
+            else emit_op_f2i(&state->code, true);
+            emit_op_reduce(&state->code, &scope->stack_base, 3);
+            emit_op_reduce(&state->code, &scope->stack_base, 2);
+            emit_op_reduce(&state->code, &scope->stack_base, 1);
+            emit_op_store_stack(&state->code, topbefore - scope->stack_base, 1);
+            emit_op_add_stack(&state->code, &scope->stack_base, topbefore - scope->stack_base);
+            if (!comp_check_code_size(state)) return false;
+            return true;
+        case type_b8:
+            emit_op_f2u(&state->code, false);
+            emit_op_reduce(&state->code, &scope->stack_base, 3);
+            emit_op_imm_i32(&state->code, &scope->stack_base, 0);
+            emit_op_push_ne(&state->code, &scope->stack_base, false, false);
+            emit_op_store_stack(&state->code, topbefore - scope->stack_base, 1);
+            emit_op_add_stack(&state->code, &scope->stack_base, topbefore - scope->stack_base);
+            if (!comp_check_code_size(state)) return false;
+            return true;
+        case type_i16: case type_u16: case type_c16:
+            if (tolvl->type == type_u16) emit_op_f2u(&state->code, false);
+            else emit_op_f2i(&state->code, false);
+            emit_op_reduce(&state->code, &scope->stack_base, 3);
+            emit_op_reduce(&state->code, &scope->stack_base, 2);
+            emit_op_store_stack(&state->code, topbefore - scope->stack_base, 2);
+            emit_op_add_stack(&state->code, &scope->stack_base, topbefore - scope->stack_base);
+            if (!comp_check_code_size(state)) return false;
+            return true;
+        case type_i32: case type_u32: case type_c32:
+            if (tolvl->type == type_u32) emit_op_f2u(&state->code, false);
+            else emit_op_f2i(&state->code, false);
+            emit_op_reduce(&state->code, &scope->stack_base, 3);
+            emit_op_store_stack(&state->code, topbefore - scope->stack_base, 4);
+            emit_op_add_stack(&state->code, &scope->stack_base, topbefore - scope->stack_base);
+            if (!comp_check_code_size(state)) return false;
+            return true;
+        case type_i64: case type_u64:
+            if (tolvl->type == type_u64) emit_op_f2u(&state->code, true);
+            else emit_op_f2i(&state->code, true);
+            if (!comp_check_code_size(state)) return false;
+            return true;
+        case type_f32:
+            emit_op_d2f(&state->code, &scope->stack_base);
+            emit_op_store_stack(&state->code, topbefore - scope->stack_base, 4);
+            emit_op_add_stack(&state->code, &scope->stack_base, topbefore - scope->stack_base);
+            if (!comp_check_code_size(state)) return false;
+            return true;
+        case type_f64: return true;
+        }
+    return false;
+    default: return false;
+    }
+
+    return true;
+}
+static bool comp_typed_expr(comp_state_t *state,
+                            comp_var_t *ret,
+                            const ast_t *expr,
+                            const comp_type_t *deftype);
+static bool comp_expr(comp_state_t *state,
+                      comp_var_t *ret,
+                      const ast_t *node,
+                      const comp_type_t *arrty) {
     comp_scope_t *scope = state->res->scopes + state->scopes_top;
 
     if (!node) return false;
@@ -310,9 +633,8 @@ static bool comp_expr(comp_state_t *state, const ast_t *node, comp_var_t *ret) {
                         return false;
                     }
                     comp_update_line(state, arg);
-                    //comp_typebuf_t *tybuf = state->res->typebuf + j;
-
-                    if (!comp_expr(state, arg, &(comp_var_t){0})) return false;
+                    comp_typebuf_t *const tybuf = state->res->typebuf + j;
+                    if (!comp_typed_expr(state, &(comp_var_t){0}, arg, &tybuf->type)) return false;
                 }
                 if (arg) {
                     comp_error(state, "Too many arguments passed to function");
@@ -332,6 +654,37 @@ static bool comp_expr(comp_state_t *state, const ast_t *node, comp_var_t *ret) {
     default: assert(false && "Expression feature not supported! (yet)");
     }
 }
+// Compile an expression that expects a certain type
+static bool comp_typed_expr(comp_state_t *state,
+                            comp_var_t *ret,
+                            const ast_t *expr,
+                            const comp_type_t *deftype) {
+    comp_update_line(state, expr);
+    if (!expr) {
+        uint32_t size;
+        if (!comp_get_typesize(state, &size, *deftype, 0)) {
+            comp_error(state, "Type does not have a valid size");
+            return false;
+        }
+        assert(false && "TODO: Undefined typed vars!");
+    } else {
+        //const int32_t stack = state->dsz;
+        if (deftype && deftype->lvls[0].type == type_arr) {
+            comp_type_t innerty = *deftype;
+            assert(comp_remove_type_lvls(state, &innerty, 1));
+            if (!comp_expr(state, ret, expr, &innerty)) {
+                comp_error(state, "Expected compile time expression!");
+                return false;
+            }
+        } else if (!comp_expr(state, ret, expr, NULL)) {
+            comp_error(state, "Expected compile time expression!");
+            return false;
+        }
+        //if (deftype && !comptime_cast(state, ret, deftype, loc)) return false;
+    }
+
+    return true;
+}
 
 static bool comp_stmt_group(comp_state_t *state, const ast_t *node) {
     if (state->scopes_top + 1 >= state->res->scopes_len) {
@@ -348,7 +701,7 @@ static bool comp_stmt_group(comp_state_t *state, const ast_t *node) {
             break;
         case ast_stmt_expr: {
             int32_t stack = scope->stack_base;
-            if (!comp_expr(state, curr->child, &(comp_var_t){0})) return false;
+            if (!comp_expr(state, &(comp_var_t){0}, curr->child, NULL)) return false;
             emit_op_add_stack(&state->code, &scope->stack_base, stack - scope->stack_base);
             if (!comp_check_code_size(state)) return false;
             } break;

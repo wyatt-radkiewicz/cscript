@@ -121,6 +121,7 @@ void emit_op_load_stack(uint8_t **code, int32_t offs, uint32_t n) {
     }
 }
 void emit_op_store_stack(uint8_t **code, int32_t offs, uint32_t n) {
+    if (!offs) return;
     emit_u8(code, op_store_stack | size_class_i32(offs) | size_class_i32(n));
     if (size_class_i32(offs) || size_class_i32(n)) {
         emit_i32(code, offs);
@@ -213,15 +214,19 @@ void emit_op_neg(uint8_t **code, bool bits64, bool fp) {
     emit_u8(code, op_neg);
     emit_u8(code, bits64 | fp << 1);
 }
-void emit_op_extend(uint8_t **code, uint8_t size_class, bool u) {
+void emit_op_extend(uint8_t **code, int32_t *sp, uint8_t size_class, bool u) {
     assert(size_class < 4 && "Extend size class is over 3!");
     emit_u8(code, op_extend | u << 7);
     emit_u8(code, size_class);
+    *sp += 1 << size_class;
+    *sp = alignid(*sp, 2 << size_class);
+    *sp -= 2 << size_class;
 }
-void emit_op_reduce(uint8_t **code, uint8_t size_class) {
-    assert(size_class < 4 && "Extend size class is over 3!");
+void emit_op_reduce(uint8_t **code, int32_t *sp, uint8_t size_class) {
+    assert(size_class > 0 && "Extend size class is 0!");
     emit_u8(code, op_reduce);
     emit_u8(code, size_class);
+    *sp += 1 << (size_class - 1);
 }
 void emit_op_f2u(uint8_t **code, bool bits64) {
     emit_u8(code, op_f2u | bits64 << 7);
@@ -235,39 +240,47 @@ void emit_op_i2f(uint8_t **code, bool bits64) {
 void emit_op_u2f(uint8_t **code, bool bits64) {
     emit_u8(code, op_u2f | bits64 << 7);
 }
-void emit_op_f2d(uint8_t **code) {
+void emit_op_f2d(uint8_t **code, int32_t *sp) {
     emit_u8(code, op_f2d);
+    *sp = alignid(*sp, 8);
 }
-void emit_op_d2f(uint8_t **code) {
+void emit_op_d2f(uint8_t **code, int32_t *sp) {
     emit_u8(code, op_d2f);
+    *sp += 4;
 }
-void emit_op_push_eq(uint8_t **code, bool bits64, bool fp) {
+void emit_op_push_eq(uint8_t **code, int32_t *sp, bool bits64, bool fp) {
     emit_u8(code, op_push_eq);
     emit_u8(code, bits64 | fp << 1);
+    *sp += bits64 ? 12 : 4;
 }
-void emit_op_push_ne(uint8_t **code, bool bits64, bool fp) {
+void emit_op_push_ne(uint8_t **code, int32_t *sp, bool bits64, bool fp) {
     emit_u8(code, op_push_ne);
     emit_u8(code, bits64 | fp << 1);
+    *sp += bits64 ? 12 : 4;
 }
-void emit_op_push_gt(uint8_t **code, bool bits64, bool fp, bool u) {
+void emit_op_push_gt(uint8_t **code, int32_t *sp, bool bits64, bool fp, bool u) {
     assert(!(fp && u) && "Can not have unsigned bit and fp bit both set!");
     emit_u8(code, op_push_gt);
     emit_u8(code, bits64 | fp << 1 | u << 2);
+    *sp += bits64 ? 12 : 4;
 }
-void emit_op_push_lt(uint8_t **code, bool bits64, bool fp, bool u) {
+void emit_op_push_lt(uint8_t **code, int32_t *sp, bool bits64, bool fp, bool u) {
     assert(!(fp && u) && "Can not have unsigned bit and fp bit both set!");
     emit_u8(code, op_push_lt);
     emit_u8(code, bits64 | fp << 1 | u << 2);
+    *sp += bits64 ? 12 : 4;
 }
-void emit_op_push_ge(uint8_t **code, bool bits64, bool fp, bool u) {
+void emit_op_push_ge(uint8_t **code, int32_t *sp, bool bits64, bool fp, bool u) {
     assert(!(fp && u) && "Can not have unsigned bit and fp bit both set!");
     emit_u8(code, op_push_ge);
     emit_u8(code, bits64 | fp << 1 | u << 2);
+    *sp += bits64 ? 12 : 4;
 }
-void emit_op_push_le(uint8_t **code, bool bits64, bool fp, bool u) {
+void emit_op_push_le(uint8_t **code, int32_t *sp, bool bits64, bool fp, bool u) {
     assert(!(fp && u) && "Can not have unsigned bit and fp bit both set!");
     emit_u8(code, op_push_le);
     emit_u8(code, bits64 | fp << 1 | u << 2);
+    *sp += bits64 ? 12 : 4;
 }
 void emit_op_ret(uint8_t **code) {
     emit_u8(code, op_ret);
