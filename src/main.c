@@ -37,19 +37,24 @@ static void input_i32(vm_state_t *vm) {
     scanf("%d", &x);
     vm_state_push_i32(vm, x);
 }
+static void get_rand(vm_state_t *vm) {
+    vm_state_push_u16(vm, rand());
+}
 
 uint8_t stack[64];
 vm_callstack_t callstack[8];
 
-uint8_t code[128];
+uint8_t code[192];
 uint8_t data[128];
 strview_t externfn_names[] = {
     (strview_t){ .str = "print_i32", .len = sizeof("print_i32")-1 },
     (strview_t){ .str = "input_i32", .len = sizeof("input_i32")-1 },
+    (strview_t){ .str = "rand", .len = sizeof("rand")-1 },
 };
 vm_extern_fn_t externfn_ptrs[] = {
     print_i32,
     input_i32,
+    get_rand,
 };
 strview_t internfn_names[32];
 uint32_t internfn_locs[32];
