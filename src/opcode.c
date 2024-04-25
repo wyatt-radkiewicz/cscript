@@ -70,8 +70,9 @@ static inline void emit_ptr(uint8_t **code, const void *p) {
 //
 // Opcode creation functions
 //
-void emit_op_load_data(uint8_t **code, uint32_t offs, uint32_t n) {
+void emit_op_load_data(uint8_t **code, int32_t *sp, uint32_t offs, uint32_t n) {
     emit_u8(code, op_load_data | size_class_u32(offs) | size_class_u32(n));
+    *sp -= n;
     if (size_class_u32(offs) || size_class_u32(n)) {
         emit_u32(code, offs);
         emit_u32(code, n);
@@ -90,8 +91,9 @@ void emit_op_store_data(uint8_t **code, uint32_t offs, uint32_t n) {
         emit_u8(code, n & 0xff);
     }
 }
-void emit_op_load_data_indirect(uint8_t **code, uint32_t n) {
+void emit_op_load_data_indirect(uint8_t **code, int32_t *sp, uint32_t n) {
     emit_u8(code, op_load_data_indirect | size_class_u32(n));
+    *sp -= n;
     if (size_class_u32(n)) emit_u32(code, n);
     else emit_u8(code, n & 0xff);
 }
@@ -100,8 +102,9 @@ void emit_op_store_data_indirect(uint8_t **code, uint32_t n) {
     if (size_class_u32(n)) emit_u32(code, n);
     else emit_u8(code, n & 0xff);
 }
-void emit_op_load_indirect(uint8_t **code, uint32_t n) {
+void emit_op_load_indirect(uint8_t **code, int32_t *sp, uint32_t n) {
     emit_u8(code, op_load_indirect | size_class_u32(n));
+    *sp -= n;
     if (size_class_u32(n)) emit_u32(code, n);
     else emit_u8(code, n & 0xff);
 }
@@ -110,8 +113,9 @@ void emit_op_store_indirect(uint8_t **code, uint32_t n) {
     if (size_class_u32(n)) emit_u32(code, n);
     else emit_u8(code, n & 0xff);
 }
-void emit_op_load_stack(uint8_t **code, int32_t offs, uint32_t n) {
+void emit_op_load_stack(uint8_t **code, int32_t *sp, int32_t offs, uint32_t n) {
     emit_u8(code, op_load_stack | size_class_i32(offs) | size_class_i32(n));
+    *sp -= n;
     if (size_class_i32(offs) || size_class_i32(n)) {
         emit_i32(code, offs);
         emit_i32(code, n);
@@ -121,7 +125,7 @@ void emit_op_load_stack(uint8_t **code, int32_t offs, uint32_t n) {
     }
 }
 void emit_op_store_stack(uint8_t **code, int32_t offs, uint32_t n) {
-    if (!offs) return;
+    if (!offs || !n) return;
     emit_u8(code, op_store_stack | size_class_i32(offs) | size_class_i32(n));
     if (size_class_i32(offs) || size_class_i32(n)) {
         emit_i32(code, offs);
@@ -131,8 +135,9 @@ void emit_op_store_stack(uint8_t **code, int32_t offs, uint32_t n) {
         emit_i8(code, n);
     }
 }
-void emit_op_load_stack_indirect(uint8_t **code, int32_t offs, uint32_t n) {
+void emit_op_load_stack_indirect(uint8_t **code, int32_t *sp, int32_t offs, uint32_t n) {
     emit_u8(code, op_load_stack_indirect | size_class_i32(offs) | size_class_i32(n));
+    *sp -= n;
     if (size_class_i32(offs) || size_class_i32(n)) {
         emit_i32(code, offs);
         emit_i32(code, n);
@@ -165,23 +170,27 @@ void emit_op_add_stack(uint8_t **code, int32_t *sp, uint32_t n) {
     else emit_u8(code, n & 0xff);
     *sp += n;
 }
-void emit_op_add(uint8_t **code, bool bits64, bool u, bool fp) {
+void emit_op_add(uint8_t **code, int32_t *sp, bool bits64, bool u, bool fp) {
     assert(!(fp && u) && "Can not have unsigned bit and fp bit both set!");
+    *sp += bits64 ? 8 : 4;
     emit_u8(code, op_add);
     emit_u8(code, bits64 | fp << 1 | u << 2);
 }
-void emit_op_sub(uint8_t **code, bool bits64, bool u, bool fp) {
+void emit_op_sub(uint8_t **code, int32_t *sp, bool bits64, bool u, bool fp) {
     assert(!(fp && u) && "Can not have unsigned bit and fp bit both set!");
+    *sp += bits64 ? 8 : 4;
     emit_u8(code, op_sub);
     emit_u8(code, bits64 | fp << 1 | u << 2);
 }
-void emit_op_mul(uint8_t **code, bool bits64, bool u, bool fp) {
+void emit_op_mul(uint8_t **code, int32_t *sp, bool bits64, bool u, bool fp) {
     assert(!(fp && u) && "Can not have unsigned bit and fp bit both set!");
+    *sp += bits64 ? 8 : 4;
     emit_u8(code, op_mul);
     emit_u8(code, bits64 | fp << 1 | u << 2);
 }
-void emit_op_div(uint8_t **code, bool bits64, bool u, bool fp) {
+void emit_op_div(uint8_t **code, int32_t *sp, bool bits64, bool u, bool fp) {
     assert(!(fp && u) && "Can not have unsigned bit and fp bit both set!");
+    *sp += bits64 ? 8 : 4;
     emit_u8(code, op_div);
     emit_u8(code, bits64 | fp << 1 | u << 2);
 }

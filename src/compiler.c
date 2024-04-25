@@ -290,11 +290,57 @@ static bool comp_push_literal_type(comp_state_t *state, const ast_t *literal, co
     return comp_check_code_size(state);
 }
 
+// Will copy the variable to the top of the stack.
+// If the variable is already on the top of the stack, it does nothing
+static bool comp_get_by_value(comp_state_t *state,
+                              comp_var_t *copy,
+                              const comp_var_t *var) {
+    comp_scope_t *scope = state->res->scopes + state->scopes_top;
+    if (var->loctype == var_loc_stack
+        && var->loc == scope->stack_base
+        && !var->lvalue) return true;
+    uint32_t varsize;
+    if (!comp_get_typesize(state, &varsize, var->type, 0)) return false;
+    switch (var->loctype) {
+    case var_loc_stack:
+        emit_op_load_stack(&state->code, &scope->stack_base, var->loc - scope->stack_base, varsize);
+        *copy = *var;
+        copy->loc = scope->stack_base;
+        copy->lvalue = false;
+        copy->inscope = false;
+        copy->scope_id = UINT32_MAX;
+        break;
+    case var_loc_data:
+        emit_op_load_data(&state->code, &scope->stack_base, var->loc, varsize);
+        *copy = *var;
+        copy->loc = scope->stack_base;
+        copy->loctype = var_loc_stack;
+        copy->lvalue = false;
+        copy->inscope = false;
+        copy->scope_id = UINT32_MAX;
+        break;
+    case var_loc_ram:
+        emit_op_imm_ptr(&state->code, &scope->stack_base, var->ptr);
+        emit_op_load_data(&state->code, &scope->stack_base, var->loc, varsize);
+        *copy = *var;
+        copy->loc = scope->stack_base;
+        copy->loctype = var_loc_stack;
+        copy->lvalue = false;
+        copy->inscope = false;
+        copy->scope_id = UINT32_MAX;
+        break;
+    }
+    if (!comp_check_code_size(state)) return false;
+    return true;
+}
+
+// Will push the variable as the new type onto the stack
 static bool comp_cast(comp_state_t *state,
                       comp_var_t *var,
                       const comp_type_t *type,
                       uint32_t topbefore) {
     comp_type_t typeto = *type, typefrom = var->type;
+    if (!comp_get_by_value(state, var, var)) return false;
     if (!comp_get_underlying_typedef(state, &typeto)) return false;
     if (!comp_get_underlying_typedef(state, &typefrom)) return false;
     if (comp_types_exacteq(state, false, 0, typeto, typefrom)) {
@@ -606,6 +652,7 @@ static bool comp_cast(comp_state_t *state,
 
     return true;
 }
+
 static bool comp_typed_expr(comp_state_t *state,
                             comp_var_t *ret,
                             const ast_t *expr,
@@ -619,13 +666,82 @@ static bool comp_expr(comp_state_t *state,
     if (!node) return false;
     switch (node->type) {
     case ast_literal: return comp_push_literal_type(state, node, ret);
+    case ast_ident: {
+        comp_var_t *scopevar;
+        if (!(scopevar = comp_get_scopevar(state, node->token.data.str))) return false;
+        *ret = *scopevar;
+    } return true;
+    case ast_op_binary:
+        if (node->token.type == tok_arrow) {
+            assert(0 && "unimplemented");
+        }
+        if (node->token.type == tok_dot) {
+            assert(0 && "unimplemented");
+        }
+        if (node->token.type == tok_comma) {
+            assert(0 && "unimplemented");
+        }
+        if (node->token.type == tok_as) {
+            assert(0 && "unimplemented");
+            //comp_type_t totype;
+            //const uint32_t loc = state->dsz;
+            //if (!comp_get_type(state, expr->b, &totype)) return false;
+            //if (!comptime_expr(state, true, ret, expr->a, NULL)) return false;
+            //if (!comptime_cast(state, ret, &totype, loc)) return false;
+            //return true;
+        }
+
+        // The rest from here on out is arithmetic operations
+        comp_type_t tyleft, tyright;
+        if (!comp_get_expr_type(state, &tyleft, node->a)
+            || !comp_get_expr_type(state, &tyright, node->b)) return false;
+        comp_type_t commonty;
+        if (!comp_get_type_promotion(state, tyleft, tyright, &commonty)) return false;
+
+        comp_var_t left, right;
+        int32_t loc = scope->stack_base;
+        if (!comp_expr(state, &left, node->a, NULL)) return false;
+        if (!comp_cast(state, &left, &commonty, loc)) return false;
+        loc = scope->stack_base;
+        if (!comp_expr(state, &right, node->b, NULL)) return false;
+        if (!comp_cast(state, &right, &commonty, loc)) return false;
+        assert(comp_types_exacteq(state, false, 0, left.type, right.type));
+
+        // CONT HERE:
+#define do_op(CASE, OPNAME) \
+case CASE: \
+    emit_op_##OPNAME(&state->code, \
+                    &scope->stack_base, \
+                    comp_is_64bits(state, commonty.lvls[0]), \
+                    comp_is_unsigned(state, commonty.lvls[0]), \
+                    comp_is_floating(state, commonty.lvls[0])); \
+break;
+        switch (node->token.type) {
+        do_op(tok_plus, add)
+        do_op(tok_minus, sub)
+        do_op(tok_slash, div)
+        do_op(tok_star, mul)
+        default: assert(0 && "unimplemented");
+        }
+#undef do_op
+        if (!comp_check_code_size(state)) return false;
+        *ret = (comp_var_t){
+            .type = commonty,
+            .loc = scope->stack_base,
+            .lvalue = false,
+            .inscope = false,
+            .scope_id = UINT32_MAX,
+            .loctype = var_loc_stack,
+        };
+
+        return true;
     case ast_op_call: {
         if (node->a->type != ast_ident) assert(0 && "Implement function pointers!");
         for (uint32_t i = 0; i < state->num_fns; i++) {
             comp_fn_t *fn = state->res->fns + i;
             if (strview_eq(fn->name, node->a->token.data.str)) {
                 int32_t stack = scope->stack_base;
-                scope->stack_base = alignid(scope->stack_base, COMP_MAX_ALIGN);
+                emit_op_sub_stack(&state->code, &scope->stack_base, scope->stack_base - alignid(scope->stack_base, COMP_MAX_ALIGN));
                 const ast_t *arg = node->b;
                 for (uint32_t j = fn->types_loc; j < fn->types_loc + fn->num_types; j++, arg = arg->next) {
                     if (!arg) {
@@ -634,7 +750,9 @@ static bool comp_expr(comp_state_t *state,
                     }
                     comp_update_line(state, arg);
                     comp_typebuf_t *const tybuf = state->res->typebuf + j;
-                    if (!comp_typed_expr(state, &(comp_var_t){0}, arg, &tybuf->type)) return false;
+                    comp_var_t argvar;
+                    if (!comp_typed_expr(state, &argvar, arg, &tybuf->type)) return false;
+                    if (!comp_get_by_value(state, &(comp_var_t){0}, &argvar)) return false;
                 }
                 if (arg) {
                     comp_error(state, "Too many arguments passed to function");
@@ -646,7 +764,18 @@ static bool comp_expr(comp_state_t *state,
                 if (!comp_check_code_size(state)) return false;
 
                 // TODO: Handle return
-                emit_op_add_stack(&state->code, &scope->stack_base, stack - scope->stack_base);
+                comp_type_t rettype = state->res->typebuf[fn->types_loc+fn->num_types].type;
+                uint32_t size;
+                if (!comp_get_typesize(state, &size, rettype, 0)) return false;
+                emit_op_store_stack(&state->code, stack - scope->stack_base, size);
+                emit_op_add_stack(&state->code, &scope->stack_base, stack - scope->stack_base - size);
+                *ret = (comp_var_t){
+                    .type = rettype,
+                    .loc = scope->stack_base,
+                    .lvalue = false,
+                    .inscope = false,
+                    .scope_id = UINT32_MAX,
+                };
                 return true;
             }
         }
@@ -686,6 +815,19 @@ static bool comp_typed_expr(comp_state_t *state,
     return true;
 }
 
+static bool comp_stmt_let(comp_state_t *state, const ast_t *node) {
+    comp_var_t var;
+    if (node->a) {
+        comp_type_t type;
+        if (!comp_get_type(state, node->a, &type)) return false;
+        if (!comp_typed_expr(state, &var, node->b, &type)) return false;
+    } else {
+       if (!comp_expr(state, &var,  node->b, NULL)) return false;
+    }
+    if (!comp_add_var_to_scope(state, &var, node->token.data.str)) return false;
+    return true;
+}
+
 static bool comp_stmt_group(comp_state_t *state, const ast_t *node) {
     if (state->scopes_top + 1 >= state->res->scopes_len) {
         comp_error(state, "Number of scopes exceeded allocated amount");
@@ -696,6 +838,9 @@ static bool comp_stmt_group(comp_state_t *state, const ast_t *node) {
    
     for (const ast_t *curr = node->child; curr; curr = curr->next) {
         switch (curr->type) {
+        case ast_stmt_let:
+            if (!comp_stmt_let(state, curr)) return false;
+            break;
         case ast_stmt_group:
             if (!comp_stmt_group(state, curr)) return false;
             break;

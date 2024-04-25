@@ -195,6 +195,36 @@ static bool comp_is_arithmetic_type(comp_state_t *state, comp_type_lvl_t type) {
     return true;
 }
 
+static bool comp_is_floating(comp_state_t *state, comp_type_lvl_t type) {
+    switch (type.type) {
+    case type_f32: case type_f64:
+        return true;
+    case type_typedef:
+        return comp_is_floating(state, state->res->typebuf[type.id].type.lvls[0]);
+    }
+    return false;
+}
+
+static bool comp_is_64bits(comp_state_t *state, comp_type_lvl_t type) {
+    switch (type.type) {
+    case type_u64: case type_i64: case type_f64:
+        return true;
+    case type_typedef:
+        return comp_is_64bits(state, state->res->typebuf[type.id].type.lvls[0]);
+    }
+    return false;
+}
+
+static bool comp_is_unsigned(comp_state_t *state, comp_type_lvl_t type) {
+    switch (type.type) {
+    case type_u8: case type_u16: case type_u32: case type_u64:
+        return true;
+    case type_typedef:
+        return comp_is_unsigned(state, state->res->typebuf[type.id].type.lvls[0]);
+    }
+    return false;
+}
+
 static bool comp_is_truthy_type(comp_state_t *state, comp_type_lvl_t type) {
     switch (type.type) {
     case type_u0: case type_arr:

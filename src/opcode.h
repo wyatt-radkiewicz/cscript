@@ -89,15 +89,15 @@ static_assert(vm_opcode_max <= 64, "Number of opcodes must be under 64!");
 // Any function with an sp paramter, uses that to update it as a virtual stack
 // pointer.
 
-void emit_op_load_data(uint8_t **code, uint32_t offs, uint32_t n);
+void emit_op_load_data(uint8_t **code, int32_t *sp, uint32_t offs, uint32_t n);
 void emit_op_store_data(uint8_t **code, uint32_t offs, uint32_t n);
 // Expects the stack to have the offset
-void emit_op_load_data_indirect(uint8_t **code, uint32_t n);
+void emit_op_load_data_indirect(uint8_t **code, int32_t *sp, uint32_t n);
 void emit_op_store_data_indirect(uint8_t **code, uint32_t n);
 // Expects the stack to have the pointer
-void emit_op_load_indirect(uint8_t **code, uint32_t n);
+void emit_op_load_indirect(uint8_t **code, int32_t *sp, uint32_t n);
 void emit_op_store_indirect(uint8_t **code, uint32_t n);
-void emit_op_load_stack(uint8_t **code, int32_t offs, uint32_t n);
+void emit_op_load_stack(uint8_t **code, int32_t *sp, int32_t offs, uint32_t n);
 void emit_op_store_stack(uint8_t **code, int32_t offs, uint32_t n);
 // Stack loading operations start from the call stack base pointer
 // (the callstack base pointer points to the top of the stack at when the
@@ -106,14 +106,14 @@ void emit_op_store_stack(uint8_t **code, int32_t offs, uint32_t n);
 // (the offset after the offset itself is pushed on of course)
 // The offs value there will be added onto the offset found on the
 // stack as well
-void emit_op_load_stack_indirect(uint8_t **code, int32_t offs, uint32_t n);
+void emit_op_load_stack_indirect(uint8_t **code, int32_t *sp, int32_t offs, uint32_t n);
 void emit_op_store_stack_indirect(uint8_t **code, int32_t offs, uint32_t n);
 void emit_op_sub_stack(uint8_t **code, int32_t *sp, uint32_t n);
 void emit_op_add_stack(uint8_t **code, int32_t *sp, uint32_t n);
-void emit_op_add(uint8_t **code, bool bits64, bool u, bool fp);
-void emit_op_sub(uint8_t **code, bool bits64, bool u, bool fp);
-void emit_op_mul(uint8_t **code, bool bits64, bool u, bool fp);
-void emit_op_div(uint8_t **code, bool bits64, bool u, bool fp);
+void emit_op_add(uint8_t **code, int32_t *sp, bool bits64, bool u, bool fp);
+void emit_op_sub(uint8_t **code, int32_t *sp, bool bits64, bool u, bool fp);
+void emit_op_mul(uint8_t **code, int32_t *sp, bool bits64, bool u, bool fp);
+void emit_op_div(uint8_t **code, int32_t *sp, bool bits64, bool u, bool fp);
 void emit_op_and(uint8_t **code, bool bits64);
 void emit_op_or(uint8_t **code, bool bits64);
 void emit_op_xor(uint8_t **code, bool bits64);
