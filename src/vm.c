@@ -830,7 +830,7 @@ void vm_error_log(const vm_error_t err, FILE *out) {
     fprintf(out, "}\n");
 }
 
-#define flagstr(FLAG, BIT) (((FLAG) & (BIT)) ? "true" : "false")
+#define flagstr(FLAG, BIT) (((FLAG) & (1 << (BIT))) ? "true" : "false")
 static void log_op_load_data(uint8_t **code, FILE *out, bool size_class) {
     if (size_class) {
         fprintf(out, "offs: %ud, ", take_u32(code));

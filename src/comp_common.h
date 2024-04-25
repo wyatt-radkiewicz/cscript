@@ -371,7 +371,7 @@ static bool comp_get_expr_type_recurr(comp_state_t *state,
                                       comp_type_t *ret, 
                                       const ast_t *expr) {
     comp_update_line(state, expr);
-    comp_scope_t *scope = state->res->scopes + state->scopes_top;
+    //comp_scope_t *scope = state->res->scopes + state->scopes_top;
 
     switch (expr->type) {
     case ast_literal: return comp_get_literal_type(state, expr, ret);

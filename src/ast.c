@@ -451,8 +451,8 @@ static ast_t *parse_stmt_while(ast_state_t *state) {
     ast_t *node = ast_alloc(state, ast_stmt_while);
     if (!ast_eat_token(state, true, tok_while)) return NULL;
     if (!node) return NULL;
-    if (!(node->child = parse_expr(state, prec_comma))) return NULL;
-    if (!(node->a = parse_stmt_group(state))) return NULL;
+    if (!(node->a = parse_expr(state, prec_comma))) return NULL;
+    if (!(node->b = parse_stmt_group(state))) return NULL;
     return node;
 }
 static ast_t *parse_stmt_for(ast_state_t *state) {

@@ -88,6 +88,7 @@ typedef struct comp_var {
     comp_type_t type;
     union {
         uint32_t loc;
+        int32_t offs;
         void *ptr;
     };
 

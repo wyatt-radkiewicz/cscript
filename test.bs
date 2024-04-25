@@ -1,15 +1,15 @@
 extern fn print_i32(val: i32);
 extern fn input_i32() -> i32;
 
-fn print_until(n: i32) {
-    for x in (0..n) {
+fn print_until(a: u64, b: i8) {
+    a += b;
+    for x: u64 in (0..a) {
         print_i32(x);
     }
 }
 
 fn main() -> b8 {
-    let x = 8 + input_i32();
-    print_until(x);
+    print_until(input_i32(), 4);
     return true;
 }
 
