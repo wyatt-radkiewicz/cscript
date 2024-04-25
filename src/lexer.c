@@ -144,6 +144,10 @@ static bool sanitized_parse_char(u8strview_t str, lex_token_char_t *x) {
             if (!u8next_char_len(&str.str, &c, &csize, str.size)) return false;
             str.size -= csize;
             unicode = c == 'U' || c == 'x' || c == 'u';
+            switch (c) {
+            case '0': x->c32 = 0; return true;
+            default: break;
+            }
         } else if (inside && c != '\\') {
             x->c32 = c;
             break;

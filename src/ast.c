@@ -123,7 +123,7 @@ static bool ast_state_error(ast_state_t *state, bool lexer, const char *msg, ...
         *err = (error_t){
             .line = state->lasttok.line,
             .chr = state->lasttok.chr,
-            .category = lexer,
+            .category = lexer ? error_category_lexer : error_category_parser,
         };
     } else {
         strcpy(err->msg, "Aborting! Too many errors!");

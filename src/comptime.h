@@ -359,7 +359,7 @@ static bool comptime_expr(comp_state_t *state,
         }
         if (arrtype) {
             uint32_t innersize, diff;
-            if (!comp_get_typesize(state, &innersize, innerty, 1)) return false;
+            if (!comp_get_typesize(state, &innersize, *arrtype, 1)) return false;
             diff = arrtype->lvls[0].id - ret->type.lvls[0].id;
             if (state->dsz + innersize * diff > state->res->data_len) {
                 comp_error(state, "Array runs out of data segment storage!");

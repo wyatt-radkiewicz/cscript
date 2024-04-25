@@ -430,6 +430,35 @@ static bool comp_get_expr_type_recurr(comp_state_t *state,
             .num_lvls = 1,
         };
     } return true;
+    case ast_init_array: {
+        // Empty array initializer
+        if (!expr->child) {
+            *ret = (comp_type_t){
+                .lvls = {
+                    [0].type = type_arr,
+                    [1].type = type_u0,
+                },
+                .num_lvls = 2,
+            };
+            return true;
+        }
+
+        comp_type_t innerty;
+        if (expr->child && !comp_get_expr_type_recurr(state, &innerty, expr->child)) return false;
+        
+        *ret = (comp_type_t){
+            .lvls[0].type = type_arr,
+            .num_lvls = 1,
+        };
+        if (ret->num_lvls + innerty.num_lvls > MAX_TYPE_NESTING) {
+            comp_error(state, "Error: Type nesting too deep");
+            return false;
+        }
+        memcpy(ret->lvls + ret->num_lvls, innerty.lvls, sizeof(innerty.lvls[0]) * innerty.num_lvls);
+        ret->num_lvls += innerty.num_lvls;
+
+        for (const ast_t *init = expr->child; init; init = init->next, ret->lvls[0].id++);
+    } return true;
     case ast_init_struct: {
         for (uint32_t t = 0; t < state->num_typedefs; t++) {
             comp_typebuf_t *typebuf = state->res->typebuf + state->res->typedefs[t];
