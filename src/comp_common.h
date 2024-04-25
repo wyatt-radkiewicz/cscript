@@ -10,6 +10,7 @@
 typedef struct comp_state {
     comp_resources_t *res;
 
+    comp_fn_t *currfn;
     int32_t line, chr;
 
     // Scope 0 is also known as the function scope
@@ -370,8 +371,15 @@ static bool comp_get_expr_type_recurr(comp_state_t *state,
                                       comp_type_t *ret, 
                                       const ast_t *expr) {
     comp_update_line(state, expr);
+    comp_scope_t *scope = state->res->scopes + state->scopes_top;
+
     switch (expr->type) {
     case ast_literal: return comp_get_literal_type(state, expr, ret);
+    case ast_ident: {
+        comp_var_t *var = comp_get_scopevar(state, expr->token.data.str);
+        if (!var) return false;
+        *ret = var->type;
+    } return true;
     case ast_op_call: {
         // TODO: Do calls with function pointers...
         assert(expr->a->token.type == tok_ident);
@@ -382,6 +390,8 @@ static bool comp_get_expr_type_recurr(comp_state_t *state,
                 return true;
             }
         }
+        comp_error(state, "Unidentified function!");
+        return false;
         } break;
     case ast_op_unary: {
         comp_type_t child;

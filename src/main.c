@@ -29,19 +29,27 @@ static char *loadfile(const char *filepath) {
 
 static void print_i32(vm_state_t *vm) {
     int32_t x = *(int32_t *)vm->sp;
-    printf("print_int: %d\n", x);
+    printf("print_i32: %d\n", x);
+}
+static void input_i32(vm_state_t *vm) {
+    int32_t x;
+    printf("input_i32: ");
+    scanf("%d", &x);
+    vm_state_push_i32(vm, x);
 }
 
 uint8_t stack[64];
 vm_callstack_t callstack[8];
 
-uint8_t code[32];
+uint8_t code[64];
 uint8_t data[128];
 strview_t externfn_names[] = {
     (strview_t){ .str = "print_i32", .len = sizeof("print_i32")-1 },
+    (strview_t){ .str = "input_i32", .len = sizeof("input_i32")-1 },
 };
 vm_extern_fn_t externfn_ptrs[] = {
     print_i32,
+    input_i32,
 };
 strview_t internfn_names[32];
 uint32_t internfn_locs[32];
@@ -80,7 +88,7 @@ int main(int argc, char **argv) {
 
         .internfn_name = internfn_names,
         .internfn_loc = internfn_locs,
-        .infernfn_len = arrsz(internfn_names),
+        .internfn_len = arrsz(internfn_names),
 
         .typebuf = typebuf,
         .typebuf_len = arrsz(typebuf),
@@ -132,7 +140,8 @@ int main(int argc, char **argv) {
         .stack = stack,
         .stack_size = arrsz(stack),
     };
-    vm_error_log(vm_state_run(&vm, res.internfn_loc[0], true), stdout);
+    //printf("loc: %d\n", res.internfn_loc[0]);
+    if (!res.num_errors) vm_error_log(vm_state_run(&vm, res.internfn_loc[1], true), stdout);
     for (const uint8_t *codeptr = code;
         codeptr - code < arrsz(code);) {
         vm_opcode_log(&codeptr, stdout);

@@ -154,7 +154,9 @@ static comp_fn_t *comp_new_func_sig(comp_state_t *state, const ast_t *fndef) {
 
     for (uint32_t i = fn->types_loc; i < fn->types_loc + fn->num_types; i++) {
         comp_typebuf_t *const typebuf = state->res->typebuf + i;
-        typebuf->offs = fn->stack_base - typebuf->offs;
+        uint32_t size;
+        if (!comp_get_typesize(state, &size, typebuf->type, 0)) return NULL;
+        typebuf->offs = fn->stack_base - (typebuf->offs + size);
     }
     fn->stack_base = -fn->stack_base; // Put it in the negatives
 
@@ -765,10 +767,17 @@ break;
 
                 // TODO: Handle return
                 comp_type_t rettype = state->res->typebuf[fn->types_loc+fn->num_types].type;
-                uint32_t size;
+                uint32_t size, align = comp_get_typealign(state, rettype, 0);
                 if (!comp_get_typesize(state, &size, rettype, 0)) return false;
-                emit_op_store_stack(&state->code, stack - scope->stack_base, size);
-                emit_op_add_stack(&state->code, &scope->stack_base, stack - scope->stack_base - size);
+                int32_t vartarget = alignid(stack - size, align);
+
+                // The return variable was added ontop of the stack.
+                scope->stack_base = alignid(scope->stack_base, align);
+                scope->stack_base -= size;
+
+                // Push the variable up the stack and pop off the arguments
+                emit_op_store_stack(&state->code, vartarget - scope->stack_base, size);
+                emit_op_add_stack(&state->code, &scope->stack_base, vartarget - scope->stack_base);
                 *ret = (comp_var_t){
                     .type = rettype,
                     .loc = scope->stack_base,
@@ -783,6 +792,7 @@ break;
     default: assert(false && "Expression feature not supported! (yet)");
     }
 }
+
 // Compile an expression that expects a certain type
 static bool comp_typed_expr(comp_state_t *state,
                             comp_var_t *ret,
@@ -828,7 +838,9 @@ static bool comp_stmt_let(comp_state_t *state, const ast_t *node) {
     return true;
 }
 
-static bool comp_stmt_group(comp_state_t *state, const ast_t *node) {
+static bool comp_stmt_group(comp_state_t *state,
+                            const ast_t *node,
+                            bool *did_return) {
     if (state->scopes_top + 1 >= state->res->scopes_len) {
         comp_error(state, "Number of scopes exceeded allocated amount");
         return false;
@@ -842,14 +854,39 @@ static bool comp_stmt_group(comp_state_t *state, const ast_t *node) {
             if (!comp_stmt_let(state, curr)) return false;
             break;
         case ast_stmt_group:
-            if (!comp_stmt_group(state, curr)) return false;
+            if (!comp_stmt_group(state, curr, did_return)) return false;
             break;
         case ast_stmt_expr: {
             int32_t stack = scope->stack_base;
             if (!comp_expr(state, &(comp_var_t){0}, curr->child, NULL)) return false;
             emit_op_add_stack(&state->code, &scope->stack_base, stack - scope->stack_base);
             if (!comp_check_code_size(state)) return false;
-            } break;
+        } break;
+        case ast_stmt_return: {
+            *did_return |= true;
+            comp_type_t *rettype = &state->res->typebuf[state->currfn->types_loc+state->currfn->num_types].type;
+            bool voidret = rettype->lvls[0].type == type_u0;
+            if (!voidret && !comp_typed_expr(state, &(comp_var_t){0}, curr->child, rettype)) {
+                comp_error(state, "Return statement doesn't return same type as function!");
+                return false;
+            }
+            if (voidret != !curr->child) {
+                comp_error(state, "Return not matching function!");
+                return false;
+            }
+
+            comp_scope_t *fnscope = state->res->scopes;
+            uint32_t retsize, retalign = comp_get_typealign(state, *rettype, 0);
+            if (!comp_get_typesize(state, &retsize, *rettype, 0)) return false;
+            int32_t vartarget = alignid(fnscope->stack_base - retsize, retalign);
+            emit_op_store_stack(&state->code, vartarget - scope->stack_base, retsize);
+            emit_op_add_stack(&state->code, &scope->stack_base, vartarget - scope->stack_base);
+            state->scopes_top--;
+            emit_op_ret(&state->code);
+            if (!comp_check_code_size(state)) return false;
+
+            return true;
+        } break;
         default: assert(0 && "comp_stmt_group: expected statement!");
         }
     }
@@ -862,16 +899,53 @@ static bool comp_stmt_group(comp_state_t *state, const ast_t *node) {
 }
 
 static comp_fn_t *comp_fn(comp_state_t *state, const ast_t *node) {
+    if (node->type == ast_type_static && node->child->type != ast_def_func) return NULL;
     if (node->type != ast_def_func) return NULL;
+    bool is_static = false;
+    if (node->type == ast_type_static) {
+        is_static = true;
+        node = node->child;
+    }
+
     comp_fn_t *sig = comp_new_func_sig(state, node);
     if (!sig || !node->child) {
         comp_error(state, "Invalid function signature.");
         return NULL;
     }
+    comp_update_line(state, node);
+    state->currfn = sig;
     sig->loc = state->code - state->res->code;
     state->res->scopes->stack_base = sig->stack_base;
-    if (!comp_stmt_group(state, node->child)) return NULL;
-    emit_op_ret(&state->code);
+
+    // Add it to the internal functions list
+    if (!is_static) {
+        if (state->num_ifns == state->res->internfn_len) {
+            comp_error(state, "Ran out of internal functions to name!\nTry setting functions that don't need to be named as static!");
+            return NULL;
+        }
+        state->res->internfn_loc[state->num_ifns] = sig->loc;
+        state->res->internfn_name[state->num_ifns] = sig->name;
+        state->num_ifns++;
+    }
+
+    for (uint32_t i = sig->types_loc; i < sig->types_loc+sig->num_types; i++) {
+        comp_typebuf_t *tybuf = state->res->typebuf + i;
+        comp_var_t var = (comp_var_t){
+            .loctype = var_loc_stack,
+            .loc = state->res->scopes->stack_base + tybuf->offs,
+            .type = tybuf->type,
+        };
+        if (!comp_add_var_to_scope(state, &var, tybuf->name)) return NULL;
+    }
+    
+    bool did_return = false;
+    if (!comp_stmt_group(state, node->child, &did_return)) return NULL;
+    if (!did_return) emit_op_ret(&state->code);
+    if (state->res->typebuf[sig->types_loc+sig->types_loc].type.lvls[0].type != type_u0
+        && !did_return) {
+        comp_error(state, "Function that must return did not return");
+        return NULL;
+    }
     if (!comp_check_code_size(state)) return NULL;
     return sig;
 }

@@ -1,12 +1,16 @@
 extern fn print_i32(val: i32);
+extern fn input_i32() -> i32;
 
-fn main() -> b8 {
-    let x = 8 + 2;
-    print_i32(x);
-    //return true;
+fn doshit(x: i32) -> i32 {
+    return x * 5 - 9;
 }
 
-//extern fn input_int() -> i32;
+fn main() -> b8 {
+    let x = 8 + input_i32();
+    print_i32(doshit(x));
+    return true;
+}
+
 //
 //let TEST: i32 = "";
 //

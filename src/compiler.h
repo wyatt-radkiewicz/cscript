@@ -120,7 +120,7 @@ typedef struct comp_resources {
 
     strview_t *internfn_name;
     uint32_t *internfn_loc;
-    size_t infernfn_len;
+    size_t internfn_len;
 
     comp_typebuf_t *typebuf;
     size_t typebuf_len;
