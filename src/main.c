@@ -141,13 +141,13 @@ int main(int argc, char **argv) {
         .stack_size = arrsz(stack),
     };
     //printf("loc: %d\n", res.internfn_loc[0]);
-    if (!res.num_errors) vm_error_log(vm_state_run(&vm, res.internfn_loc[1], true), stdout);
     for (const uint8_t *codeptr = code;
         codeptr - code < arrsz(code);) {
         printf("%04ld: ", codeptr - code);
         vm_opcode_log(&codeptr, stdout);
         printf("\n");
     }
+    if (!res.num_errors) vm_error_log(vm_state_run(&vm, res.internfn_loc[1], true), stdout);
 
     free(filestr);
     return 0;

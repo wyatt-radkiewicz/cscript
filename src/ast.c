@@ -265,7 +265,7 @@ static ast_t *parse_prefix(ast_state_t *state, parse_prec_t prec) {
     return node;
 }
 static ast_t *parse_postfix(ast_state_t *state, ast_t *left, parse_prec_t prec) {
-    ast_t *node = ast_alloc(state, ast_op_unary);
+    ast_t *node = ast_alloc(state, ast_op_postfix);
     if (!ast_next_token(state, false)) return NULL;
     if (!node) return NULL;
     if (node->token.type == tok_lbrack) {
@@ -442,9 +442,12 @@ static ast_t *parse_stmt_if(ast_state_t *state) {
     if (!(node->child = parse_expr(state, prec_comma))) return NULL;
     if (!(node->a = parse_stmt_group(state))) return NULL;
     if (state->lexer.tok.type != tok_else) return node;
-    if (state->lexer.tok.type == tok_if
+    if (!ast_next_token(state, true)) return NULL;
+    lex_token_type_t ty = state->lexer.tok.type;
+    if (ty == tok_if
         && !(node->b = parse_stmt_if(state))) return NULL;
-    else if (!(node->b = parse_stmt_group(state))) return NULL;
+    else if (ty != tok_if
+            && !(node->b = parse_stmt_group(state))) return NULL;
     return node;
 }
 static ast_t *parse_stmt_while(ast_state_t *state) {

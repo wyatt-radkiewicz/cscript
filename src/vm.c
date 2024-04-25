@@ -731,7 +731,7 @@ static bool vm_state_run_instr(vm_state_t *state, vm_error_t *err) {
 
     //vm_opcode_log(&(const uint8_t *){state->pc - 1}, stdout);
     //printf("\n");
-    //thrd_sleep(&(struct timespec){.tv_nsec = 500000000}, NULL);
+    //thrd_sleep(&(struct timespec){.tv_nsec = 250000000}, NULL);
 
 #define X(ENUM) case ENUM: return run_##ENUM(state, err, flag);
     switch ((vm_opcode_t)(byte & 0x7f)) {

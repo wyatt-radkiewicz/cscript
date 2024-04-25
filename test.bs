@@ -1,15 +1,19 @@
 extern fn print_i32(val: i32);
 extern fn input_i32() -> i32;
 
-fn print_until(a: u64, b: i8) {
-    a += b;
-    for x: u64 in (0..a) {
-        print_i32(x);
-    }
-}
-
 fn main() -> b8 {
-    print_until(input_i32(), 4);
+    let guess = 0;
+    let num = 69;
+    while (true) {
+        guess = input_i32();
+        if (guess == num) {
+            return true;
+        } else if (guess > num) {
+            print_i32(1);
+        } else {
+            print_i32(-1);
+        }
+    }
     return true;
 }
 

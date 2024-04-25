@@ -281,6 +281,13 @@ static bool comp_push_literal_type(comp_state_t *state, const ast_t *literal, co
     //comp_type_t usetype = tyhint ? *tyhint : var->type;
     uint64_t x = negate ? -((int64_t)tok->data.u64) : tok->data.u64;
     double f = negate ? -tok->data.f64 : tok->data.f64;
+    if (tok->type == tok_true) {
+        x = 1;
+        f = 1.0f;
+    } else if (tok->type == tok_false) {
+        x = 0;
+        f = 0.0f;
+    }
 
     switch (var->type.lvls[0].type) {
     case type_i8: emit_op_imm_i8(&state->code, &scope->stack_base, x); break;
@@ -734,6 +741,83 @@ static bool comp_store_to_lvalue(comp_state_t *state,
     return true;
 }
 
+static bool comp_preinc(comp_state_t *state,
+                        comp_var_t *var,
+                        comp_var_t *rvalue,
+                        bool dopost,
+                        bool dec) {
+    comp_scope_t *scope = state->res->scopes + state->scopes_top;
+
+    int32_t addstack = scope->stack_base;
+    comp_type_t addty = (comp_type_t){
+        .lvls[0] = comp_get_type_promotion_single(state, var->type.lvls[0]),
+        .num_lvls = 1,
+    };
+    comp_var_t incvar, preincvar;
+    if (!comp_get_by_value(state, &incvar, var)) return false;
+    int32_t prestack = scope->stack_base;
+    uint32_t varsize;
+    assert(comp_get_typesize(state, &varsize, incvar.type, 0));
+
+    if (rvalue && dopost) {
+        addstack = scope->stack_base; // Update addstack to save it!
+        preincvar = incvar;
+        emit_op_load_stack(&state->code, &scope->stack_base, 0, varsize);
+        incvar.loc = scope->stack_base;
+    }
+    if (!comp_cast(state, &incvar, &addty, addstack)) {
+        comp_error(state, "Operand of increment expression must be arithmetic");
+        return false;
+    }
+
+    switch (addty.lvls[0].type) {
+    case type_i32: emit_op_imm_i32(&state->code, &scope->stack_base, 1); break;
+    case type_u32: emit_op_imm_u32(&state->code, &scope->stack_base, 1); break;
+    case type_i64: emit_op_imm_i64(&state->code, &scope->stack_base, 1); break;
+    case type_u64: emit_op_imm_u64(&state->code, &scope->stack_base, 1); break;
+    case type_f32: emit_op_imm_f32(&state->code, &scope->stack_base, 1.0f); break;
+    case type_f64: emit_op_imm_f64(&state->code, &scope->stack_base, 1.0); break;
+    default: assert(0 && "cant happen nono for preinc type");
+    }
+
+    if (dec) {
+        emit_op_sub(&state->code,
+                    &scope->stack_base,
+                    comp_is_64bits(state, addty.lvls[0]),
+                    comp_is_unsigned(state, addty.lvls[0]),
+                    comp_is_floating(state, addty.lvls[0]));
+    } else {
+        emit_op_add(&state->code,
+                    &scope->stack_base,
+                    comp_is_64bits(state, addty.lvls[0]),
+                    comp_is_unsigned(state, addty.lvls[0]),
+                    comp_is_floating(state, addty.lvls[0]));
+    }
+
+    int32_t caststack = scope->stack_base;
+    if (!comp_cast(state, &incvar, &var->type, caststack)) return false;
+    if (!comp_store_to_lvalue(state, var, &incvar)) return false;
+    if (rvalue && !dopost) {
+        emit_op_store_stack(&state->code, prestack - scope->stack_base, varsize);
+        emit_op_add_stack(&state->code, &scope->stack_base, prestack - scope->stack_base);
+    } else {
+        emit_op_add_stack(&state->code, &scope->stack_base, addstack - scope->stack_base);
+    }
+
+    if (rvalue) {
+        *rvalue = (comp_var_t){
+            .type = var->type,
+            .loc = scope->stack_base,
+            .loctype = var_loc_stack,
+            .lvalue = false,
+            .inscope = false,
+            .scope_id = UINT32_MAX,
+        };
+    }
+
+    return true;
+}
+
 static bool comp_typed_expr(comp_state_t *state,
                             comp_var_t *ret,
                             const ast_t *expr,
@@ -750,7 +834,24 @@ static bool comp_expr(comp_state_t *state,
         if (node->token.type == tok_minus && node->child->type == ast_literal) {
             return comp_push_literal_type(state, node->child, ret, tyhint, true);
         }
+        if (node->token.type == tok_plusplus || node->token.type == tok_minusminus) {
+            comp_var_t inner;
+            assert(comp_expr(state, &inner, node->child, NULL));
+            assert(comp_preinc(state, &inner, ret, false, node->token.type == tok_minusminus));
+            //assert(comp_is_arithmetic_type(state, inner.type.lvls[0]));
+            //assert(comp_cast(state, &inner, ));
+            return true;
+        }
         assert(0 && "unary ops unsupported rn! oopsies");
+        return false;
+    case ast_op_postfix:
+        if (node->token.type == tok_plusplus || node->token.type == tok_minusminus) {
+            comp_var_t inner;
+            assert(comp_expr(state, &inner, node->child, NULL));
+            assert(comp_preinc(state, &inner, ret, true, node->token.type == tok_minusminus));
+            return true;
+        }
+        assert(0 && "postfix ops unsupported rn! oopsies");
         return false;
     case ast_literal: return comp_push_literal_type(state, node, ret, tyhint, false);
     case ast_ident: {
@@ -869,6 +970,22 @@ break;
         do_op(tok_minus, sub)
         do_op(tok_slash, div)
         do_op(tok_star, mul)
+        do_op(tok_less, push_lt)
+        do_op(tok_greater, push_gt)
+        do_op(tok_lesseq, push_le)
+        do_op(tok_greatereq, push_ge)
+        case tok_noteq:
+            emit_op_push_ne(&state->code,
+                            &scope->stack_base,
+                            comp_is_64bits(state, commonty.lvls[0]),
+                            comp_is_floating(state, commonty.lvls[0]));
+        break;
+        case tok_eqeq:
+            emit_op_push_eq(&state->code,
+                            &scope->stack_base,
+                            comp_is_64bits(state, commonty.lvls[0]),
+                            comp_is_floating(state, commonty.lvls[0]));
+        break;
         default: assert(0 && "unimplemented");
         }
 #undef do_op
@@ -989,6 +1106,57 @@ static bool comp_stmt_let(comp_state_t *state, const ast_t *node) {
     return true;
 }
 
+static bool comp_stmt_if(comp_state_t *state,
+                         const ast_t *node,
+                         bool *did_return) {
+    comp_update_line(state, node);
+
+    comp_scope_t *scope = state->res->scopes + state->scopes_top;
+    bool ontrue_return = false, onfalse_return = false;
+
+    int32_t checkstack = scope->stack_base;
+    comp_type_t exprty;
+    if (!comp_get_expr_type(state, &exprty, node->child)) return false;
+    if (!comp_is_arithmetic_type(state, exprty.lvls[0])) {
+        comp_error(state, "Expect arithmetic or boolean expression type for conditional");
+        return false;
+    }
+    exprty.lvls[0] = comp_get_type_promotion_single(state, exprty.lvls[0]);
+    if (!comp_typed_expr(state, &(comp_var_t){0}, node->child, &exprty)) return false;
+    uint8_t *branchloc = state->code;
+    emit_op_beq(&state->code, &scope->stack_base, 0, false); // Gets replaced
+    uint32_t branchstack = checkstack - scope->stack_base;
+    emit_op_add_stack(&state->code, &scope->stack_base, branchstack);
+
+    // True case
+    if (!comp_check_code_size(state)) return false;
+    if (!comp_stmt_group(state, node->a, &ontrue_return)) return false;
+
+    uint8_t *jumploc = state->code;
+    emit_op_jump(&state->code, 0); // Gets overriden
+                                
+    // Override old branch to go here
+    emit_op_beq(&(uint8_t *){branchloc}, &(int32_t){0}, state->code - branchloc, comp_is_64bits(state, exprty.lvls[0]));
+    emit_op_add_stack(&state->code, &scope->stack_base, branchstack);
+    
+    // False case
+    if (node->b) {
+        if (node->b->type == ast_stmt_group && !comp_stmt_group(state, node->b, &onfalse_return)) return false;
+        else if (node->b->type == ast_stmt_if && !comp_stmt_if(state, node->b, &onfalse_return)) return false;
+    }
+    if (!comp_check_code_size(state)) return false;
+
+    // Override old jump to jump past the false case
+    if (state->code - jumploc == 5) {
+        state->code = jumploc;
+        emit_op_beq(&branchloc, &(int32_t){0}, state->code - branchloc, comp_is_64bits(state, exprty.lvls[0]));
+    } else {
+        emit_op_jump(&jumploc, state->code - jumploc);
+    }
+
+    *did_return |= ontrue_return && onfalse_return;
+    return true;
+}
 static bool comp_stmt_while(comp_state_t *state,
                             const ast_t *node,
                             bool *did_return) {
@@ -1007,55 +1175,20 @@ static bool comp_stmt_while(comp_state_t *state,
     exprty.lvls[0] = comp_get_type_promotion_single(state, exprty.lvls[0]);
     if (!comp_typed_expr(state, &(comp_var_t){0}, node->a, &exprty)) return false;
     uint8_t *branchloc = state->code;
-    emit_op_bne(&state->code, &scope->stack_base, 0, false); // Gets replaced
+    emit_op_beq(&state->code, &scope->stack_base, 0, false); // Gets replaced
     uint32_t branchstack = checkstack - scope->stack_base;
     emit_op_add_stack(&state->code, &scope->stack_base, branchstack);
 
     if (!comp_check_code_size(state)) return false;
-    if (!comp_stmt_group(state, node->child, did_return)) return false;
+    if (!comp_stmt_group(state, node->b, did_return)) return false;
 
     emit_op_jump(&state->code, checkstart - (int32_t)(state->code - state->res->code));
+    emit_op_beq(&branchloc, &(int32_t){0}, state->code - branchloc, comp_is_64bits(state, exprty.lvls[0])); // Replace it
     emit_op_add_stack(&state->code, &scope->stack_base, branchstack);
-    emit_op_bne(&branchloc, &(int32_t){0}, state->code - branchloc, false); // Replace it
-    return false;
-}
-
-static bool comp_preinc(comp_state_t *state,
-                        comp_var_t *var) {
-    comp_scope_t *scope = state->res->scopes + state->scopes_top;
-
-    int32_t addstack = scope->stack_base;
-    comp_type_t addty = (comp_type_t){
-        .lvls[0] = comp_get_type_promotion_single(state, var->type.lvls[0]),
-        .num_lvls = 1,
-    };
-    comp_var_t incvar;
-    if (!comp_get_by_value(state, &incvar, var)) return false;
-    if (!comp_cast(state, &incvar, &addty, addstack)) {
-        comp_error(state, "Operand of increment expression must be arithmetic");
-        return false;
-    }
-    switch (addty.lvls[0].type) {
-    case type_i32: emit_op_imm_i32(&state->code, &scope->stack_base, 1); break;
-    case type_u32: emit_op_imm_u32(&state->code, &scope->stack_base, 1); break;
-    case type_i64: emit_op_imm_i64(&state->code, &scope->stack_base, 1); break;
-    case type_u64: emit_op_imm_u64(&state->code, &scope->stack_base, 1); break;
-    case type_f32: emit_op_imm_f32(&state->code, &scope->stack_base, 1.0f); break;
-    case type_f64: emit_op_imm_f64(&state->code, &scope->stack_base, 1.0); break;
-    default: assert(0 && "cant happen nono for preinc type");
-    }
-    emit_op_add(&state->code,
-                &scope->stack_base,
-                comp_is_64bits(state, addty.lvls[0]),
-                comp_is_unsigned(state, addty.lvls[0]),
-                comp_is_floating(state, addty.lvls[0]));
-    int32_t caststack = scope->stack_base;
-    if (!comp_cast(state, &incvar, &var->type, caststack)) return false;
-    if (!comp_store_to_lvalue(state, var, &incvar)) return false;
-    emit_op_add_stack(&state->code, &scope->stack_base, addstack - scope->stack_base);
-
+    if (!comp_check_code_size(state)) return false;
     return true;
 }
+
 static bool comp_stmt_for(comp_state_t *state,
                           const ast_t *node,
                           bool *did_return) {
@@ -1102,7 +1235,7 @@ static bool comp_stmt_for(comp_state_t *state,
     if (!comp_check_code_size(state)) return false;
     if (!comp_stmt_group(state, node->child, did_return)) return false;
 
-    if (!comp_preinc(state, &loopvar)) return false;
+    if (!comp_preinc(state, &loopvar, NULL, false, false)) return false;
 
     emit_op_jump(&state->code, checkstart - (int32_t)(state->code - state->res->code));
     emit_op_add_stack(&state->code, &scope->stack_base, branchstack);
@@ -1112,6 +1245,7 @@ static bool comp_stmt_for(comp_state_t *state,
     if (!comp_check_code_size(state)) return false;
     state->scopes_top--;
 
+    if (!comp_check_code_size(state)) return false;
     return true;
 }
 
@@ -1137,7 +1271,7 @@ static bool comp_stmt_group(comp_state_t *state,
             if (!comp_stmt_for(state, curr, did_return)) return false;
             break;
         case ast_stmt_if:
-
+            if (!comp_stmt_if(state, curr, did_return)) return false;
             break;
         case ast_stmt_while:
             if (!comp_stmt_while(state, curr, did_return)) return false;

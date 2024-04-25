@@ -31,6 +31,7 @@ typedef struct ast ast_t;
     X(ast_op_ternary) \
     X(ast_op_binary) \
     X(ast_op_unary) \
+    X(ast_op_postfix) \
     X(ast_op_call) \
     X(ast_literal) \
     X(ast_ident) \

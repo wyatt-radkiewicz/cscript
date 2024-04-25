@@ -309,8 +309,9 @@ void emit_op_extern_call_indirect(uint8_t **code) {
     emit_u8(code, op_extern_call_indirect);
 }
 void emit_op_jump(uint8_t **code, int32_t offs) {
+    if (offs == 5) return;
     emit_u8(code, op_jump);
-    emit_u32(code, *(uint32_t *)(&offs));
+    emit_i32(code, offs);
 }
 void emit_op_jump_indirect(uint8_t **code) {
     emit_u8(code, op_jump_indirect);
