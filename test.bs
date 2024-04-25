@@ -1,13 +1,15 @@
 extern fn print_i32(val: i32);
 extern fn input_i32() -> i32;
 
-fn doshit(x: i32) -> i32 {
-    return x * 5 - 9;
+fn print_until(n: i32) {
+    for x in (0..n) {
+        print_i32(x);
+    }
 }
 
 fn main() -> b8 {
     let x = 8 + input_i32();
-    print_i32(doshit(x));
+    print_until(x);
     return true;
 }
 

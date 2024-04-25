@@ -825,6 +825,9 @@ static bool comp_typed_expr(comp_state_t *state,
     return true;
 }
 
+static bool comp_stmt_group(comp_state_t *state,
+                            const ast_t *node,
+                            bool *did_return);
 static bool comp_stmt_let(comp_state_t *state, const ast_t *node) {
     comp_var_t var;
     if (node->a) {
@@ -835,6 +838,92 @@ static bool comp_stmt_let(comp_state_t *state, const ast_t *node) {
        if (!comp_expr(state, &var,  node->b, NULL)) return false;
     }
     if (!comp_add_var_to_scope(state, &var, node->token.data.str)) return false;
+    return true;
+}
+
+static bool comp_stmt_for(comp_state_t *state,
+                          const ast_t *node,
+                          bool *did_return) {
+    comp_update_line(state, node);
+
+    if (node->b->type != ast_op_binary
+        || node->b->token.type != tok_dotdot) {
+        comp_error(state, "Only range loops supported currently. List loops coming soon.");
+        return false;
+    }
+
+    comp_type_t loopty;
+    if (node->a->type == ast_var) {
+        if (!comp_get_type(state, node->a, &loopty)) return NULL;
+    } else {
+        comp_type_t start, end;
+        if (!comp_get_expr_type(state, &start, node->b->a)) return NULL;
+        if (!comp_get_expr_type(state, &end, node->b->b)) return NULL;
+        if (!comp_get_type_promotion(state, start, end, &loopty)) return NULL;
+    }
+
+    comp_scope_t *scope = state->res->scopes + ++state->scopes_top;
+    *scope = state->res->scopes[state->scopes_top-1];
+
+    comp_var_t loopvar;
+    if (!comp_typed_expr(state, &loopvar, node->b->a, &loopty)) return NULL;
+    if (!comp_add_var_to_scope(state, &loopvar, node->a->token.data.str)) return NULL;
+
+    int32_t checkstack = scope->stack_base;
+    const int32_t checkstart = state->code - state->res->code;
+    if (!comp_get_by_value(state, &(comp_var_t){0}, &loopvar)) return NULL;
+    comp_var_t end;
+    if (!comp_typed_expr(state, &end, node->b->b, &loopty)) return NULL;
+    if (!comp_get_by_value(state, &(comp_var_t){0}, &end)) return NULL;
+    emit_op_push_ge(&state->code,
+                    &scope->stack_base,
+                    comp_is_64bits(state, loopty.lvls[0]),
+                    comp_is_floating(state, loopty.lvls[0]),
+                    comp_is_unsigned(state, loopty.lvls[0]));
+    uint8_t *branchloc = state->code;
+    emit_op_bne(&state->code, &scope->stack_base, 0, false); // Gets replaced
+    uint32_t branchstack = checkstack - scope->stack_base;
+    emit_op_add_stack(&state->code, &scope->stack_base, branchstack);
+    if (!comp_check_code_size(state)) return false;
+    if (!comp_stmt_group(state, node->child, did_return)) return false;
+
+    int32_t addstack = scope->stack_base;
+    comp_type_t addty = (comp_type_t){
+        .lvls[0] = comp_get_type_promotion_single(state, loopty.lvls[0]),
+        .num_lvls = 1,
+    };
+    comp_var_t addloopvar;
+    if (!comp_get_by_value(state, &addloopvar, &loopvar)) return false;
+    if (!comp_cast(state, &addloopvar, &addty, addstack)) return false;
+    switch (addty.lvls[0].type) {
+    case type_i32: emit_op_imm_i32(&state->code, &scope->stack_base, 1); break;
+    case type_u32: emit_op_imm_u32(&state->code, &scope->stack_base, 1); break;
+    case type_i64: emit_op_imm_i64(&state->code, &scope->stack_base, 1); break;
+    case type_u64: emit_op_imm_u64(&state->code, &scope->stack_base, 1); break;
+    case type_f32: emit_op_imm_f32(&state->code, &scope->stack_base, 1.0f); break;
+    case type_f64: emit_op_imm_f64(&state->code, &scope->stack_base, 1.0); break;
+    default: assert(0 && "cant happen nono for loop type");
+    }
+    emit_op_add(&state->code,
+                &scope->stack_base,
+                comp_is_64bits(state, addty.lvls[0]),
+                comp_is_unsigned(state, addty.lvls[0]),
+                comp_is_floating(state, addty.lvls[0]));
+    uint32_t loopvarsize;
+    if (!comp_get_typesize(state, &loopvarsize, loopty, 0)) return false;
+    int32_t caststack = scope->stack_base;
+    if (!comp_cast(state, &addloopvar, &loopty, caststack)) return false;
+    emit_op_store_stack(&state->code, loopvar.loc - scope->stack_base, loopvarsize);
+    emit_op_add_stack(&state->code, &scope->stack_base, addstack - scope->stack_base);
+
+    emit_op_jump(&state->code, checkstart - (int32_t)(state->code - state->res->code));
+    emit_op_add_stack(&state->code, &scope->stack_base, branchstack);
+    emit_op_bne(&branchloc, &(int32_t){0}, state->code - branchloc, false); // Replace it
+
+    emit_op_add_stack(&state->code, &scope->stack_base, state->res->scopes[state->scopes_top-1].stack_base - scope->stack_base);
+    if (!comp_check_code_size(state)) return false;
+    state->scopes_top--;
+
     return true;
 }
 
@@ -855,6 +944,9 @@ static bool comp_stmt_group(comp_state_t *state,
             break;
         case ast_stmt_group:
             if (!comp_stmt_group(state, curr, did_return)) return false;
+            break;
+        case ast_stmt_for:
+            if (!comp_stmt_for(state, curr, did_return)) return false;
             break;
         case ast_stmt_expr: {
             int32_t stack = scope->stack_base;
@@ -941,7 +1033,7 @@ static comp_fn_t *comp_fn(comp_state_t *state, const ast_t *node) {
     bool did_return = false;
     if (!comp_stmt_group(state, node->child, &did_return)) return NULL;
     if (!did_return) emit_op_ret(&state->code);
-    if (state->res->typebuf[sig->types_loc+sig->types_loc].type.lvls[0].type != type_u0
+    if (state->res->typebuf[sig->types_loc+sig->num_types].type.lvls[0].type != type_u0
         && !did_return) {
         comp_error(state, "Function that must return did not return");
         return NULL;

@@ -41,7 +41,7 @@ static void input_i32(vm_state_t *vm) {
 uint8_t stack[64];
 vm_callstack_t callstack[8];
 
-uint8_t code[64];
+uint8_t code[128];
 uint8_t data[128];
 strview_t externfn_names[] = {
     (strview_t){ .str = "print_i32", .len = sizeof("print_i32")-1 },
@@ -144,6 +144,7 @@ int main(int argc, char **argv) {
     if (!res.num_errors) vm_error_log(vm_state_run(&vm, res.internfn_loc[1], true), stdout);
     for (const uint8_t *codeptr = code;
         codeptr - code < arrsz(code);) {
+        printf("%04ld: ", codeptr - code);
         vm_opcode_log(&codeptr, stdout);
         printf("\n");
     }

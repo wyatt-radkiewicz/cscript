@@ -13,6 +13,7 @@
     X(tok_for) \
     X(tok_while) \
     X(tok_new) \
+    X(tok_else) \
     X(tok_return) \
     X(tok_break) \
     X(tok_continue) \
@@ -23,6 +24,7 @@
     X(tok_default) \
     X(tok_const) \
     X(tok_do) \
+    X(tok_in) \
     X(tok_enum) \
     X(tok_struct) \
     X(tok_true) \

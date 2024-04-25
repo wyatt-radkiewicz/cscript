@@ -591,49 +591,53 @@ static inline bool run_op_extern_call_indirect(vm_state_t *state, vm_error_t *er
     return true;
 }
 static inline bool run_op_jump(vm_state_t *state, vm_error_t *err, bool flag) {
+    uint8_t *const pc = state->pc - 1;
     const int32_t offs = take_i32(&state->pc);
     vm_errout(state->pc + offs >= state->code + state->code_size, vm_err_code_segfault);
-    vm_errout(state->pc - offs < state->code, vm_err_code_segfault);
-    state->pc += offs;
+    vm_errout(state->pc + offs < state->code, vm_err_code_segfault);
+    state->pc = pc + offs;
     return true;
 }
 static inline bool run_op_jump_indirect(vm_state_t *state, vm_error_t *err, bool flag) {
+    uint8_t *const pc = state->pc - 1;
     int32_t offs;
     vm_errout(!vm_state_pop_i32(state, &offs), vm_err_callstack_underflow);
     vm_errout(state->pc + offs >= state->code + state->code_size, vm_err_code_segfault);
-    vm_errout(state->pc - offs < state->code, vm_err_code_segfault);
-    state->pc += offs;
+    vm_errout(state->pc + offs < state->code, vm_err_code_segfault);
+    state->pc = pc + offs;
     return true;
 }
 static inline bool run_op_bne(vm_state_t *state, vm_error_t *err, bool bits64) {
+    uint8_t *const pc = state->pc - 1;
     const int32_t offs = take_i32(&state->pc);
     vm_errout(state->pc + offs >= state->code + state->code_size, vm_err_code_segfault);
-    vm_errout(state->pc - offs < state->code, vm_err_code_segfault);
+    vm_errout(state->pc + offs < state->code, vm_err_code_segfault);
 
     if (bits64) {
         uint64_t x;
         vm_errout(!vm_state_pop_u64(state, &x), vm_err_stack_underflow);
-        if (x) state->pc += offs;
+        if (x) state->pc = pc + offs;
     } else {
         uint32_t x;
         vm_errout(!vm_state_pop_u32(state, &x), vm_err_stack_underflow);
-        if (x) state->pc += offs;
+        if (x) state->pc = pc + offs;
     }
     return true;
 }
 static inline bool run_op_beq(vm_state_t *state, vm_error_t *err, bool bits64) {
+    uint8_t *const pc = state->pc - 1;
     const int32_t offs = take_i32(&state->pc);
     vm_errout(state->pc + offs >= state->code + state->code_size, vm_err_code_segfault);
-    vm_errout(state->pc - offs < state->code, vm_err_code_segfault);
+    vm_errout(state->pc + offs < state->code, vm_err_code_segfault);
 
     if (bits64) {
         uint64_t x;
         vm_errout(!vm_state_pop_u64(state, &x), vm_err_stack_underflow);
-        if (!x) state->pc += offs;
+        if (!x) state->pc = pc + offs;
     } else {
         uint32_t x;
         vm_errout(!vm_state_pop_u32(state, &x), vm_err_stack_underflow);
-        if (!x) state->pc += offs;
+        if (!x) state->pc = pc + offs;
     }
     return true;
 }
@@ -715,6 +719,7 @@ static inline bool run_op_free_indirect(vm_state_t *state, vm_error_t *err, bool
     return true;
 }
 
+#include "threads.h"
 //
 // Virtual Machine
 //
@@ -723,6 +728,10 @@ static bool vm_state_run_instr(vm_state_t *state, vm_error_t *err) {
     state->curr_instr = state->pc;
     const uint8_t byte = *state->pc++;
     const bool flag = byte & 0x80;
+
+    //vm_opcode_log(&(const uint8_t *){state->pc - 1}, stdout);
+    //printf("\n");
+    //thrd_sleep(&(struct timespec){.tv_nsec = 500000000}, NULL);
 
 #define X(ENUM) case ENUM: return run_##ENUM(state, err, flag);
     switch ((vm_opcode_t)(byte & 0x7f)) {

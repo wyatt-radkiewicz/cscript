@@ -153,8 +153,8 @@ void emit_op_extern_call_indirect(uint8_t **code);
 void emit_op_jump(uint8_t **code, int32_t offs);
 void emit_op_jump_indirect(uint8_t **code);
 // These pop off a 32bit value from the stack and check it, then branch
-void emit_op_bne(uint8_t **code, int32_t offs, bool bits64);
-void emit_op_beq(uint8_t **code, int32_t offs, bool bits64);
+void emit_op_bne(uint8_t **code, int32_t *sp, int32_t offs, bool bits64);
+void emit_op_beq(uint8_t **code, int32_t *sp, int32_t offs, bool bits64);
 void emit_op_imm_i8(uint8_t **code, int32_t *sp, int8_t imm);
 void emit_op_imm_i16(uint8_t **code, int32_t *sp, int16_t imm);
 void emit_op_imm_i32(uint8_t **code, int32_t *sp, int32_t imm);

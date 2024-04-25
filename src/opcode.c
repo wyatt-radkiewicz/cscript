@@ -315,13 +315,15 @@ void emit_op_jump(uint8_t **code, int32_t offs) {
 void emit_op_jump_indirect(uint8_t **code) {
     emit_u8(code, op_jump_indirect);
 }
-void emit_op_bne(uint8_t **code, int32_t offs, bool bits64) {
+void emit_op_bne(uint8_t **code, int32_t *sp, int32_t offs, bool bits64) {
     emit_u8(code, op_bne | bits64 << 7);
     emit_i32(code, offs);
+    *sp += bits64 ? 8 : 4;
 }
-void emit_op_beq(uint8_t **code, int32_t offs, bool bits64) {
+void emit_op_beq(uint8_t **code, int32_t *sp, int32_t offs, bool bits64) {
     emit_u8(code, op_beq | bits64 << 7);
     emit_i32(code, offs);
+    *sp += bits64 ? 8 : 4;
 }
 void emit_op_imm_i8(uint8_t **code, int32_t *sp, int8_t imm) {
     int32_t diff = *sp - alignid(*sp, alignof(int8_t));

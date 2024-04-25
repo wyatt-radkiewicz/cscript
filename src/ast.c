@@ -21,6 +21,7 @@ typedef enum parse_prec {
     prec_lor,
     prec_ternary,
     prec_assign,
+    prec_range,
     prec_comma,
     prec_full
 } parse_prec_t;
@@ -77,6 +78,7 @@ static const parser_rule_t parser_rules[tok_max+1] = {
     [tok_lparen]        = { .prefix = parse_prefix, .infix = parse_postfix, .prec = prec_postfix },
     [tok_lbrack]        = { .prefix = parse_init_array, .infix = parse_postfix, .prec = prec_postfix },
     [tok_dot]           = { .prefix = NULL, .infix = parse_infix, .prec = prec_postfix },
+    [tok_dotdot]        = { .prefix = NULL, .infix = parse_infix, .prec = prec_range },
     [tok_arrow]         = { .prefix = NULL, .infix = parse_infix, .prec = prec_postfix },
     [tok_plus]          = { .prefix = NULL, .infix = parse_infix, .prec = prec_addit },
     [tok_minus]         = { .prefix = parse_prefix, .infix = parse_infix, .prec = prec_addit },
@@ -432,6 +434,42 @@ skip_attribs:
 }
 
 static ast_t *parse_stmt(ast_state_t *state);
+static ast_t *parse_stmt_group(ast_state_t *state);
+static ast_t *parse_stmt_if(ast_state_t *state) {
+    ast_t *node = ast_alloc(state, ast_stmt_if);
+    if (!ast_eat_token(state, true, tok_if)) return NULL;
+    if (!node) return NULL;
+    if (!(node->child = parse_expr(state, prec_comma))) return NULL;
+    if (!(node->a = parse_stmt_group(state))) return NULL;
+    if (state->lexer.tok.type != tok_else) return node;
+    if (state->lexer.tok.type == tok_if
+        && !(node->b = parse_stmt_if(state))) return NULL;
+    else if (!(node->b = parse_stmt_group(state))) return NULL;
+    return node;
+}
+static ast_t *parse_stmt_while(ast_state_t *state) {
+    ast_t *node = ast_alloc(state, ast_stmt_while);
+    if (!ast_eat_token(state, true, tok_while)) return NULL;
+    if (!node) return NULL;
+    if (!(node->child = parse_expr(state, prec_comma))) return NULL;
+    if (!(node->a = parse_stmt_group(state))) return NULL;
+    return node;
+}
+static ast_t *parse_stmt_for(ast_state_t *state) {
+    ast_t *node = ast_alloc(state, ast_stmt_for);
+    if (!ast_eat_token(state, true, tok_for)) return NULL;
+    if (!node) return NULL;
+    if (state->lexer.next.type == tok_colon) {
+        if (!(node->a = parse_var(state))) return NULL;
+    } else {
+        if (!(node->a = ast_alloc(state, ast_ident))) return NULL;
+        if (!ast_eat_token(state, true, tok_ident)) return NULL;
+    }
+    if (!ast_eat_token(state, true, tok_in)) return NULL;
+    if (!(node->b = parse_expr(state, prec_range))) return NULL;
+    if (!(node->child = parse_stmt_group(state))) return NULL;
+    return node;
+}
 static ast_t *parse_let(ast_state_t *state) {
     if (!ast_eat_token(state, true, tok_let)) return NULL;
     ast_t *node = ast_alloc(state, ast_stmt_let);
@@ -494,6 +532,15 @@ static ast_t *parse_stmt(ast_state_t *state) {
         break;
     case tok_lbrace:
         if (!(node = parse_stmt_group(state))) return NULL;
+        break;
+    case tok_if:
+        if (!(node = parse_stmt_if(state))) return NULL;
+        break;
+    case tok_while:
+        if (!(node = parse_stmt_while(state))) return NULL;
+        break;
+    case tok_for:
+        if (!(node = parse_stmt_for(state))) return NULL;
         break;
     default: {
         if (!(node = ast_alloc(state, ast_stmt_expr))) return NULL;

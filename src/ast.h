@@ -24,6 +24,9 @@ typedef struct ast ast_t;
     X(ast_stmt_expr) \
     X(ast_stmt_return) \
     X(ast_stmt_void) \
+    X(ast_stmt_if) \
+    X(ast_stmt_while) \
+    X(ast_stmt_for) \
      \
     X(ast_op_ternary) \
     X(ast_op_binary) \

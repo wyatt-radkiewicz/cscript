@@ -377,7 +377,10 @@ static bool comp_get_expr_type_recurr(comp_state_t *state,
     case ast_literal: return comp_get_literal_type(state, expr, ret);
     case ast_ident: {
         comp_var_t *var = comp_get_scopevar(state, expr->token.data.str);
-        if (!var) return false;
+        if (!var) {
+            comp_error(state, "Unidentified identifier!!");
+            return false;
+        }
         *ret = var->type;
     } return true;
     case ast_op_call: {
