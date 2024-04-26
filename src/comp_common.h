@@ -277,6 +277,94 @@ static bool comp_get_type_promotion(comp_state_t *state,
     return true;
 }
 
+static bool comp_process_string_literal(comp_state_t *state,
+                                        const ast_t *literal,
+                                        comp_type_t *type,
+                                        bool dowrite,
+                                        comp_var_t *var) {
+    u8strview_t str = literal->token.data.u8str;
+    *type = (comp_type_t){
+        .lvls[0].type = type_arr,
+        .num_lvls = 2,
+    };
+
+    const uint8_t *head = str.str;
+    uint32_t c, size;
+    if (!u8next_char(&head, &c, &size)) return false;
+    bool utf8 = false;
+    if (c == '"') {
+        type->lvls[1].type = type_u8;
+        utf8 = true;
+    } else {
+        if (!u8next_char(&head, &c, &size)) return false;
+        switch (c) {
+        case '8': type->lvls[1].type = type_c8; break;
+        case '1': type->lvls[1].type = type_c16;
+        case '3': type->lvls[1].type = type_c32;
+            if (!u8next_char(&head, &c, &size)) return false;
+        }
+    }
+
+    int32_t dstart = alignu(state->dsz, 4);
+    if (dstart + 4 > state->res->data_len) {
+        comp_error(state, "Hit end of data segment! Allocate more memory for data segment.");
+        return false;
+    }
+    if (var && dowrite) {
+        state->dsz = dstart + 4;
+        *var = (comp_var_t){
+            .loc = dstart,
+            .loctype = var_loc_data,
+        };
+    }
+
+    while (head < str.str + str.size) {
+        const uint8_t *const start = head;
+        if (!u8next_char(&head, &c, &size)) return false;
+        if (c == '"') break;
+        if (dowrite) {
+            switch (type->lvls[1].type) {
+            case type_u8:
+                if (state->dsz + size > state->res->data_len) {
+                    comp_error(state, "Hit end of data segment. Need more memory!");
+                    return false;
+                }
+                memcpy(state->res->data + state->dsz, start, size);
+                state->dsz += size;
+                break;
+            case type_c8:
+                if (state->dsz + 1 > state->res->data_len) {
+                    comp_error(state, "Hit end of data segment. Need more memory!");
+                    return false;
+                }
+                state->res->data[state->dsz++] = *start;
+                break;
+            case type_c16:
+                if (state->dsz + 2 > state->res->data_len) {
+                    comp_error(state, "Hit end of data segment. Need more memory!");
+                    return false;
+                }
+                *(uint16_t *)(state->res->data + state->dsz) = c;
+                state->dsz += 2;
+                break;
+            case type_c32:
+                if (state->dsz + 4 > state->res->data_len) {
+                    comp_error(state, "Hit end of data segment. Need more memory!");
+                    return false;
+                }
+                *(uint32_t *)(state->res->data + state->dsz) = c;
+                state->dsz += 4;
+                break;
+            }
+        }
+        type->lvls[0].id += utf8 ? size : 1;
+    }
+    if (var) var->type = *type;
+    if (var && dowrite) *(uint32_t *)(state->res->data + dstart) = type->lvls[0].id;
+
+    return true;
+}
+
 static bool comp_get_literal_type(comp_state_t *state, const ast_t *literal, comp_type_t *type) {
     comp_update_line(state, literal);
     if (literal->type != ast_literal) {
@@ -288,6 +376,9 @@ static bool comp_get_literal_type(comp_state_t *state, const ast_t *literal, com
     comp_type_lvl_t *lvl = type->lvls;
     const lex_token_t *tok = &literal->token;
     switch (tok->type) {
+    case tok_literal_str:
+        return comp_process_string_literal(state, literal, type, false, NULL);
+        break;
     case tok_literal_u:
         if (tok->data.u64 <= INT32_MAX) lvl->type = type_i32;
         else if (tok->data.u64 <= UINT32_MAX) lvl->type = type_u32;

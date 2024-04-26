@@ -215,9 +215,11 @@ void emit_op_sra(uint8_t **code, bool bits64) {
 void emit_op_not(uint8_t **code, bool bits64) {
     emit_u8(code, op_not | bits64 << 7);
 }
-void emit_op_mod(uint8_t **code, bool bits64, bool u) {
+void emit_op_mod(uint8_t **code, int32_t *sp, bool bits64, bool u) {
+    *sp += bits64 ? 8 : 4;
     emit_u8(code, op_mod);
     emit_u8(code, bits64 | u << 1);
+
 }
 void emit_op_neg(uint8_t **code, bool bits64, bool fp) {
     emit_u8(code, op_neg);

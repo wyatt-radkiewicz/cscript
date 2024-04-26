@@ -14,7 +14,10 @@ static bool comp_global(comp_state_t *state, const ast_t *node) {
     if (node->a) {
         comp_type_t type;
         if (!comp_get_type(state, node->a, &type)) return false;
-        if (!comptime_typed_expr(state, true, &var, node->b, &type)) return false;
+        if (!comptime_typed_expr(state, true, &var, node->b, &type)) {
+            comp_error(state, "Problem compiling comptime expression");
+            return false;
+        }
     } else {
         if (!comptime_expr(state, true, &var, node->b, NULL)) return false;
     }
@@ -67,20 +70,24 @@ skip_cvrs:
         lvl->type = type_arr;
         comp_var_t lenvar;
         uint32_t loc = state->dsz;
-        if (!comptime_expr(state, true, &lenvar, (*node)->b, NULL)) return false;
-        if (!comptime_cast(state, &lenvar, &(comp_type_t){
-            .lvls[0] = (comp_type_lvl_t){ .type = type_u32 },
-            .num_lvls = 1,
-        }, loc)) {
-            comp_error(state, "Array length should be an integer.");
-            return false;
+        if ((*node)->b) {
+            if (!comptime_expr(state, true, &lenvar, (*node)->b, NULL)) return false;
+            if (!comptime_cast(state, &lenvar, &(comp_type_t){
+                .lvls[0] = (comp_type_lvl_t){ .type = type_u32 },
+                .num_lvls = 1,
+            }, loc)) {
+                comp_error(state, "Array length should be an integer.");
+                return false;
+            }
+            uint32_t len = comptime_pop_u32(state, lenvar.loc);
+            if (len >= (uint32_t)1 << 24) {
+                comp_error(state, "Array length too long (can not be represented in type)");
+                return false;
+            }
+            lvl->id = len;
+        } else {
+            lvl->id = 0;
         }
-        uint32_t len = comptime_pop_u32(state, lenvar.loc);
-        if (len >= (uint32_t)1 << 24) {
-            comp_error(state, "Array length too long (can not be represented in type)");
-            return false;
-        }
-        lvl->id = len;
         *node = (*node)->a;
         comp_update_line(state, *node);
         return true;
@@ -965,11 +972,19 @@ case CASE: \
                     comp_is_unsigned(state, commonty.lvls[0]), \
                     comp_is_floating(state, commonty.lvls[0])); \
 break;
+#define do_op64u(CASE, OPNAME) \
+case CASE: \
+    emit_op_##OPNAME(&state->code, \
+                    &scope->stack_base, \
+                    comp_is_64bits(state, commonty.lvls[0]), \
+                    comp_is_unsigned(state, commonty.lvls[0])); \
+break;
         switch (node->token.type) {
         do_op(tok_plus, add)
         do_op(tok_minus, sub)
         do_op(tok_slash, div)
         do_op(tok_star, mul)
+        do_op64u(tok_modulo, mod)
         do_op(tok_less, push_lt)
         do_op(tok_greater, push_gt)
         do_op(tok_lesseq, push_le)

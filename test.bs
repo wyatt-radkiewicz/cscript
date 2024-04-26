@@ -1,16 +1,16 @@
+
+let str = "hello";
+
 extern fn print_i32(val: i32);
 extern fn input_i32() -> i32;
 extern fn rand() -> u16;
+extern fn print_c8str(str: &[c8]);
 
-let kinda_str = ['h', 'e', 'l', 'l', 'o', '\0'];
 
 let num = 69;
 
 fn main() -> b8 {
-    num = rand();
-    while (num >= 100) {
-        num -= 100;
-    }
+    num = rand() % 100;
 
     let guess = 0;
     while (true) {

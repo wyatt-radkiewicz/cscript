@@ -40,6 +40,9 @@ static void input_i32(vm_state_t *vm) {
 static void get_rand(vm_state_t *vm) {
     vm_state_push_u16(vm, rand());
 }
+static void print_c8str(vm_state_t *vm) {
+    putc('\n', stdout);
+}
 
 uint8_t stack[64];
 vm_callstack_t callstack[8];
@@ -50,11 +53,13 @@ strview_t externfn_names[] = {
     (strview_t){ .str = "print_i32", .len = sizeof("print_i32")-1 },
     (strview_t){ .str = "input_i32", .len = sizeof("input_i32")-1 },
     (strview_t){ .str = "rand", .len = sizeof("rand")-1 },
+    (strview_t){ .str = "print_c8str", .len = sizeof("print_c8str")-1 },
 };
 vm_extern_fn_t externfn_ptrs[] = {
     print_i32,
     input_i32,
     get_rand,
+    print_c8str,
 };
 strview_t internfn_names[32];
 uint32_t internfn_locs[32];

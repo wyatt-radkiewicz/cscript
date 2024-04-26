@@ -77,6 +77,16 @@ static bool comptime_push_literal_type(comp_state_t *state, const ast_t *literal
     const lex_token_t *tok = &literal->token;
     if (!comp_get_literal_type(state, literal, &var->type)) return false;
     switch (var->type.lvls[0].type) {
+    case type_arr:
+        if (var->type.lvls[1].type != type_u8
+            && var->type.lvls[1].type != type_c8
+            && var->type.lvls[1].type != type_c16
+            && var->type.lvls[1].type != type_c32) {
+            comp_error(state, "Incorrect literal array. (only strings supported)");
+            return false;
+        }
+        return comp_process_string_literal(state, literal, &(comp_type_t){0}, true, var);
+        break;
     case type_i32: return comptime_push_i32(state, &var->loc, tok->data.u64);
     case type_u32: return comptime_push_u32(state, &var->loc, tok->data.u64);
     case type_i64: return comptime_push_i64(state, &var->loc, tok->data.u64);
@@ -116,7 +126,15 @@ static bool comptime_cast(comp_state_t *state,
     comp_type_lvl_t *fromlvl = typefrom.lvls;
 
     assert(var->loctype == var_loc_data);
-    if (tolvl->type == type_arr) return false;
+    if (tolvl->type == type_arr) {
+        if ((typeto.lvls[1].type == type_u8 && typefrom.lvls[1].type == type_c8)
+            || (typeto.lvls[1].type == type_c8 && typefrom.lvls[1].type == type_u8)) {
+            var->type.lvls[1] = typeto.lvls[1];
+            return true;
+        }
+        comp_error(state, "Can't cast arrays in comptime expressions!");
+        return false;
+    }
     if (fromlvl->type == type_struct
         && tolvl->type == type_struct
         && fromlvl->id != tolvl->id) {
@@ -352,12 +370,21 @@ static bool comptime_expr(comp_state_t *state,
         }
         memcpy(ret->type.lvls + 1, innerty.lvls, sizeof(innerty.lvls[0]) * innerty.num_lvls);
         ret->type.num_lvls += innerty.num_lvls;
+
+        // Set the size start param
+        if (alignu(state->dsz + 4, 4) > state->res->data_len) {
+            comp_error(state, "Ran out of data space!");
+            return false;
+        }
+        uint32_t lenloc = state->dsz = alignu(state->dsz, 4);
+        state->dsz += 4;
+        
         for (; expr; expr = expr->next) {
             comp_update_line(state, expr);
             if (!comptime_typed_expr(state, errnocomp, &(comp_var_t){0}, expr, &innerty)) return false;
             ret->type.lvls[0].id++;
         }
-        if (arrtype) {
+        if (arrtype && arrtype->lvls[0].id != 0) {
             uint32_t innersize, diff;
             if (!comp_get_typesize(state, &innersize, *arrtype, 1)) return false;
             diff = arrtype->lvls[0].id - ret->type.lvls[0].id;
@@ -368,7 +395,10 @@ static bool comptime_expr(comp_state_t *state,
             uint32_t nbytes = innersize * diff;
             memset(state->res->data + state->dsz, 0, nbytes);
             state->dsz += nbytes;
+            ret->type.lvls[0].id = arrtype->lvls[0].id;
         }
+
+        *(uint32_t *)(state->res->data + lenloc) = ret->type.lvls[0].id;
     } return true;
     case ast_ident: {
         for (uint32_t i = 0; i < state->res->scopes[state->scopes_top].scope_base; i++) {

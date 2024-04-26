@@ -121,7 +121,7 @@ void emit_op_sll(uint8_t **code, bool bits64);
 void emit_op_srl(uint8_t **code, bool bits64);
 void emit_op_sra(uint8_t **code, bool bits64);
 void emit_op_not(uint8_t **code, bool bits64);
-void emit_op_mod(uint8_t **code, bool bits64, bool u);
+void emit_op_mod(uint8_t **code, int32_t *sp, bool bits64, bool u);
 void emit_op_neg(uint8_t **code, bool bits64, bool fp);
 // Extends 1 rank above
 // 0 -> 8bit
