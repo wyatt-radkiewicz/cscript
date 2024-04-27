@@ -1,7 +1,7 @@
 SRCS := $(shell find $(SRC_DIR) -type f -name "*.c" )
 OBJS := $(patsubst %.c,$(BUILD_DIR)/%.o,$(SRCS))
 
-CFLAGS		 := $(CFLAGS) -Wall -Wextra -ansi -pedantic -Wmissing-prototypes -Wstrict-prototypes -Wold-style-definition
+CFLAGS		 := $(CFLAGS) -Wall -Wextra -std=c89 -pedantic -Wmissing-prototypes -Wstrict-prototypes -Wold-style-definition
 CFLAGS       += -I$(SRC_DIR) $(DEPS_CFLAGS)
 LDFLAGS      := $(LDFLAGS) -lm
 
