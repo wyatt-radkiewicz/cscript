@@ -1,165 +1,164 @@
-#include <stdio.h>
 #include <stdlib.h>
+#include <stdio.h>
 
-#include "parser.h"
-#include "compile.h"
+#include "lexer.h"
 #include "vm.h"
-
-#define ARRSZ(A) (sizeof(A)/sizeof((A)[0]))
+#include "ast.h"
+#include "compiler.h"
 
 // Testing function
-char *load_file(const char *file)
-{
-	long len;
-	FILE *fp;
-	char *str;
+static char *loadfile(const char *filepath) {
+	FILE *file = fopen(filepath, "r");
+	if (!file) return NULL;
 
-	fp = fopen(file, "r");
-	if (!fp) return NULL;
-	fseek(fp, 0, SEEK_END);
-	len = ftell(fp);
-	fseek(fp, 0, SEEK_SET);
-	str = malloc(len + 1);
-	if (fread(str, 1, len, fp) != len)
-	{
+	fseek(file, 0, SEEK_END);
+	size_t len = ftell(file);
+	fseek(file, 0, SEEK_SET);
+
+	char *str = malloc(len + 1);
+	if (fread(str, 1, len, file) != len) {
 		free(str);
-		fclose(fp);
+		fclose(file);
 		return NULL;
 	}
 	str[len] = '\0';
-	fclose(fp);
+	fclose(file);
 
 	return str;
 }
 
-struct vm_ptr *vm_alloc(int size)
-{
-	struct vm_ptr *ptr = malloc(size * sizeof(union vm_untyped_var) + sizeof(struct vm_ptr));
-	ptr->var = (union vm_untyped_var *)(ptr + 1);
-	ptr->size = size;
-	ptr->nrefs = 1;
-	return ptr;
+static void print_i32(vm_state_t *vm) {
+    int32_t x = *(int32_t *)vm->sp;
+    printf("print_i32: %d\n", x);
 }
-void vm_free(struct vm_ptr *var)
-{
-	free(var);
+static void input_i32(vm_state_t *vm) {
+    int32_t x;
+    printf("input_i32: ");
+    scanf("%d", &x);
+    vm_state_push_i32(vm, x);
 }
-
-void vm_print_err(enum vm_error err)
-{
-	switch (err)
-	{
-	case VM_ERR_OKAY:
-		printf("errcode: OKAY\n");
-		break;
-	case VM_ERR_SEGFAULT:
-		printf("errcode: SEGFAULT\n");
-		break;
-	case VM_ERR_UNKNOWN_FUNC:
-		printf("errcode: UNKNOWN FUNC\n");
-		break;
-	case VM_ERR_STACK_OVERFLOW:
-		printf("errcode: STACK OVERFLOW\n");
-		break;
-	case VM_ERR_STACK_UNDERFLOW:
-		printf("errcode: STACK UNDERFLOW\n");
-		break;
-	}
+static void get_rand(vm_state_t *vm) {
+    vm_state_push_u16(vm, rand());
 }
-void vm_print_topvar(struct vm *vm)
-{
-	switch (vm->stack[0].type)
-	{
-	case VAR_INT:
-		printf("top: int -> %d\n", vm->stack[0].data.i);
-		break;
-	case VAR_UINT:
-		printf("top: uint -> %u\n", vm->stack[0].data.u);
-		break;
-	case VAR_CHAR:
-		printf("top: char -> %c\n", vm->stack[0].data.c);
-		break;
-	case VAR_FLOAT:
-		printf("top: float -> %f\n", vm->stack[0].data.f);
-		break;
-	case VAR_PTR:
-		printf("top: ptr -> %p\n", vm->stack[0].data.p);
-		break;
-	case VAR_CPTR:
-		printf("top: cptr -> %p\n", vm->stack[0].data.p);
-		break;
-	case VAR_REF:
-		printf("top: ref -> %p\n", vm->stack[0].data.p);
-		break;
-	case VAR_PFN:
-		printf("top: pfn -> %p\n", vm->stack[0].data.p);
-		break;
-	case VAR_VOID:
-		printf("top: void\n");
-		break;
-	case VAR_STRUCT:
-		printf("top: struct\n");
-		break;
-	}
-	//vm_push(vm, (struct vm_typed_var){
-	//	.type = VAR_INT,
-	//	.data.i = 69 + vm->stack[0].data.i,
-	//});
+static void print_c8str(vm_state_t *vm) {
+    putc('\n', stdout);
 }
 
-static void vm_input_int(struct vm *vm) {
-	int i;
-	printf("input: ");
-	scanf("%d", &i);
-	vm_push(vm, (struct vm_typed_var){
-		.type = VAR_INT,
-		.data.i = i,
-	});
+uint8_t stack[64];
+vm_callstack_t callstack[8];
+
+uint8_t code[192];
+uint8_t data[128];
+strview_t externfn_names[] = {
+    (strview_t){ .str = "print_i32", .len = sizeof("print_i32")-1 },
+    (strview_t){ .str = "input_i32", .len = sizeof("input_i32")-1 },
+    (strview_t){ .str = "rand", .len = sizeof("rand")-1 },
+    (strview_t){ .str = "print_c8str", .len = sizeof("print_c8str")-1 },
+};
+vm_extern_fn_t externfn_ptrs[] = {
+    print_i32,
+    input_i32,
+    get_rand,
+    print_c8str,
+};
+strview_t internfn_names[32];
+uint32_t internfn_locs[32];
+comp_typebuf_t typebuf[64];
+error_t errors[16];
+comp_struct_t structs[32];
+uint32_t typedefs[32];
+comp_pfn_t pfns[32];
+comp_fn_t fns[64];
+comp_var_t scopevars[64];
+comp_scope_t scopes[8];
+
+ast_t ast[512];
+
+int main(int argc, char **argv) {
+    char *filestr = loadfile("test.bs");
+    ast_state_t ast_state = {
+        .lexer = lex_state_init((uint8_t *)filestr),
+        .buf = ast,
+        .buflen = arrsz(ast),
+        .errbuf = errors,
+        .errbuflen = arrsz(errors),
+    };
+    comp_resources_t res = {
+        .code = code,
+        .code_len = arrsz(code),
+
+        .data = data,
+        .data_len = arrsz(data),
+
+        .ast = ast_build(&ast_state),
+
+        .externfn_name = externfn_names,
+        .externfn_ptr = externfn_ptrs,
+        .externfn_len = arrsz(externfn_ptrs),
+
+        .internfn_name = internfn_names,
+        .internfn_loc = internfn_locs,
+        .internfn_len = arrsz(internfn_names),
+
+        .typebuf = typebuf,
+        .typebuf_len = arrsz(typebuf),
+
+        .error = errors,
+        .error_len = arrsz(errors),
+        .num_errors = ast_state.nerrs,
+
+        .structs = structs,
+        .structs_len = arrsz(structs),
+
+        .typedefs = typedefs,
+        .typedef_len = arrsz(typedefs),
+
+        .pfns = pfns,
+        .pfns_len = arrsz(pfns),
+
+        .fns = fns,
+        .fns_len = arrsz(fns),
+
+        .scopevars = scopevars,
+        .scopevars_len = arrsz(scopevars),
+
+        .scopes = scopes,
+        .scopes_len = arrsz(scopes),
+    };
+    //ast_log(res.ast, stdout);
+    //printf("\n");
+
+    if (!res.num_errors) compile(&res);
+    for (int i = 0; i < res.num_errors; i++) {
+        error_log(res.error + i, stdout);
+        printf("\n");
+    }
+    
+    vm_state_t vm = {
+        .code = code,
+        .code_size = arrsz(code),
+
+        .data = data,
+        .data_size = arrsz(data),
+
+        .pfn = externfn_ptrs,
+        .pfn_size = arrsz(externfn_ptrs),
+
+        .callstack = callstack,
+        .callstack_size = arrsz(callstack),
+        
+        .stack = stack,
+        .stack_size = arrsz(stack),
+    };
+    //printf("loc: %d\n", res.internfn_loc[0]);
+    for (const uint8_t *codeptr = code;
+        codeptr - code < arrsz(code);) {
+        printf("%04ld: ", codeptr - code);
+        vm_opcode_log(&codeptr, stdout);
+        printf("\n");
+    }
+    if (!res.num_errors) vm_error_log(vm_state_run(&vm, res.internfn_loc[1], true), stdout);
+
+    free(filestr);
+    return 0;
 }
-
-static struct ast_node ast_buffer[512*4];
-
-static struct vm_fn_entry fns[4];
-static struct vm_code code[64];
-static union vm_untyped_var data[512];
-
-static struct vm_typed_var stack[128];
-
-int main(int argc, char **argv)
-{
-	struct vm vm;
-	char *src = load_file("test.bs");
-	struct ast_node *root = ast_construct(src, ast_buffer, 512, NULL, 0);
-	free(src);
-	vm_init(
-		&vm,		// vm
-		code,		// code
-		ARRSZ(code),	// codelen
-		vm_alloc,	// alloc
-		vm_free,	// free
-		data,		// data
-		ARRSZ(data),	// datalen
-		stack,		// stack
-		ARRSZ(stack),	// stacklen
-		fns,		// funcs
-		ARRSZ(fns)	// funcs_len
-	);
-
-	struct compile_error errs[32];
-	struct state compiler;
-	compile_init(&compiler, root, &vm, errs, ARRSZ(errs));
-	compile_extern_fn(&compiler, "print_int", vm_print_topvar);
-	compile_extern_fn(&compiler, "input_int", vm_input_int);
-	code[ARRSZ(code)-1].op = OP_RET;
-	compile(&compiler);
-	for (int i = 0; i < ARRSZ(code); i++) {
-		printf("%d: ", i);
-		vm_print_opcode(code[i]);
-	}
-	vm_push(&vm, (struct vm_typed_var){ .type = VAR_INT });
-	vm_push(&vm, (struct vm_typed_var){ .type = VAR_INT });
-	vm_print_err(vm_callfn(&vm, "main"));
-
-	return 0;
-}
-

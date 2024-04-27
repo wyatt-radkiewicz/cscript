@@ -194,23 +194,29 @@ void emit_op_div(uint8_t **code, int32_t *sp, bool bits64, bool u, bool fp) {
     emit_u8(code, op_div);
     emit_u8(code, bits64 | fp << 1 | u << 2);
 }
-void emit_op_and(uint8_t **code, bool bits64) {
+void emit_op_and(uint8_t **code, int32_t *sp, bool bits64) {
     emit_u8(code, op_and | bits64 << 7);
+    *sp += bits64 ? 8 : 4;
 }
-void emit_op_or(uint8_t **code, bool bits64) {
+void emit_op_or(uint8_t **code, int32_t *sp, bool bits64) {
     emit_u8(code, op_or | bits64 << 7);
+    *sp += bits64 ? 8 : 4;
 }
-void emit_op_xor(uint8_t **code, bool bits64) {
+void emit_op_xor(uint8_t **code, int32_t *sp, bool bits64) {
     emit_u8(code, op_xor | bits64 << 7);
+    *sp += bits64 ? 8 : 4;
 }
-void emit_op_sll(uint8_t **code, bool bits64) {
+void emit_op_sll(uint8_t **code, int32_t *sp, bool bits64) {
     emit_u8(code, op_sll | bits64 << 7);
+    *sp += bits64 ? 8 : 4;
 }
-void emit_op_srl(uint8_t **code, bool bits64) {
+void emit_op_srl(uint8_t **code, int32_t *sp, bool bits64) {
     emit_u8(code, op_srl | bits64 << 7);
+    *sp += bits64 ? 8 : 4;
 }
-void emit_op_sra(uint8_t **code, bool bits64) {
+void emit_op_sra(uint8_t **code, int32_t *sp, bool bits64) {
     emit_u8(code, op_sra | bits64 << 7);
+    *sp += bits64 ? 8 : 4;
 }
 void emit_op_not(uint8_t **code, bool bits64) {
     emit_u8(code, op_not | bits64 << 7);

@@ -185,13 +185,17 @@ static bool comp_is_pod_type(comp_state_t *state, comp_type_lvl_t type) {
     return true;
 }
 
-static bool comp_is_arithmetic_type(comp_state_t *state, comp_type_lvl_t type) {
-    switch (type.type) {
-    case type_u0: case type_ptr: case type_ref: case type_arr:
+static bool comp_is_arithmetic_type(comp_state_t *state, comp_type_t type, int lvl) {
+    if (lvl >= MAX_TYPE_NESTING) return false;
+    const comp_type_lvl_t t = type.lvls[lvl];
+    switch (t.type) {
+    case type_u0: case type_ptr: case type_arr:
     case type_pfn: case type_struct:
         return false;
+    case type_ref:
+        return comp_is_arithmetic_type(state, type, lvl+1);
     case type_typedef:
-        return comp_is_arithmetic_type(state, state->res->typebuf[type.id].type.lvls[0]);
+        return comp_is_arithmetic_type(state, state->res->typebuf[t.id].type, 0);
     }
     return true;
 }
@@ -260,8 +264,8 @@ static bool comp_get_type_promotion(comp_state_t *state,
     if (!comp_get_underlying_typedef(state, &left)) return false;
     if (!comp_get_underlying_typedef(state, &right)) return false;
     const comp_type_lvl_t *llvl = left.lvls, *rlvl = right.lvls;
-    if (!comp_is_arithmetic_type(state, *llvl)
-        || !comp_is_arithmetic_type(state, *rlvl)) return false;
+    if (!comp_is_arithmetic_type(state, left, 0)
+        || !comp_is_arithmetic_type(state, right, 0)) return false;
 #define check_type(TYPE) \
     if (llvl->type == TYPE || rlvl->type == TYPE) { \
         *promoted = (comp_type_t){ .lvls[0] = (comp_type_lvl_t){.type = TYPE}, .num_lvls = 1 }; \
@@ -515,7 +519,7 @@ static bool comp_get_expr_type_recurr(comp_state_t *state,
             memmove(ret->lvls, ret->lvls + 1, --ret->num_lvls);
             return true;
         }
-        if (!comp_is_arithmetic_type(state, child.lvls[0])) return false;
+        if (!comp_is_arithmetic_type(state, child, 0)) return false;
         *ret = (comp_type_t){
             .lvls[0] = comp_get_type_promotion_single(state, child.lvls[0]),
             .num_lvls = 1,
@@ -579,8 +583,8 @@ static bool comp_get_expr_type_recurr(comp_state_t *state,
             *ret = ont;
             return true;
         }
-        if (!comp_is_arithmetic_type(state, onf.lvls[0])
-            || !comp_is_arithmetic_type(state, ont.lvls[0])) {
+        if (!comp_is_arithmetic_type(state, onf, 0)
+            || !comp_is_arithmetic_type(state, ont, 0)) {
             comp_error(state, "Ternary true and false paths must have the same type!");
             return false;
         }
@@ -591,8 +595,8 @@ static bool comp_get_expr_type_recurr(comp_state_t *state,
             comp_type_t left, right;
             if (!comp_get_expr_type_recurr(state, &left, expr->a)) return false;
             if (!comp_get_type(state, expr->b, &right)) return false;
-            if (!comp_is_arithmetic_type(state, left.lvls[0])
-                || !comp_is_arithmetic_type(state, right.lvls[0])) {
+            if (!comp_is_arithmetic_type(state, left, 0)
+                || !comp_is_arithmetic_type(state, right, 0)) {
                 comp_error(state, "Cast operations must have arithmetic types!");
                 return false;
             }
@@ -644,8 +648,8 @@ static bool comp_get_expr_type_recurr(comp_state_t *state,
                 *ret = left;
                 return true;
             }
-            if (!comp_is_arithmetic_type(state, left.lvls[0])
-                || !comp_is_arithmetic_type(state, right.lvls[0])) {
+            if (!comp_is_arithmetic_type(state, left, 0)
+                || !comp_is_arithmetic_type(state, right, 0)) {
                 comp_error(state, "Equal operator must have the same type!");
                 return false;
             }
@@ -661,8 +665,8 @@ static bool comp_get_expr_type_recurr(comp_state_t *state,
             comp_type_t left, right;
             if (!comp_get_expr_type_recurr(state, &left, expr->a)) return false;
             if (!comp_get_expr_type_recurr(state, &right, expr->b)) return false;
-            if (!comp_is_arithmetic_type(state, left.lvls[0])
-                || !comp_is_arithmetic_type(state, right.lvls[0])) {
+            if (!comp_is_arithmetic_type(state, left, 0)
+                || !comp_is_arithmetic_type(state, right, 0)) {
                 comp_error(state, "Arithmetic equal operators must have arithmetic types!");
                 return false;
             }

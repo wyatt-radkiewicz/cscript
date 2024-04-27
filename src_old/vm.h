@@ -1,148 +1,110 @@
 #ifndef _vm_h_
 #define _vm_h_
 
-enum vm_varty
-{
-	VAR_INT,
-	VAR_UINT,
-	VAR_FLOAT,
-	VAR_CHAR,
-	VAR_PTR,
-	VAR_CPTR,
-	VAR_REF,
-	VAR_PFN,
-	VAR_STRUCT,
-	VAR_ARRAY,
-	VAR_VOID,
+#include <stddef.h>
+
+#include "opcode.h"
+
+typedef struct vm_state vm_state_t;
+typedef struct vm_callstack {
+    uint32_t ret_loc;
+    uint32_t stack_base;
+} vm_callstack_t;
+
+typedef void *(*vm_alloc_t)(void *user, size_t sz);
+typedef void (*vm_free_t)(void *user, void *ptr);
+typedef void (*vm_extern_fn_t)(vm_state_t *state);
+
+//
+// Fill this struct out and then call run
+// pc, sp, and rp don't need to be initialized by the user
+//
+struct vm_state {
+    uint8_t *pc, *sp, *curr_instr;
+    vm_callstack_t *rp;
+
+    uint8_t *code;
+    size_t code_size;
+
+    uint8_t *data;
+    size_t data_size;
+
+    uint8_t *stack;
+    size_t stack_size;
+
+    vm_callstack_t *callstack;
+    size_t callstack_size;
+
+    vm_extern_fn_t *pfn;
+    size_t pfn_size;
+
+    void *alloc_user;
+    vm_alloc_t alloc;
+    vm_free_t free;
 };
 
-union vm_untyped_var
-{
-	int		i;
-	unsigned int	u;
-	float		f;
-	char		c;
-	void		*p;
-};
+//
+// Virtual Machine Error Codes
+//
+#define VM_ERROR_CODES \
+    X(vm_err_okay) /* Code ran without memory faults */ \
+    X(vm_err_stack_overflow) \
+    X(vm_err_stack_underflow) \
+    X(vm_err_callstack_overflow) \
+    X(vm_err_callstack_underflow) \
+    X(vm_err_code_segfault) /* The code pointer is out of bounds */ \
+    X(vm_err_segfault) /* Data segment was accessed out of bounds */ \
+    X(vm_err_stack_overrun) /* Stack is accessed out of bounds */ \
+    X(vm_err_illegal_instr) \
+    X(vm_err_invalid_pfn)
+#define X(ENUM) ENUM,
+typedef enum vm_error_code {
+    VM_ERROR_CODES
+} vm_error_code_t;
+#undef X
 
-struct vm_typed_var
-{
-	enum vm_varty type;
-	union vm_untyped_var data;
-};
+//
+// Captures the point at which the virual machine crashed and what happened
+//
+typedef struct vm_error {
+    vm_error_code_t errcode;
+    const uint8_t *instr_pointer;
+    int64_t program_counter;
+    size_t code_size;
+    uint8_t *stack_pointer;
+    size_t stack_size, callstack_len;
+} vm_error_t;
 
-struct vm_code
-{
-	unsigned int op		: 6;
-	unsigned int arg	: (sizeof(int)*8)-6;
-};
-
-enum vm_opcode
-{
-	OP_PUSH0,		// Push [arg] type set to 0 to stack
-	OP_PUSHNI,		// Push [arg] number of zero ints to stack
-	OP_POPN,		// Pop [arg] number off the stack
-	OP_REPUSH,		// Take [arg] from stack and copy it to top
-	OP_TRANSFER,		// Take top of stack and copy it to [arg] of stack
-	OP_NEWRC,		// New RC object of size [arg] (handle pushed to stack)
-	OP_ADDRC,		// Add 1 refrence counted object at top
-	OP_DECRC,		// Dec 1 from refrence counted object at top
-	OP_ADD,			// Add the 2 top stack vars together
-	OP_SUB,			// Subtract
-	OP_MUL,			// Multiply
-	OP_DIV,			// Divide
-	OP_STORE,		// Store top of stack to [arg] in VM data
-	OP_LOAD,		// Set top of stack data to VM data at [arg]
-	OP_STOREPTR,		// Store top to RAM from 2nd to top ptr
-	OP_LOADPTR,		// Push from RAM from top ptr (with type [arg])
-	OP_STORECPTR,		// Store top to RAM from 2nd to top ptr
-	OP_LOADCPTR,		// Push from RAM from top ptr (with type [arg])
-	OP_CALL,		// Call VM function at [arg]
-	OP_EXTERN_CALL,		// Call C function at stack top
-	OP_RET,			// Return to [arg] on stack, and shift everything down
-	OP_JMP,			// Jump to [arg]
-	OP_TAND,		// 1 or 0 if top are both non-0
-	OP_TOR,			// 1 or 0 if top are either non-0
-	OP_TEQ,			// 1 or 0 is top are eq to
-	OP_TNE,			// 1/0 on Not Equal
-	OP_TGT,			// 1/0 on Greater Than (works for u an i)
-	OP_TLT,			// 1/0 on Less Than (works for u an i)
-	OP_TGE,			// 1/0 on Greater than or Equal to (both u i)
-	OP_TLE,			// 1/0 on Less than or Equal to (both u i)
-	OP_AND,			// Bitwise And
-	OP_OR,			// Bitwise Or
-	OP_EOR,			// Bitwise Exclusive Or
-	OP_SHL,			// Bitwise Shift Left
-	OP_SHR,			// Bitwise Shift Right
-	OP_BEQ,			// Branch on stack top being 0
-	OP_BNE,			// Branch on stack top being non-0 to [arg]
-	OP_CAST,		// Cast to of stack to type [arg]
-};
-
-enum vm_error
-{
-	VM_ERR_OKAY,
-	VM_ERR_SEGFAULT,
-	VM_ERR_UNKNOWN_FUNC,
-	VM_ERR_STACK_OVERFLOW,
-	VM_ERR_STACK_UNDERFLOW,
-};
-
-struct vm_fn_entry
-{
-	char name[32];
-	int len;
-	int psl;
-	int loc;
-
-	unsigned int hash;
-};
-
-struct vm_ptr
-{
-	union vm_untyped_var *var;
-	int size;
-	int nrefs;
-};
-
-typedef struct vm_ptr *(*vm_heap_alloc)(int size);
-typedef void (*vm_heap_free)(struct vm_ptr *ptr);
-
-struct vm
-{
-	int pc;
-
-	struct vm_code *code;
-	int codelen;
-
-	struct vm_typed_var *stack, *stacktop, *stackbottom;
-
-	union vm_untyped_var *data;
-	int datalen;
-	vm_heap_alloc alloc;
-	vm_heap_free free;
-
-	struct vm_fn_entry *fn;
-	int fnlen, nfns;
-};
-
-typedef void (*vm_extern_pfn)(struct vm *vm);
-
-void vm_init(struct vm *vm,
-		struct vm_code *code,
-		int codelen,
-		vm_heap_alloc alloc,
-		vm_heap_free free,
-		union vm_untyped_var *data,
-		int datalen,
-		struct vm_typed_var *stack,
-		int stacklen,
-		struct vm_fn_entry *fn,
-		int fnlen);
-int vm_callfn(struct vm *vm, const char *fn);
-int vm_push(struct vm *vm, const struct vm_typed_var var);
-int vm_pop(struct vm *vm, struct vm_typed_var *var);
-int vm_addfn(struct vm *vm, const char *name, int namelen, int loc);
+vm_error_t vm_state_run(vm_state_t *state, uint32_t offs, bool reset);
+// Push instructions will align the data to the alignment they are supposed to be
+bool vm_state_push_i8(vm_state_t *state, int8_t x);
+bool vm_state_push_i16(vm_state_t *state, int16_t x);
+bool vm_state_push_i32(vm_state_t *state, int32_t x);
+bool vm_state_push_i64(vm_state_t *state, int64_t x);
+bool vm_state_push_u8(vm_state_t *state, uint8_t x);
+bool vm_state_push_u16(vm_state_t *state, uint16_t x);
+bool vm_state_push_u32(vm_state_t *state, uint32_t x);
+bool vm_state_push_u64(vm_state_t *state, uint64_t x);
+bool vm_state_push_ptr(vm_state_t *state, void *p);
+bool vm_state_push_f32(vm_state_t *state, float x);
+bool vm_state_push_f64(vm_state_t *state, double x);
+// Does no alignment
+bool vm_state_pop_i8(vm_state_t *state, int8_t *x);
+bool vm_state_pop_i16(vm_state_t *state, int16_t *x);
+bool vm_state_pop_i32(vm_state_t *state, int32_t *x);
+bool vm_state_pop_i64(vm_state_t *state, int64_t *x);
+bool vm_state_pop_u8(vm_state_t *state, uint8_t *x);
+bool vm_state_pop_u16(vm_state_t *state, uint16_t *x);
+bool vm_state_pop_u32(vm_state_t *state, uint32_t *x);
+bool vm_state_pop_u64(vm_state_t *state, uint64_t *x);
+bool vm_state_pop_ptr(vm_state_t *state, void **p);
+bool vm_state_pop_f32(vm_state_t *state, float *x);
+bool vm_state_pop_f64(vm_state_t *state, double *x);
+//#ifdef DEBUG
+#include <stdio.h>
+void vm_error_log(const vm_error_t err, FILE *out);
+vm_opcode_t vm_opcode_log(const uint8_t **code, FILE *out);
+//#endif
 
 #endif
 

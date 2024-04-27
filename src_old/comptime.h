@@ -446,7 +446,7 @@ static bool comptime_expr(comp_state_t *state,
         if (expr->token.type == tok_minus) {
             comp_type_t innerty;
             if (!comp_get_expr_type(state, &innerty, expr->child)) return false;
-            if (!comp_is_arithmetic_type(state, innerty.lvls[0])) {
+            if (!comp_is_arithmetic_type(state, innerty, 0)) {
                 comp_error(state, "Expected arithmetic type for unary '-'");
                 return false;
             }

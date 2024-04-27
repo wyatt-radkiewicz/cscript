@@ -1,86 +1,42 @@
 #ifndef _lexer_h_
 #define _lexer_h_
 
-#include <stddef.h>
+#include "common.h"
+#include "tokens.h"
 
-enum token_type
-{
-	// Special tokens
-	TOK_EOF,
-	TOK_IDENT,
-	TOK_LIT_STRING,
-	TOK_LIT_INTEGER,
-	TOK_LIT_DECIMAL,
+typedef struct lex_token_char {
+    uint32_t c32, bits;
+} lex_token_char_t;
 
-	// Keywords
-	TOK_AS,
-	TOK_FN,
-	TOK_IF,
-	TOK_ELSE,
-	TOK_WHILE,
-	TOK_LET,
-	TOK_TYPEDEF,
-	TOK_STRUCT,
-	TOK_CONTINUE,
-	TOK_BREAK,
-	TOK_RETURN,
-	TOK_CONST,
-	TOK_EXTERN,
+typedef struct lex_token {
+    lex_token_type_t type;
+    union {
+        strview_t str;
+        u8strview_t u8str;
+        lex_token_char_t chr;
+        uint64_t u64;
+        double f64;
+    } data;
+    int32_t line, chr;
+} lex_token_t;
 
-	TOK_TYPE_INT,
-	TOK_TYPE_UINT,
-	TOK_TYPE_FLOAT,
-	TOK_TYPE_CHAR,
-	TOK_TYPE_VOID,
+typedef struct lex_error {
+    bool okay;
+    int32_t line, chr;
+} lex_error_t;
 
-	// Operators
-	TOK_EQ,
-	TOK_SEMICOL,
-	TOK_COLON,
-	TOK_COMMA,
-	TOK_PLUS,
-	TOK_DASH,
-	TOK_STAR,
-	TOK_SLASH,
-	TOK_MODULO,
-	TOK_DOT,
-	TOK_ARROW,
-	TOK_BIT_AND,
-	TOK_BIT_OR,
-	TOK_BIT_XOR,
-	TOK_LSHIFT,
-	TOK_RSHIFT,
-	TOK_NOT,
-	TOK_BIT_NOT,
-	TOK_NOTEQ,
-	TOK_EQEQ,
-	TOK_GT,
-	TOK_LT,
-	TOK_GE,
-	TOK_LE,
-	TOK_AND,
-	TOK_OR,
+typedef struct lex_state {
+    const uint8_t *src;
+    int32_t line, chr;
 
-	TOK_LPAREN,
-	TOK_RPAREN,
-	TOK_LBRACK,
-	TOK_RBRACK,
-	TOK_LBRACE,
-	TOK_RBRACE,
+    lex_token_t tok, next;
+} lex_state_t;
 
-	TOK_MAX,
-};
+lex_state_t lex_state_init(const uint8_t *src);
+lex_error_t lex_state_next(lex_state_t *state);
 
-struct token
-{
-	enum token_type type;
-	const char *str;
-	size_t strlen;
-	int line;
-};
-
-void token_iter_init(struct token *token);
-int token_iter_next(const char **src, struct token *iter);
+#include <stdio.h>
+void lex_token_log(const lex_token_t *tok, FILE *out);
 
 #endif
 

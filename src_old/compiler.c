@@ -327,17 +327,49 @@ static bool comp_get_by_value(comp_state_t *state,
         && !var->lvalue) return true;
     uint32_t varsize, varalign = comp_get_typealign(state, var->type, 0);
     if (!comp_get_typesize(state, &varsize, var->type, 0)) return false;
+    uint8_t *codestart = state->code;
     emit_op_sub_stack(&state->code, &scope->stack_base, scope->stack_base - alignid(scope->stack_base, varalign));
     switch (var->loctype) {
     case var_loc_stack:
-        emit_op_load_stack(&state->code, &scope->stack_base, var->loc - scope->stack_base, varsize);
-        *copy = *var;
+        // Refrences are only stored on the stack, but might point to other locations in memory
+        if (var->type.lvls[0].type == type_ref) {
+            uint32_t innersize, inneralign = comp_get_typealign(state, var->type, 1);
+            if (!comp_get_typesize(state, &innersize, var->type, 1)) return false;
+            state->code = codestart;
+            emit_op_sub_stack(&state->code, &scope->stack_base, scope->stack_base - alignid(scope->stack_base, inneralign));
+            emit_op_load_stack(&state->code, &scope->stack_base, var->loc - scope->stack_base, varsize);
+            emit_op_load_stack(&state->code, &scope->stack_base, 0, varsize);
+            emit_op_imm_u64(&state->code, &scope->stack_base, 0x8000000000000000);
+            emit_op_and(&state->code, &scope->stack_base, true);
+            emit_op_bne(&state->code, &scope->stack_base, innersize & 0xffffff00 ? 19 : 16, true);
+
+            // Normal C pointer mode
+            emit_op_imm_u64(&state->code, &scope->stack_base, 0x7fffffffffffffff);
+            emit_op_and(&state->code, &scope->stack_base, true);
+            emit_op_load_indirect(&state->code, &scope->stack_base, innersize);
+            emit_op_jump(&state->code, 69);
+            
+            // Check for stack or data
+            emit_op_imm_u64(&state->code, &scope->stack_base, 0x7f00000000000000);
+            emit_op_and(&state->code, &scope->stack_base, true);
+            emit_op_imm_u64(&state->code, &scope->stack_base, 0x0100000000000000);
+            //emit_op_push_eq(&);
+
+
+            
+            *copy = *var;
+            if (!comp_remove_type_lvls(state, &copy->type, 1)) return false;
+        } else {
+            emit_op_load_stack(&state->code, &scope->stack_base, var->loc - scope->stack_base, varsize);
+            *copy = *var;
+        }
         copy->loc = scope->stack_base;
         copy->lvalue = false;
         copy->inscope = false;
         copy->scope_id = UINT32_MAX;
         break;
     case var_loc_data:
+        assert(var->type.lvls[0].type != type_ref);
         emit_op_load_data(&state->code, &scope->stack_base, var->loc, varsize);
         *copy = *var;
         copy->loc = scope->stack_base;
@@ -347,6 +379,7 @@ static bool comp_get_by_value(comp_state_t *state,
         copy->scope_id = UINT32_MAX;
         break;
     case var_loc_ram:
+        assert(var->type.lvls[0].type != type_ref);
         emit_op_imm_ptr(&state->code, &scope->stack_base, var->ptr);
         emit_op_load_data(&state->code, &scope->stack_base, var->loc, varsize);
         *copy = *var;
@@ -366,8 +399,8 @@ static bool comp_cast(comp_state_t *state,
                       comp_var_t *var,
                       const comp_type_t *type,
                       uint32_t topbefore) {
-    comp_type_t typeto = *type, typefrom = var->type;
     if (!comp_get_by_value(state, var, var)) return false;
+    comp_type_t typeto = *type, typefrom = var->type;
     if (!comp_get_underlying_typedef(state, &typeto)) return false;
     if (!comp_get_underlying_typedef(state, &typefrom)) return false;
     if (comp_types_exacteq(state, false, 0, typeto, typefrom)) {
@@ -1132,7 +1165,7 @@ static bool comp_stmt_if(comp_state_t *state,
     int32_t checkstack = scope->stack_base;
     comp_type_t exprty;
     if (!comp_get_expr_type(state, &exprty, node->child)) return false;
-    if (!comp_is_arithmetic_type(state, exprty.lvls[0])) {
+    if (!comp_is_arithmetic_type(state, exprty, 0)) {
         comp_error(state, "Expect arithmetic or boolean expression type for conditional");
         return false;
     }
@@ -1183,7 +1216,7 @@ static bool comp_stmt_while(comp_state_t *state,
     const int32_t checkstart = state->code - state->res->code;
     comp_type_t exprty;
     if (!comp_get_expr_type(state, &exprty, node->a)) return false;
-    if (!comp_is_arithmetic_type(state, exprty.lvls[0])) {
+    if (!comp_is_arithmetic_type(state, exprty, 0)) {
         comp_error(state, "Expect arithmetic or boolean expression type for conditional");
         return false;
     }
