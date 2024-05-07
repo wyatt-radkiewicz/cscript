@@ -1,6 +1,7 @@
 # CScript
 
-A freestanding C89 modern scripting language with just enough bells and whistles to make coding in it a breeze, while also making it safe and fast to run.
+A semi-freestanding, C11, single-header modern scripting language with just enough bells and whistles to make coding in it a breeze, while also making it safe and fast to run.
+* Note: Freestanding in this context meaning no malloc, printf, etc, but still uses sprintf, etc (A list of all semi-freestanding functions used will be included)
 
 CScript is a scripting language meant to be embedded into other apps. By default cscript comes with not many features:
 - No standard library
@@ -169,3 +170,5 @@ podtype		-> 'i8' | 'i16' | 'i32' | 'i64'
 # Token syntax
 # TODO
 ```
+
+
