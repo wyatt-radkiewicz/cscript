@@ -57,17 +57,17 @@ echo "\
 
 BUILD_MODE		:=$target
 ANSI_STRICT		:=$ansi_strict
+BUILD_DIR		:=build_$target
 
 # Library settings
 LIB				:=cunsc
-TARGET			 =build_$target/cuns/lib\$(LIB).so
+TARGET_DIR		:=\$(BUILD_DIR)/cuns
+TARGET			 =\$(TARGET_DIR)/lib\$(LIB).so
 SRC_DIR			:=src
-TARGET_DIR		:=build_$target/cuns
 
 # Test settings
-TEST_TARGET		 =build_$target/test/test_lib\$(LIB)
-TEST_DIR		:=tests
-TEST_TARGET_DIR	:=build_$target/test
+TEST_TARGET_DIR	:=\$(BUILD_DIR)/test
+TEST_TARGET		 =\$(TEST_TARGET_DIR)/test_lib\$(LIB)
 
 include build.mk
 " > Makefile

@@ -1,3 +1,6 @@
+/*
+ * Tests both internal and external functions of cscript.
+ */
 #include <stdlib.h>
 #include <stdio.h>
 

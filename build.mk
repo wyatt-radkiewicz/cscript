@@ -7,8 +7,8 @@
 #
 # Sources and objects
 #
-SRCS 		:=$(shell find $(SRC_DIR) -type f -name "*.c")
-TEST_SRCS	:=$(shell find $(TEST_DIR) -type f -name "*.c")
+SRCS		:=$(shell find $(SRC_DIR) -type f -name "*.c" | grep -v "test_")
+TEST_SRCS	:=$(shell find $(SRC_DIR) -type f -name "test_*.c")
 OBJS		:=$(patsubst %.c,$(TARGET_DIR)/%.o,$(SRCS))
 TEST_OBJS	:=$(patsubst %.c,$(TEST_TARGET_DIR)/%.o,$(TEST_SRCS))
 
@@ -36,18 +36,18 @@ CFLAGS_COMMON	+= -O2 -Wall -DNDEBUG
 endif
 
 # Test/library dependent compiler flags
-TEST_CFLAGS		:=$(CFLAGS_COMMON) -I$(TEST_DIR)
-CFLAGS			:=-fPIC -shared $(CFLAGS_COMMON) -ffreestanding
+TEST_CFLAGS	:=$(CFLAGS_COMMON)
+CFLAGS		:=-fPIC -shared $(CFLAGS_COMMON) -ffreestanding
 
 # Library flags
-LDFLAGS_COMMON  :=$(LDFLAGS) -lm
-LDFLAGS			:=$(LDFLAGS_COMMON) -fPIC -shared -ffreestanding
-TEST_LDFLAGS	:=$(LDFLAGS_COMMON) -L./$(TARGET_DIR) -l$(LIB)
+LDFLAGS_COMMON	:=$(LDFLAGS) -lm
+LDFLAGS		:=$(LDFLAGS_COMMON) -fPIC -shared -ffreestanding
+TEST_LDFLAGS	:=$(LDFLAGS_COMMON)
 
 # Misc. Changes
 ifeq ($(BUILD_MODE),dbg)
-CFLAGS			+= -rdynamic
-LDFLAGS			+= -rdynamic
+CFLAGS		+= -rdynamic
+LDFLAGS		+= -rdynamic
 endif
 
 #
@@ -57,7 +57,7 @@ endif
 #   $(2) The build directory
 #   $(3) CFLAGS to be used
 #   $(4) In the format of (obtained via gcc -M):
-#   	 file.o: prereqs
+#        file.o: prereqs
 #
 define COMPILE
 $(2)/$(dir $(1))$(4)
@@ -70,7 +70,7 @@ endef
 #
 lib: $(TARGET)
 $(TARGET): $(OBJS)
-	$(CC) -o $@ $(OBJS) $(LDFLAGS)
+	$(CC) -o $@ $^ $(LDFLAGS)
 
 $(foreach src,$(SRCS),$(eval $(call COMPILE,$(src),$(TARGET_DIR),$(CFLAGS),$(shell $(CC) $(CFLAGS) -M $(src) | tr -d '\n' | tr '\\' ' '))))
 
@@ -79,9 +79,8 @@ $(foreach src,$(SRCS),$(eval $(call COMPILE,$(src),$(TARGET_DIR),$(CFLAGS),$(she
 #
 test: $(TEST_TARGET)
 	LD_LIBRARY_PATH="$(LD_LIBRARY_PATH):$(shell pwd)/$(TARGET_DIR)" $(TEST_TARGET)
-$(TEST_TARGET): $(TEST_OBJS) $(TARGET)
-	$(CC) -o $@ $(TEST_OBJS) $(TEST_LDFLAGS)
-
+$(TEST_TARGET): $(OBJS) $(TEST_OBJS)
+	$(CC) -o $@ $^ $(TEST_LDFLAGS)
 
 $(foreach src,$(TEST_SRCS),$(eval $(call COMPILE,$(src),$(TEST_TARGET_DIR),$(TEST_CFLAGS),$(shell $(CC) $(TEST_CFLAGS) -M $(src) | tr -d '\n' | tr '\\' ' '))))
 
