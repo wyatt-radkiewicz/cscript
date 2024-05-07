@@ -1,35 +1,48 @@
 #!/bin/bash
 ###############################################################################
-# Eklipsed Craft
-# Minecraft Beta but it runs faster and is made using C (very based)
+# CScript configure file
 #
-# WARNING: This is free and I don't own Minecraft, this is just for fun okay
-#
-# This file configures make for you
+# Creates the Makefile for build.mk
 ###############################################################################
 
+# Options / Modes
 target=rel
-if [[ "$#" -eq 1 ]]; then
-	case $(echo "$1" | tr '[:upper:]' '[:lower:]') in
+ansi_strict=0
+
+# Get options
+for arg; do
+	case $(echo "$arg" | tr '[:upper:]' '[:lower:]') in
+		"--ansi-strict")
+			ansi_strict=1
+			;;
+	esac
+done
+
+# Get mode
+if [[ "$#" -gt 0 ]]; then
+	for last; do true; done
+	case $(echo "$last" | tr '[:upper:]' '[:lower:]') in
 		"release" | "r" | "rel")
 			target=rel
 			;;
 		"debug" | "dbg" | "d")
 			target=dbg
 			;;
-		"--delete-makefile")
+		"delete-makefile")
 			rm -f Makefile
 			exit 0
 			;;
 		*)
 			echo "\
-usage:
-./configure.sh [options] [mode]
-options:
-	--delete-makefile
+usage: configure.sh [options] <release | debug | delete-makefile>
+
 modes:
-	release -- for release mode
-	debug -- for debug mode"
+	release				For release mode
+	debug				For debug mode
+	delete-makefile		Deletes the generated makefile
+
+options:
+	--ansi-strict		Compiles in strict c89 mode"
 			exit 0
 			;;
 	esac
@@ -42,11 +55,19 @@ echo "\
 # This file is just a head to include compile.mk
 ###############################################################################
 
-# Variables
-TARGET    := $target
-BUILD_DIR := build_$target
-PROG      = build_$target/csi
-SRC_DIR   := src
+BUILD_MODE		:=$target
+ANSI_STRICT		:=$ansi_strict
+
+# Library settings
+LIB				:=cunsc
+TARGET			 =build_$target/cuns/lib\$(LIB).so
+SRC_DIR			:=src
+TARGET_DIR		:=build_$target/cuns
+
+# Test settings
+TEST_TARGET		 =build_$target/test/test_lib\$(LIB)
+TEST_DIR		:=tests
+TEST_TARGET_DIR	:=build_$target/test
 
 include build.mk
 " > Makefile
