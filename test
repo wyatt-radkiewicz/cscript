@@ -1,8 +1,11 @@
 #!/bin/bash
 
 # First test to see even if the header can be used freestanding (on your host machine)
+# Include twice to make sure that things that aren't supposed to be redefined are
 echo "\
 #define CSCRIPT_IMPL
+#include \"cscript.h\"
+#define NO_IMPL
 #include \"cscript.h\"
 
 int main(int argc, char **argv) {
@@ -10,18 +13,18 @@ int main(int argc, char **argv) {
 	return 0;
 }
 " > tmp.c
-gcc -std=c11 -ffreestanding -pedantic -Wall -Werror tmp.c -o tmp.out
+gcc -std=gnu11 -ffreestanding -pedantic -Wall -Werror tmp.c -o tmp.out
+rm -f tmp.c tmp.out
 if [[ "$?" -ne 0 ]]; then
 	echo "Can't compile with freestanding."
 	exit
 fi
-rm -f tmp.c tmp.out
 
 # Now compile and run tester.c
-gcc -std=c11 -pedantic -Wall -Werror tester.c -o tester
+gcc -O0 -g -std=gnu11 -pedantic -Wall -Werror tester.c -o tester
 if [[ "$?" -ne 0 ]]; then
 	echo "Couldn't compile the tester."
 	exit
 fi
-./tester
+./tester "$@"
 
