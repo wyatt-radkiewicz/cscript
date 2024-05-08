@@ -40,16 +40,12 @@ static void signal_handler(int signal) {
 	longjmp(test_jmpbuf, false);
 }
 
-//static void segv(void) {
-//	printf(RED"*FAILED* (SEGV)"DEFAULT"\n");
-//}
-
 #define TRYRUN(NAME, EXPR) {					\
 		printf("test: " #NAME "\t\t");			\
 		ntests++;								\
-		if (handle_segv && !setjmp(test_jmpbuf)) {\
-			segv();								\
-			goto jmpbuf_goto_##NAME;			\
+		if (handle_segv && setjmp(test_jmpbuf)) {	\
+			printf(RED"*FAILED* (SEGV)"DEFAULT"\n");\
+			goto jmpbuf_goto_##NAME;				\
 		}										\
 		if (EXPR) {								\
 			printf("PASSED!\n");				\
@@ -75,28 +71,15 @@ int main(int argc, char **argv) {
 	printf("================================================================================\n");
 	printf("=== cscript tester ===\n");
 	printf("================================================================================\n");
-
-	signal(SIGSEGV, signal_handler);
-
-	//const bool handle_segv = argc != 2 || strcmp(argv[1], "dbg");
+	
+	const bool handle_segv = argc != 2 || strcmp(argv[1], "dbg");
+	if (handle_segv) signal(SIGSEGV, signal_handler);
 
 	char *file = loadfile("examples/cscript.cun");
 	if (!file) return -1;
 
 	cs__state state;
-	printf("test: " "cs__state_init" "\t\t");			
-	ntests++;								
-	//if (handle_segv && !setjmp(test_jmpbuf)) {
-	//	segv();								
-	//	goto jmpbuf_goto_1;			
-	//}										
-	if (cs__state_init(&state, (cs_arenainf){ .fn = alloc })) {								
-		printf("PASSED!\n");				
-		ntests_passed++;					
-	} else {								
-		printf(RED"*FAILED*"DEFAULT"\n");	
-	}										
-//jmpbuf_goto_1:
+	TRYRUN(cs__state_init, cs__state_init(&state, (cs_arenainf){ .fn = alloc }));
 	free(file);
 
 	printf("tests passed %d/%d\n", ntests_passed, ntests);

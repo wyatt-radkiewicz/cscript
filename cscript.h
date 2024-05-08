@@ -187,7 +187,6 @@ typedef struct cs__pool {
 typedef struct cs__state {
 	cs_arenainf arena;
 	struct {
-		cs__pool errs;
 		cs__pool nodes;
 	} pool;
 
@@ -252,7 +251,6 @@ UNUSED static void cs__pool_free(cs__pool *const self, void *chunk) {
 }
 UNUSED static bool cs__state_init(cs__state *const self, const cs_arenainf arena) {
 	*self = (cs__state){ .arena = arena };
-	try(cs__pool_init(&self->pool.errs, arena, sizeof(cs_err), 16));
 	try(cs__pool_init(&self->pool.nodes, arena, sizeof(cs__node), 128));
 	return true;
 }
@@ -262,7 +260,7 @@ UNUSED static bool cs__state_init(cs__state *const self, const cs_arenainf arena
 static bool cse__state_doerr(cs__state *const self, const int lvl, const cs__strview ctx, const char *format, ...) {
 	bool ret = true;
 
-	cs_err *err = cs__pool_alloc(&self->pool.errs);
+	cs_err *err = self->arena.fn(self->arena.usr, sizeof(cs_err));
 	if (!err) {
 		err = self->errs.tail;
 		format = "Ran out of memory to allocate more errors! Aborting...\n";
