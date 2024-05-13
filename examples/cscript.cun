@@ -1,7 +1,7 @@
 ext print_str(s &[] char)
 
 fn copyarr<T>(from &[] T, to &[] mut T)
-	for i = 0..min(len(from), len(to))
+	for 0 min(len(from), len(to)) with i
 		to[i] = from[i]
 
 type StrBuf
@@ -9,7 +9,7 @@ type StrBuf
 	len usize
 
 fn strbuf_new(capacity usize) StrBuf
-	StrBuf{
+	return StrBuf{
 		str = alloc(StrBuf.str, capacity)
 		...
 	}

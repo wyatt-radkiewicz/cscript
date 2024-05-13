@@ -39,8 +39,8 @@ builtinfn	-> len | type | sizeof | alignof
 postfix		-> grouping postfixop | grouping
 postfixop	-> '->' | . | '(' arglist ')' | '[' expr ']'
 grouping	-> '(' expr ')' | '{' UP stmtlist DN '}' | factor
-factor		-> literal | initexpr
-literal		-> ident | number | string | character
+factor		-> literal | initexpr | ident
+literal		-> number | string | character
 initexpr	-> ident '{' UP initlist DN '}'
 arglist		-> arglist ',' expr | expr
 initlist	-> [initlist NEWLINE INDENT] initmember
