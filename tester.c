@@ -22,7 +22,7 @@ int main(int argc, char **argv) {
 		.error_writer	= printerr,
 	};
 
-	cs_type_t type = cs_eval_type(&state);
+	cs_type_t type = cs_eval(&state, true).type;
 
 	return 0;
 }

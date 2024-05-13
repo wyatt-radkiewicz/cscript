@@ -1160,7 +1160,7 @@ static cs_val_t cs__eval_postfix(cs_state_t *state, bool onlytype) {
 			return (cs_val_t){0};
 		}
 		state->src++;
-		if (cs_eval(state).loc == CS_LOC_ERR) {
+		if (cs_eval(state, onlytype).loc == CS_LOC_ERR) {
 			cs_error_with_context(state,
 			"Expected expression for array subscript.");
 			return (cs_val_t){0};
@@ -1170,7 +1170,7 @@ static cs_val_t cs__eval_postfix(cs_state_t *state, bool onlytype) {
 			"Expected expression for array subscript.");
 			return (cs_val_t){0};
 		}
-		if ((type = cs_remove_level(&val.type)).levels[0] == CS_TYPE_ERROR) {
+		if ((val.type = cs_remove_level(&val.type)).levels[0] == CS_TYPE_ERROR) {
 			cs_error_with_context(state,
 			"Expected array when indexing array!");
 			return (cs_val_t){0};
@@ -1265,7 +1265,7 @@ static cs_val_t cs__eval_prefix(cs_state_t *state, bool onlytype) {
 	return val;
 }
 
-static cs_val_t cs__eval_multiplicative(cs_state_t *state, bool onlytype, cs_type_t left) {
+static cs_val_t cs__eval_multiplicative(cs_state_t *state, bool onlytype, cs_val_t left) {
 	cs_parse_whitespace(state, false);
 	if (*state->src != '*' && *state->src != '/' && *state->src != '%') {
 		return cs__eval_prefix(state, onlytype);
@@ -1277,109 +1277,109 @@ static cs_val_t cs__eval_multiplicative(cs_state_t *state, bool onlytype, cs_typ
 		cs_val_t right = cs__eval_prefix(state, onlytype);
 		if (right.loc == CS_LOC_EOF) goto error;
 		if (right.loc == CS_LOC_ERR) goto error;
-		left = cs_arithmetic_conversion(&left, &right);
-		if (left.levels[0] == CS_TYPE_ERROR) goto error;
+		left.type = cs_arithmetic_conversion(&left.type, &right.type);
+		if (left.type.levels[0] == CS_TYPE_ERROR) goto error;
 		cs_parse_whitespace(state, false);
 	}
 	return left;
 error:
 	cs_error_with_context(state,
 	"Expected arithmetic types for left and right hand of multiplicative expr");
-	return (cs_type_t){ .levels[0] = CS_TYPE_ERROR };
+	return (cs_val_t){0};
 }
 
-static cs_type_t cs__eval_type_additive(cs_state_t *state, cs_type_t left) {
+static cs_val_t cs__eval_additive(cs_state_t *state, bool onlytype, cs_val_t left) {
 	cs_parse_whitespace(state, false);
 	if (*state->src != '+' && *state->src != '-') {
-		left = cs__eval_type_multiplicative(state, left);
+		left = cs__eval_multiplicative(state, onlytype, left);
 	}
 
 	while (*state->src == '+' || *state->src == '-') {
 		state->src++;
 		cs_parse_whitespace(state, false);
-		const cs_type_t nextleft = cs__eval_type_prefix(state);
-		cs_type_t right = cs__eval_type_multiplicative(state, nextleft);
-		if (right.levels[0] == CS_TYPE_EXPREND) right = nextleft;
-		if (right.levels[0] == CS_TYPE_ERROR) goto error;
-		left = cs_arithmetic_conversion(&left, &right);
-		if (left.levels[0] == CS_TYPE_ERROR) goto error;
+		const cs_val_t nextleft = cs__eval_prefix(state, onlytype);
+		cs_val_t right = cs__eval_multiplicative(state, onlytype, nextleft);
+		if (right.loc == CS_LOC_EOF) right = nextleft;
+		if (right.loc == CS_LOC_ERR) goto error;
+		left.type = cs_arithmetic_conversion(&left.type, &right.type);
+		if (left.type.levels[0] == CS_TYPE_ERROR) goto error;
 		cs_parse_whitespace(state, false);
 	}
 	return left;
 error:
 	cs_error_with_context(state,
 	"Expected arithmetic types for left and right hand of additive expr");
-	return (cs_type_t){ .levels[0] = CS_TYPE_ERROR };
+	return (cs_val_t){0};
 }
 
-static cs_type_t cs__eval_type_bitshift(cs_state_t *state, cs_type_t left) {
+static cs_val_t cs__eval_bitshift(cs_state_t *state, bool onlytype, cs_val_t left) {
 	cs_parse_whitespace(state, false);
 	if ((*state->src != '<' || state->src[1] != '<')
 		&& (*state->src != '>' || state->src[1] != '>')) {
-		left = cs__eval_type_additive(state, left);
+		left = cs__eval_additive(state, onlytype, left);
 	}
 
 	while ((*state->src == '<' && state->src[1] == '<')
 		|| (*state->src == '>' && state->src[1] == '>')) {
 		state->src += 2;
 		cs_parse_whitespace(state, false);
-		const cs_type_t nextleft = cs__eval_type_prefix(state);
-		cs_type_t right = cs__eval_type_additive(state, nextleft);
-		if (right.levels[0] == CS_TYPE_EXPREND) right = nextleft;
-		if (right.levels[0] == CS_TYPE_ERROR) goto error;
-		left = cs_arithmetic_conversion(&left, &right);
-		if (left.levels[0] == CS_TYPE_ERROR) goto error;
+		const cs_val_t nextleft = cs__eval_prefix(state, onlytype);
+		cs_val_t right = cs__eval_additive(state, onlytype, nextleft);
+		if (right.loc == CS_LOC_EOF) right = nextleft;
+		if (right.loc == CS_LOC_ERR) goto error;
+		left.type = cs_arithmetic_conversion(&left.type, &right.type);
+		if (left.type.levels[0] == CS_TYPE_ERROR) goto error;
 		cs_parse_whitespace(state, false);
 	}
 	return left;
 error:
 	cs_error_with_context(state,
 	"Expected arithmetic types for left and right hand of shift expr");
-	return (cs_type_t){ .levels[0] = CS_TYPE_ERROR };
+	return (cs_val_t){0};
 }
 
-static cs_type_t cs__eval_type_bit(cs_state_t *state, cs_type_t left, int oplvl) {
+static cs_val_t cs__eval_bit(cs_state_t *state, bool onlytype, cs_val_t left, int oplvl) {
 	const char opchars[] = { '|', '^', '&' };
 	cs_parse_whitespace(state, false);
 	if (*state->src != opchars[oplvl]) {
-		left = oplvl == 2 ? cs__eval_type_bitshift(state, left)
-			: cs__eval_type_bit(state, left, oplvl+1);
+		left = oplvl == 2 ? cs__eval_bitshift(state, onlytype, left)
+			: cs__eval_bit(state, onlytype, left, oplvl+1);
 	}
 
 	while (*state->src == opchars[oplvl]) {
 		state->src++;
 		cs_parse_whitespace(state, false);
-		const cs_type_t nextleft = cs__eval_type_prefix(state);
-		cs_type_t right = oplvl == 2 ? cs__eval_type_bitshift(state, nextleft)
-			: cs__eval_type_bit(state, nextleft, oplvl+1);
-		if (right.levels[0] == CS_TYPE_EXPREND) right = nextleft;
-		if (right.levels[0] == CS_TYPE_ERROR) goto error;
-		left = cs_arithmetic_conversion(&left, &right);
-		if (left.levels[0] == CS_TYPE_ERROR) goto error;
+		const cs_val_t nextleft = cs__eval_prefix(state, onlytype);
+		cs_val_t right = oplvl == 2 ? cs__eval_bitshift(state, onlytype, nextleft)
+			: cs__eval_bit(state, onlytype, nextleft, oplvl+1);
+		if (right.loc == CS_LOC_EOF) right = nextleft;
+		if (right.loc == CS_LOC_ERR) goto error;
+		left.type = cs_arithmetic_conversion(&left.type, &right.type);
+		if (left.type.levels[0] == CS_TYPE_ERROR) goto error;
 		cs_parse_whitespace(state, false);
 	}
 	return left;
 error:
 	cs_error_with_context(state,
 	"Expected arithmetic types for left and right hand of bitwise expr");
-	return (cs_type_t){ .levels[0] = CS_TYPE_ERROR };
+	return (cs_val_t){0};
 }
 
-static cs_type_t cs__eval_type_equality(cs_state_t *state, cs_type_t left, const bool rel) {
+static cs_val_t cs__eval_equality(cs_state_t *state, bool onlytype, cs_val_t left, const bool rel) {
 	cs_parse_whitespace(state, false);
 	if (rel) {
 		if (*state->src != '>' && *state->src != '<')
-			left = cs__eval_type_bit(state, left, 0);
+			left = cs__eval_bit(state, onlytype, left, 0);
 	} else {
 		if ((*state->src != '!' && *state->src != '=') || state->src[1] != '=')
-			left = cs__eval_type_equality(state, left, true);
+			left = cs__eval_equality(state, onlytype, left, true);
 	}
 
 	const cs_type_t boolty = (cs_type_t){ .levels[0] = CS_TYPE_BOOL };
 	while (rel && (*state->src == '>' || state->src[1] == '<')
 		|| (*state->src == '!' || *state->src == '=') && state->src[1] == '=') {
-		if (!cs_cast_type(state, &left, &boolty)) goto error;
-		left = boolty;
+		if (!cs_cast_type(state, &left.type, &boolty)) goto error;
+		left.type = boolty;
 		if (rel) {
 			state->src++;
 			if (*state->src == '=') state->src++;
@@ -1387,66 +1387,66 @@ static cs_type_t cs__eval_type_equality(cs_state_t *state, cs_type_t left, const
 			state->src += 2;
 		}
 		cs_parse_whitespace(state, false);
-		const cs_type_t nextleft = cs__eval_type_prefix(state);
-		cs_type_t right = rel ? cs__eval_type_bit(state, nextleft, 0)
-			: cs__eval_type_equality(state, nextleft, true);
-		if (right.levels[0] == CS_TYPE_EXPREND) right = nextleft;
-		if (right.levels[0] == CS_TYPE_ERROR) goto error;
-		right = cs_arithmetic_conversion(&left, &right);
-		if (right.levels[0] == CS_TYPE_ERROR) goto error;
-		if (!cs_cast_type(state, &right, &boolty)) goto error;
+		const cs_val_t nextleft = cs__eval_prefix(state, onlytype);
+		cs_val_t right = rel ? cs__eval_bit(state, onlytype, nextleft, 0)
+			: cs__eval_equality(state, onlytype, nextleft, true);
+		if (right.loc == CS_LOC_EOF) right = nextleft;
+		if (right.loc == CS_LOC_ERR) goto error;
+		right.type = cs_arithmetic_conversion(&left.type, &right.type);
+		if (right.type.levels[0] == CS_TYPE_ERROR) goto error;
+		if (!cs_cast_type(state, &right.type, &boolty)) goto error;
 		cs_parse_whitespace(state, false);
 	}
 	return left;
 error:
 	cs_error_with_context(state,
 	"Expected boolean types for left and right hand of bitwise expr");
-	return (cs_type_t){ .levels[0] = CS_TYPE_ERROR };
+	return (cs_val_t){0};
 }
 
-static cs_type_t cs__eval_type_logic(cs_state_t *state, cs_type_t left, const bool band) {
+static cs_val_t cs__eval_logic(cs_state_t *state, bool onlytype, cs_val_t left, const bool band) {
 	cs_parse_whitespace(state, false);
 	if (band) {
 		if (*state->src != '&' || state->src[1] != '&')
-			left = cs__eval_type_equality(state, left, false);
+			left = cs__eval_equality(state, onlytype, left, false);
 	} else {
 		if (*state->src != '|' || state->src[1] != '|')
-			left = cs__eval_type_logic(state, left, true);
+			left = cs__eval_logic(state, onlytype, left, true);
 	}
 
 	const char opchar = band ? '&' : '|';
 	const cs_type_t boolty = (cs_type_t){ .levels[0] = CS_TYPE_BOOL };
 	while (*state->src == opchar && state->src[1] == opchar) {
 		state->src += 2;
-		if (!cs_cast_type(state, &left, &boolty)) goto error;
-		left = boolty;
+		if (!cs_cast_type(state, &left.type, &boolty)) goto error;
+		left.type = boolty;
 		cs_parse_whitespace(state, false);
-		const cs_type_t nextleft = cs__eval_type_prefix(state);
-		cs_type_t right = band ? cs__eval_type_equality(state, nextleft, false)
-			: cs__eval_type_logic(state, nextleft, false);
-		if (right.levels[0] == CS_TYPE_EXPREND) right = nextleft;
-		if (right.levels[0] == CS_TYPE_ERROR) goto error;
-		if (!cs_cast_type(state, &right, &boolty)) goto error;
+		const cs_val_t nextleft = cs__eval_prefix(state, onlytype);
+		cs_val_t right = band ? cs__eval_equality(state, onlytype, nextleft, false)
+			: cs__eval_logic(state, onlytype, nextleft, false);
+		if (right.loc == CS_LOC_EOF) right = nextleft;
+		if (right.loc == CS_LOC_ERR) goto error;
+		if (!cs_cast_type(state, &right.type, &boolty)) goto error;
 		cs_parse_whitespace(state, false);
 	}
 	return left;
 error:
 	cs_error_with_context(state,
 	"Expected boolean types for left and right hand of boolean logic expr");
-	return (cs_type_t){ .levels[0] = CS_TYPE_ERROR };
+	return (cs_val_t){0};
 }
 
-static cs_type_t cs__eval_type_assign(cs_state_t *state) {
+static cs_val_t cs__eval_assign(cs_state_t *state, bool onlytype) {
 	cs_parse_whitespace(state, false);
-	cs_type_t left = cs__eval_type_prefix(state);
-	if (left.levels[0] == CS_TYPE_ERROR) {
-		return (cs_type_t){ .levels[0] = CS_TYPE_ERROR };
+	cs_val_t left = cs__eval_prefix(state, onlytype);
+	if (left.loc == CS_LOC_ERR) {
+		return (cs_val_t){0};
 	}
 	cs_parse_whitespace(state, false);
-	if (*state->src != '=') return cs__eval_type_logic(state, left, false);
+	if (*state->src != '=') return cs__eval_logic(state, onlytype, left, false);
 	state->src++;
-	if (cs_eval_type(state).levels[0] == CS_TYPE_ERROR) {
-		return (cs_type_t){ .levels[0] = CS_TYPE_ERROR };
+	if (cs_eval(state, onlytype).loc == CS_LOC_ERR) {
+		return (cs_val_t){0};
 	}
 	return left;
 }
@@ -1464,23 +1464,23 @@ static cs_val_t cs__eval_cond(cs_state_t *state, bool onlytype) {
 		return val;
 	}
 	cs_val_t ontrue = cs_eval(state, onlytype);
-	if (ontrue.levels[0] == CS_TYPE_ERROR) return val;
+	if (ontrue.loc == CS_LOC_ERR) return val;
 	cs_parse_whitespace(state, false);
 	if (!cs_expect_keyword(state, CS_STRVIEW("else"))) {
 		cs_error_with_context(state, "Expected \"else\"");
 		return val;
 	}
-	cs_type_t onfalse = cs_eval_type(state);
-	if (onfalse.levels[0] == CS_TYPE_ERROR) return type;
-	if ((type = cs_arithmetic_conversion(&ontrue, &onfalse)).levels[0] == CS_TYPE_ERROR) {
-		if (!(cs_types_eq(state, &ontrue, &onfalse, false))) {
+	cs_val_t onfalse = cs_eval(state, onlytype);
+	if (onfalse.loc == CS_LOC_ERR) return val;
+	if ((val.type = cs_arithmetic_conversion(&ontrue.type, &onfalse.type)).levels[0] == CS_TYPE_ERROR) {
+		if (!(cs_types_eq(state, &ontrue.type, &onfalse.type, false))) {
 			cs_error_with_context(state,
 			"Expect types of both sides to be equal!");
-			return (cs_type_t){ .levels[0] = CS_TYPE_ERROR };
+			return (cs_val_t){0};
 		}
-		type = ontrue;
+		val.type = ontrue.type;
 	}
-	return type;
+	return val;
 }
 
 static cs_val_t cs_eval(cs_state_t *state, bool onlytype) {
