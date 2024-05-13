@@ -1,0 +1,91 @@
+ext print_str(s &[] char)
+
+fn copyarr<T>(from &[] T, to &[] mut T)
+	for 0 min(len(from), len(to)) with i
+		to[i] = from[i]
+
+type StrBuf
+	str *[] mut char
+	len usize
+
+fn strbuf_new(capacity usize) StrBuf
+	return StrBuf{
+		str = alloc(StrBuf.str, capacity)
+		...
+	}
+fn strbuf_cat(buf &mut StrBuf, s &[] mut char)
+	if len(s) + buf.len > len(buf.str)
+		mut newbuf = alloc(StrBuf.str, len(buf.str) * 2)
+		copyarr(buf.str, newbuf)
+		buf.str = newbuf
+	copyarr(s, &mut buf.str[buf.len..])
+	buf.len = buf.len + len(s)
+
+
+-- FNV-1a hash algorithm for strings
+fn calc_hash<StrBuf>(buf &StrBuf) Hash
+	const OFFSET_BIAS = Hash{2166136261}
+	const PRIME = Hash{16777619}
+
+	mut hash = OFFSET_BIAS
+	mut i = 0
+	while i < (buf.len / 4 * 4)
+		hash = hash * PRIME
+		hash = hash ^ {
+			mut x = buf.str[i++]
+			x = x | buf.str[i++] << 8
+			x = x | buf.str[i++] << 16
+			x = x | buf.str[i++] << 24
+		}
+	if i == buf.len
+		return hash
+	hash = hash * PRIME
+	hash ^ {
+		mut x = 0
+		mut shift = 0
+		while i < buf.len
+			x = x | buf.str[i++] << shift
+			shift = shift + 8
+	}
+
+type Hash u32
+fn calc_hash<T>(x &T) Hash
+
+type HashElem<K, V>
+	used bool
+	psl u32
+	key K
+	val V
+type HashMap<K, V>
+	ents *[] HashElem<K, V>
+	nused usize
+
+fn hashmap_new<K, V>(capacity usize) HashMap<K, V>
+	HashMap<K, V>{
+		ents = alloc(HashMap.ents, capacity)
+		nused = 0
+	}
+-- Returns true if there was nothing in the map
+-- Returns false if it only set a pre-existing key
+-- Doesn't work fully yet
+fn hashmap_set<K, V>(map &mut HashMap<K, V>, key &K, val &V) bool
+	mut elem = HashElem{
+		key = key
+		val = val
+		...
+	}
+	mut i = calc_hash(key) % len(map.ents)
+	while map.ents[i].used
+		mut ent = &mut map.ents[i]
+		if elem.psl > ent
+			const tmp = elem
+			elem = ent
+			ent = tmp
+		elem.psl = elem.psl + 1
+		i = (i + 1) % len(map.ents)
+	map.ents[i] = elem
+	true
+			
+-- Array creation:
+-- const arr = initarr(type, len, default (optional))
+
