@@ -1,17 +1,12 @@
 # CScript
 
-A semi-freestanding, C11, single-header modern scripting language with just enough bells and whistles to make coding in it a breeze, while also making it safe and fast to run.
-* Note: Freestanding in this context meaning no malloc, printf, etc, but still uses sprintf, etc (A list of all semi-freestanding functions used will be included)
+A semi-freestanding, ANSI-C, single-header modern scripting language with just enough bells and whistles to make coding in it a breeze, while also making it safe and fast to run.
 
-CScript is a scripting language meant to be embedded into other apps. By default cscript comes with not many features:
+CScript is a scripting language meant to be embedded into other apps. By default cscript comes with very little:
 - No standard library
-- No sweep and mark garbage collection
-- Tagged Unions (enums)
-- Structs
-- Typedefs
-- Functions
-- Generics
-- Refrences
+- No sweep and mark garbage collection instead opting for a refrence counting implementation
+- Basic types: PODs, enums (as tagged unions), structs, typedefs, functions, refrences, slices, etc
+- Templated functions and types to make safe programming in a c-like language fun and not inferuating
 
 CScript also has no mark and sweep garbage collector. All allocations are explicit through the use of refrence counted pointers. Memory saftey is also enforced meaning the only vector that can be used to attack a cscript program is the foreign functions exposed to the script itself.
 
