@@ -150,6 +150,7 @@ BS_INLINE bs_bool bs_tolower(char x)
  */
 enum bs_token_type {
 	BS_TOKEN_EOF,
+	BS_TOKEN_NEWLINE,
 	BS_TOKEN_IDENT,
 	BS_TOKEN_NUMBER,
 	BS_TOKEN_STRING,
@@ -198,7 +199,10 @@ struct bs_token {
 /*
  * Based Script Types
  */
-enum {
+enum bs_typeclass {
+	/* Special void type */
+	BS_TYPE_VOID,
+
 	/* POD sentinal types */
 	BS_TYPE_BOOL,
 	BS_TYPE_CHAR,
@@ -234,6 +238,7 @@ enum {
 
 	/* User type sentinal types */
 	BS_TYPE_USER,
+	BS_TYPE_PFN,
 
 	/* Used only in specific circumstances */
 	BS_TYPE_TEMPLATE,
@@ -258,6 +263,7 @@ struct bs_struct {
 	struct bs_strview	*templates;
 	int			ntemplates;
 
+	struct bs_strview	*member_names;
 	bs_type_t		**members;
 	int			nmembers;
 };
@@ -269,8 +275,8 @@ struct bs_enum {
 	struct bs_strview	*templates;
 	int			ntemplates;
 
-	struct bs_strview	*variant_names;
-	struct bs_struct	**variant_fields;
+	/* The variants come in the form of structs that appear after this
+	 * user def */
 	int			nvariants;
 };
 
@@ -330,10 +336,9 @@ struct bs_typedef {
  */
 enum bs_userdef_class {
 	BS_USERDEF_STRUCT,
-	BS_USERDEF_ENUM,
+	BS_USERDEF_ENUMSTART,
 	BS_USERDEF_TYPEDEF,
-	BS_USERDEF_FN,
-	BS_USERDEF_PFN
+	BS_USERDEF_FN
 };
 
 /*
@@ -349,7 +354,6 @@ struct bs_userdef {
 		struct bs_enum		e;
 		struct bs_typedef	t;
 		struct bs_fn		f;
-		struct bs_fnsig		p;
 	} def;
 };
 
@@ -393,8 +397,8 @@ struct bs {
 	bs_byte			*code, *codebegin;
 	size_t			codelen;
 
-	/* Virtual stack and compile time stack */
-	int			stack, ctstack;
+	/* Virtual stack, compile time stack, and indent level */
+	int			stack, ctstack, indent;
 
 	/* This is the current scope basically */
 	struct bs_var		vars[256];
@@ -432,6 +436,9 @@ static void bs_init(struct bs *bs,
 	BS_MEMSET(bs, 0, sizeof(*bs));
 	bs->src		= src;
 	bs->srcall	= src;
+	bs->indent	= 0;
+	bs->stack	= 0;
+	bs->ctstack	= codelen;
 	bs->error_writer	= error_writer;
 	bs->error_writer_user	= error_writer_user;
 	bs->errors	= 0;
@@ -478,6 +485,23 @@ static void bs_consume_whitespace(struct bs_strview *src)
 }
 
 /*
+ * Returns the amount of indentation levels parsed
+ */
+static int bs_parse_indent(struct bs *bs) {
+	int nspaces = 0;
+
+	if (!bs->src.len) return 0;
+	while (*bs->src.str == ' ' || *bs->src.str == '\t') {
+		if (*bs->src.str == ' ') ++nspaces;
+		else nspaces += 4;
+		++bs->src.str;
+		if (!(--bs->src.len)) break;
+	}
+
+	return nspaces / 4;
+}
+
+/*
  * Source pointer will point after the output token after this finishes.
  * Will output errors if it fails.
  */
@@ -498,6 +522,7 @@ static int bs_advance_token(struct bs *bs)
 
 	switch (start) {
 	case '\0': bs->tok.type = BS_TOKEN_EOF; return 1;
+	case '\n': bs->tok.type = BS_TOKEN_NEWLINE; break;
 	case '(': bs->tok.type = BS_TOKEN_LPAREN; break;
 	case ')': bs->tok.type = BS_TOKEN_RPAREN; break;
 	case '[': bs->tok.type = BS_TOKEN_LBRACK; break;
@@ -666,12 +691,14 @@ static int bs_advance_token(struct bs *bs)
 	return 0;
 }
 
-static int bs_parse_type(struct bs *bs, bs_type_t **type, int *len);
+static int bs_parse_type(struct bs *bs, bs_type_t *type,
+			int *len, int max, int depth);
 
 /*
  * Parse non sentinal types like pointers and qualifiers like const and mut
  */
-static int bs_parse_type_levels(struct bs *bs, bs_type_t **type, int *len)
+static int bs_parse_type_levels(struct bs *bs, bs_type_t *type,
+				int *len, const int max, const int depth)
 {
 	/* String view constants */
 	static const struct bs_strview _bs_strview_const = { "const", 5 };
@@ -682,12 +709,12 @@ static int bs_parse_type_levels(struct bs *bs, bs_type_t **type, int *len)
 	int qualifiers_seen = 0;
 
 	if (bs_advance_token(bs)) return 1;
-	**type = 0;
+	type[*len] = 0;
 
 	while (BS_TRUE) {
 		const struct bs_strview backup = bs->src;
 
-		if (!*len) {
+		if (*len >= max) {
 			bs_emit_error(bs, "bs_parse_type_levels: Ran out of type buffer storage!");
 			return 1;
 		}
@@ -695,11 +722,11 @@ static int bs_parse_type_levels(struct bs *bs, bs_type_t **type, int *len)
 		if (bs->tok.type == BS_TOKEN_IDENT
 			&& bs_strview_eq(bs->tok.src, _bs_strview_const)) {
 			++qualifiers_seen;
-			**type &= ~BS_TYPE_FLAG_MUT;
+			type[*len] &= ~BS_TYPE_FLAG_MUT;
 		} else if (bs->tok.type == BS_TOKEN_IDENT
 			&& bs_strview_eq(bs->tok.src, _bs_strview_mut)) {
 			++qualifiers_seen;
-			**type |= BS_TYPE_FLAG_MUT;
+			type[*len] |= BS_TYPE_FLAG_MUT;
 		} else if (bs->tok.type == BS_TOKEN_STAR) {
 			if (bs_advance_token(bs)) return 1;
 			if (bs->tok.type == BS_TOKEN_LBRACK) {
@@ -708,14 +735,17 @@ static int bs_parse_type_levels(struct bs *bs, bs_type_t **type, int *len)
 					bs_emit_error(bs, "Pointer to arrays shouldn't have length embedded into type.");
 					return 1;
 				}
-				**type |= BS_TYPE_ARRPTR;
+				type[*len] |= BS_TYPE_ARRPTR;
 			} else {
 				bs->src = backup;
-				**type |= BS_TYPE_PTR;
+				type[*len] |= BS_TYPE_PTR;
 			}
 			qualifiers_seen = 0;
-			*(++(*type)) = 0;
-			--(*len);
+			if (*len >= max) {
+				bs_emit_error(bs, "Ran out of storage buffer space");
+				return -1;
+			}
+			type[++(*len)] = 0;
 		} else if (bs->tok.type == BS_TOKEN_BITAND) {
 			if (bs_advance_token(bs)) return 1;
 			if (bs->tok.type == BS_TOKEN_LBRACK) {
@@ -724,14 +754,17 @@ static int bs_parse_type_levels(struct bs *bs, bs_type_t **type, int *len)
 					bs_emit_error(bs, "Slices shouldn't have length embedded into type.");
 					return 1;
 				}
-				**type |= BS_TYPE_SLICE;
+				type[*len] |= BS_TYPE_SLICE;
 			} else {
 				bs->src = backup;
-				**type |= BS_TYPE_REF;
+				type[*len] |= BS_TYPE_REF;
 			}
 			qualifiers_seen = 0;
-			*(++(*type)) = 0;
-			--(*len);
+			if (*len >= max) {
+				bs_emit_error(bs, "Ran out of storage buffer space");
+				return -1;
+			}
+			type[++(*len)] = 0;
 		} else if (bs->tok.type == BS_TOKEN_LBRACK) {
 			BS_DBG_ASSERT(BS_FALSE, "TODO: Implement array length in types");
 		} else {
@@ -746,7 +779,8 @@ static int bs_parse_type_levels(struct bs *bs, bs_type_t **type, int *len)
 	}
 }
 
-static int bs_parse_type_integer(struct bs *bs, bs_type_t **out, int *len)
+static int bs_parse_type_integer(struct bs *bs, bs_type_t *type,
+				int *len, const int max, const int depth)
 {
 	/* String view constants */
 	static const struct bs_strview _bs_strview_usize = { "usize", 5 };
@@ -754,36 +788,35 @@ static int bs_parse_type_integer(struct bs *bs, bs_type_t **out, int *len)
 
 	const bs_bool u = bs->tok.src.str[0] == 'u';
 
-	if (!*len) {
+	if (*len >= max) {
 		bs_emit_error(bs, "bs_parse_type_integer: Ran out of type buffer storage!");
 		return 1;
 	}
 
 	if (bs->tok.src.len == 2 && bs->tok.src.str[1] == '8') {
-		*((*out)++) |= u ? BS_TYPE_U8 : BS_TYPE_I8;
+		type[(*len)++] |= u ? BS_TYPE_U8 : BS_TYPE_I8;
 	} else if (bs->tok.src.len == 3) {
 		if (bs->tok.src.str[1] == '1' && bs->tok.src.str[2] == '6') {
-			*((*out)++) |= u ? BS_TYPE_U16 : BS_TYPE_I16;
+			type[(*len)++] |= u ? BS_TYPE_U16 : BS_TYPE_I16;
 		} else if (bs->tok.src.str[1] == '3' && bs->tok.src.str[2] == '2') {
-			*((*out)++) |= u ? BS_TYPE_U32 : BS_TYPE_I32;
+			type[(*len)++] |= u ? BS_TYPE_U32 : BS_TYPE_I32;
 		}
 #ifndef BS_32BIT
 		else if (bs->tok.src.str[1] == '6' && bs->tok.src.str[2] == '4') {
-			*((*out)++) |= u ? BS_TYPE_U64 : BS_TYPE_I64;
+			type[(*len)++] |= u ? BS_TYPE_U64 : BS_TYPE_I64;
 		}
 #endif
 		else {
 			return -1;
 		}
 	} else if (bs_strview_eq(bs->tok.src, _bs_strview_usize)) {
-		*((*out)++) |= BS_TYPE_USIZE;
+		type[(*len)++] |= BS_TYPE_USIZE;
 	} else if (bs_strview_eq(bs->tok.src, _bs_strview_isize)) {
-		*((*out)++) |= BS_TYPE_ISIZE;
+		type[(*len)++] |= BS_TYPE_ISIZE;
 	} else {
 		return -1;
 	}
 
-	--(*len);
 	if (bs_advance_token(bs)) return 1;
 	return 0;
 }
@@ -792,7 +825,8 @@ static int bs_parse_type_integer(struct bs *bs, bs_type_t **out, int *len)
  * Get how many type levels/slots a type takes up. If len is 0, then the type is
  * not a correct type and is corrupted.
  */
-static int bs_type_len(const struct bs *bs, const bs_type_t *type, int rdepth)
+static int bs_type_len(const struct bs *bs, const bs_type_t *type,
+			const int rdepth)
 {
 	const struct bs_userdef *def;
 	int len = 0, ntemplates = 0;
@@ -821,7 +855,7 @@ compute_templates:
 	def = bs->defs + type[len++];
 	if (def->type == BS_USERDEF_STRUCT)
 		ntemplates = def->def.s.ntemplates;
-	else if (def->type == BS_USERDEF_ENUM)
+	else if (def->type == BS_USERDEF_ENUMSTART)
 		ntemplates = def->def.e.ntemplates;
 	BS_DBG_ASSERT(def->type != BS_USERDEF_TYPEDEF, "Can not have typedefs in finalized types!");
 
@@ -843,9 +877,9 @@ compute_templates:
  * Parsing typedefs is quite difficult since the templates of the typedef can
  * be used to further specialize the underlying struct/enum if there is one
  */
-static int bs_parse_type_template_typedef(struct bs *bs,
-				bs_type_t **type, int *len,
-				const struct bs_userdef *def)
+static int bs_parse_type_template_typedef(struct bs *bs, bs_type_t *type,
+				int *len, const int max,
+				const struct bs_userdef *def, const int rdepth)
 {
 	struct bs_strview tmpls[16], backup;
 	const bs_type_t *iter;
@@ -858,6 +892,8 @@ static int bs_parse_type_template_typedef(struct bs *bs,
 	}
 
 	/* ntmpls here is used as sort of a iterator index */
+	/* Here we are collecting up the source areas of every template
+	 * parameter */
 	i = 1;
 	tmpls[0] = bs->src;
 	depth = 1;
@@ -882,15 +918,13 @@ static int bs_parse_type_template_typedef(struct bs *bs,
 	while (BS_TRUE) {
 		switch (*iter & ~BS_TYPE_FLAG_MUT) {
 		case BS_TYPE_ARR:
-			if (!*len) goto storage_error;
-			--*len;
-			*(*type)++ = *iter++;
+			if (*len >= max) goto storage_error;
+			type[(*len)++] = *iter++;
 			/* Fall Through */
 		case BS_TYPE_PTR: case BS_TYPE_REF:
 		case BS_TYPE_ARRPTR: case BS_TYPE_SLICE:
-			if (!*len) goto storage_error;
-			--*len;
-			*(*type)++ = *iter++;
+			if (*len >= max) goto storage_error;
+			type[(*len)++] = *iter++;
 			continue;
 		default: break; /* Then continue to the break under here. */
 		}
@@ -898,19 +932,17 @@ static int bs_parse_type_template_typedef(struct bs *bs,
 	}
 
 	/* Now we use ntmpls to get the number of underlying templates */
-	if (!*len) goto storage_error;
-	--*len;
+	if (*len >= max) goto storage_error;
 	tmp = *iter++;
-	*(*type)++ = tmp;
+	type[(*len)++] = tmp;
 	if ((tmp & ~BS_TYPE_FLAG_MUT) != BS_TYPE_USER) {
 		return 0;
 	} else {
 		int id = *iter++;
-		if (!*len) goto storage_error;
-		--*len;
-		*(*type)++ = id;
+		if (*len >= max) goto storage_error;
+		type[(*len)++] = id;
 		switch (bs->defs[id].type) {
-		case BS_USERDEF_ENUM:
+		case BS_USERDEF_ENUMSTART:
 			ntmpls = bs->defs[id].def.e.ntemplates;
 			break;
 		case BS_USERDEF_STRUCT:
@@ -932,13 +964,11 @@ static int bs_parse_type_template_typedef(struct bs *bs,
 		}
 		switch (*iter & ~BS_TYPE_FLAG_MUT) {
 		case BS_TYPE_USER: case BS_TYPE_ARR:
-			if (!*len) goto storage_error;
-			--*len;
-			*(*type)++ = *iter++;
+			if (*len >= max) goto storage_error;
+			type[(*len)++] = *iter++;
 		default:
-			if (!*len) goto storage_error;
-			--*len;
-			*(*type)++ = *iter++;
+			if (*len >= max) goto storage_error;
+			type[(*len)++] = *iter++;
 			break;
 		case BS_TYPE_TEMPLATE:
 			++iter; /* Goto the template ID */
@@ -947,7 +977,8 @@ static int bs_parse_type_template_typedef(struct bs *bs,
 			BS_DBG_ASSERT(*iter < tmp + def->def.t.ntemplates,
 				"Template ID out of bounds");
 			bs->src = tmpls[*iter - tmp];
-			if (bs_parse_type(bs, type, len)) return -1;
+			if (bs_parse_type(bs, type, len, max, rdepth + 1))
+				return -1;
 			++iter;
 		}
 	}
@@ -958,40 +989,40 @@ storage_error:
 	bs_emit_error(bs, "bs_parse_type_typedef: Ran out of type buffer storage!");
 	return 1;
 }
-static int bs_parse_type_typedef(struct bs *bs, bs_type_t **type, int *len,
-				const struct bs_userdef *def)
+static int bs_parse_type_typedef(struct bs *bs, bs_type_t *type,
+				int *len, const int max,
+				const struct bs_userdef *def, const int rdepth)
 {
 	const bs_type_t *tdef;
 	int tmplen;
 
 	if (bs_advance_token(bs)) return -1;
 	if (def->def.t.ntemplates != 0)
-		return bs_parse_type_template_typedef(bs, type, len, def);
+		return bs_parse_type_template_typedef(bs, type, len, max,
+							def, rdepth);
 
 	if (!(tmplen = bs_type_len(bs, def->def.t.type, 0)))
 		return 1;
-	if (*len < tmplen) {
+	if (max - *len < tmplen) {
 		bs_emit_error(bs, "bs_parse_type_typedef: Ran out of type buffer storage!");
 		return 1;
 	}
 	tdef = def->def.t.type;
 
 	/* Keep previous modifier? */
-	*((*type)++) |= *tdef++ & ~BS_TYPE_FLAG_MUT;
-	--(*len);
+	type[(*len)++] |= *tdef++ & ~BS_TYPE_FLAG_MUT;
 	--tmplen;
-	BS_MEMCPY(*type, tdef, sizeof(*tdef) * tmplen);
-	*type += tmplen;
-	*len -= tmplen;
+	BS_MEMCPY(type + *len, tdef, sizeof(*tdef) * tmplen);
+	*len += tmplen;
 
 	return 0;
 }
 
-
 /*
  * Parse type and advance source pointer
  */
-static int bs_parse_type(struct bs *bs, bs_type_t **type, int *len)
+static int bs_parse_type(struct bs *bs, bs_type_t *type,
+			int *len, int max, int depth)
 {
 	/* String view constants */
 	static const struct bs_strview _bs_strview_char = { "char", 4 };
@@ -999,44 +1030,72 @@ static int bs_parse_type(struct bs *bs, bs_type_t **type, int *len)
 
 	int i, ntemplates;
 
-	if (!*len) goto storage_error;
-	if (bs_parse_type_levels(bs, type, len)) return 1;
-	if (bs->tok.type != BS_TOKEN_IDENT) {
-		bs_emit_error(bs, "Expected identifier when parsing type");
-		return 1;
+	if (depth >= BS_RECURRSION_LIMIT) {
+		bs_emit_error(bs, "Max recurrsion limit hit");
+		return -1;
+	}
+
+	if (*len >= max) goto storage_error;
+	if (bs_parse_type_levels(bs, type, len, max, depth)) return 1;
+	if (bs->tok.type != BS_TOKEN_IDENT
+		&& bs->tok.type != BS_TOKEN_LPAREN) {
+		if (*len >= max) goto storage_error;
+		type[(*len)++] = BS_TYPE_VOID;
+		return 0;
 	}
 
 	/* Search for normal POD sentinal types */
 	switch (bs->tok.src.str[0]) {
 	case 'u': case 'i':
-		if (!bs_parse_type_integer(bs, type, len)) return 0;
+		if (!bs_parse_type_integer(bs, type, len, max, depth))
+			return 0;
 		break;
 #ifndef BS_NOFP
 	case 'f':
 		if (bs->tok.src.len != 3) break;
 		if (bs->tok.src.str[1] == '3' && bs->tok.src.str[2] == '2') {
-			*((*type)++) |= BS_TYPE_F32;
-			--(*len);
+			type[(*len)++] |= BS_TYPE_F32;
+			if (bs_advance_token(bs)) return 1;
 			return 0;
 		}
 # ifndef BS_32BIT
 		else if (bs->tok.src.str[1] == '6'
 			&& bs->tok.src.str[2] == '4') {
-			*((*type)++) |= BS_TYPE_F64;
-			--(*len);
+			type[(*len)++] |= BS_TYPE_F64;
+			if (bs_advance_token(bs)) return 1;
 			return 0;
 		}
 # endif
 #endif
 	case 'c':
 		if (!bs_strview_eq(bs->tok.src, _bs_strview_char)) break;
-		*((*type)++) |= BS_TYPE_CHAR;
-		--(*len);
+		type[(*len)++] |= BS_TYPE_CHAR;
+		if (bs_advance_token(bs)) return 1;
 		return 0;
 	case 'b':
 		if (!bs_strview_eq(bs->tok.src, _bs_strview_bool)) break;
-		*((*type)++) |= BS_TYPE_BOOL;
-		--(*len);
+		type[(*len)++] |= BS_TYPE_BOOL;
+		if (bs_advance_token(bs)) return 1;
+		return 0;
+	}
+
+	/* Is it a pointer to function? */
+	if (bs->tok.type == BS_TOKEN_LPAREN) {
+		bs_type_t *pfnlen;
+
+		if (max - *len < 2) goto storage_error;
+		type[(*len)++] |= BS_TYPE_PFN;
+		pfnlen = type + (*len)++;
+
+		*pfnlen = 0;
+		while (bs->tok.type != BS_TOKEN_RPAREN) {
+			if (bs_parse_type(bs, type, len, max, depth + 1))
+				return -1;
+			++(*pfnlen);
+		}
+		if (bs_parse_type(bs, type, len, max, depth + 1))
+			return -1;
+
 		return 0;
 	}
 
@@ -1050,18 +1109,19 @@ static int bs_parse_type(struct bs *bs, bs_type_t **type, int *len)
 	for (i = 0; i < bs->ndefs; i++) {
 		if (!bs_strview_eq(bs->defs[i].name, bs->tok.src)) continue;
 		if (bs->defs[i].type == BS_USERDEF_TYPEDEF) {
-			if (bs_parse_type_typedef(bs, type, len, bs->defs + i))
+			if (bs_parse_type_typedef(bs, type, len, max,
+						bs->defs + i, depth))
 				return -1;
 			return 0;
 		}
-		if (bs->defs[i].type == BS_USERDEF_ENUM)
+		if (bs->defs[i].type == BS_USERDEF_ENUMSTART)
 			ntemplates = bs->defs[i].def.e.ntemplates;
 		else if (bs->defs[i].type == BS_USERDEF_STRUCT)
 			ntemplates = bs->defs[i].def.s.ntemplates;
-		if (*len < 2) goto storage_error;
-		*((*type)++) |= BS_TYPE_USER;
+		if (*len + 2 > max) goto storage_error;
+		type[(*len)++] |= BS_TYPE_USER;
 		BS_DBG_ASSERT(i <= 0xffff, "ID Passed max type ID!");
-		*((*type)++) = i;
+		type[(*len)++] = i;
 		goto parse_template_params;
 	}
 
@@ -1076,19 +1136,17 @@ static int bs_parse_type(struct bs *bs, bs_type_t **type, int *len)
 		if (!(tmp = bs_type_len(bs, tmpl, 0)))
 			return -1;
 
-		if (*len < tmp) goto storage_error;
+		if (max - *len > tmp) goto storage_error;
 		/* Keep previous modifier? */
-		*((*type)++) |= *tmpl++ & ~BS_TYPE_FLAG_MUT;
-		--(*len);
+		type[(*len)++] |= *tmpl++ & ~BS_TYPE_FLAG_MUT;
 		--tmp;
-		BS_MEMCPY(*type, tmpl, sizeof(*tmpl) * tmp);
-		*type += tmp;
-		*len -= tmp;
+		BS_MEMCPY(type + *len, tmpl, sizeof(*tmpl) * tmp);
+		*len += tmp;
 
 		return 0;
 	}
 
-	bs_emit_error(bs, "Use of undeclared identifier when parsing type");
+	bs_emit_error(bs, "Undeclared identifier");
 	return -1;
 
 parse_template_params:
@@ -1101,7 +1159,7 @@ parse_template_params:
 	}
 
 	while (bs->tok.type != BS_TOKEN_GT) {
-		if (bs_parse_type(bs, type, len)) return -1;
+		if (bs_parse_type(bs, type, len, max, depth + 1)) return -1;
 		if (bs->tok.type == BS_TOKEN_COMMA) {
 			if (bs_advance_token(bs)) return -1;
 		}
@@ -1112,6 +1170,129 @@ parse_template_params:
 storage_error:
 	bs_emit_error(bs, "bs_parse_type: Ran out of type buffer storage!");
 	return 1;
+}
+
+/*
+ * Parse type and advance source pointer
+ */
+static int bs_parse_typedef(struct bs *bs)
+{
+	static const struct bs_strview _type_str = { "type", 4 };
+
+	bs_type_t tmpl_types[16][2];
+	struct bs_strview *templates, backup;
+	struct bs_userdef *def;
+	int ntemplates;
+
+	const int tmplbase = bs->ntemplates;
+
+	BS_DBG_ASSERT(bs->tok.type == BS_TOKEN_IDENT
+		&& bs_strview_eq(bs->tok.src, _type_str), "Expected 'type'");
+
+	/* Allocate the definition */
+	if (bs->ndefs == BS_ARRSIZE(bs->defs)) {
+		bs_emit_error(bs, "Hit def buffer max");
+		return -1;
+	}
+	def = bs->defs + bs->ndefs++;
+
+	if (bs_advance_token(bs)) return -1;
+	def->name = bs->tok.src;
+	backup = bs->src;
+	if (bs_advance_token(bs)) return -1;
+
+	/* Parse template parameters */
+	templates = NULL;
+	ntemplates = 0;
+	if (bs->tok.type == BS_TOKEN_LT) {
+		templates = bs->strbuf + bs->strbuflen;
+		if (bs_advance_token(bs)) return -1;
+		while (bs->tok.type != BS_TOKEN_GT) {
+			if (bs->strbuflen == BS_ARRSIZE(bs->strbuf)) {
+				bs_emit_error(bs, "Hit string buffer max");
+				return -1;
+			}
+			if (ntemplates == BS_ARRSIZE(tmpl_types)) {
+				bs_emit_error(bs, "Hit max templates");
+				return -1;
+			}
+			if (bs->ntemplates == BS_ARRSIZE(bs->templates)) {
+				bs_emit_error(bs, "Hit max active templates");
+				return -1;
+			}
+			bs->templates[bs->ntemplates].nameid = bs->strbuflen;
+			tmpl_types[ntemplates][0] = BS_TYPE_TEMPLATE;
+			tmpl_types[ntemplates][1] = bs->strbuflen;
+			bs->templates[bs->ntemplates++].impl =
+				tmpl_types[ntemplates++];
+			bs->strbuf[bs->strbuflen++] = bs->tok.src;
+			if (bs_advance_token(bs)) return -1;
+			if (bs->tok.type == BS_TOKEN_COMMA
+				&& bs_advance_token(bs)) return -1;
+		}
+		backup = bs->src;
+		if (bs_advance_token(bs)) return -1;
+	}
+
+	/* Do a typedef */
+	if (bs->tok.type != BS_TOKEN_NEWLINE) {
+		int len = 0;
+		bs->src = backup;
+		def->def.t.type = bs->typebuf + bs->typebuflen;
+		if (bs_parse_type(bs, def->def.t.type, &len,
+				BS_ARRSIZE(bs->typebuf) - bs->typebuflen, 0))
+			return -1;
+		bs->typebuflen += len;
+		def->type = BS_USERDEF_TYPEDEF;
+		def->def.t.templates = templates;
+		def->def.t.ntemplates = ntemplates;
+
+		bs->ntemplates = tmplbase;
+		return 0;
+	}
+	
+	/* Else, do a struct */
+	bs->indent = 1;
+	if (bs_parse_indent(bs) != bs->indent) {
+		bs_emit_error(bs, "Ident level incorrect after struct definition");
+		return -1;
+	}
+
+	def->type = BS_USERDEF_STRUCT;
+	def->def.s.templates = templates;
+	def->def.s.ntemplates = ntemplates;
+	def->def.s.members = bs->types + bs->ntypes;
+	def->def.s.member_names = bs->strbuf + bs->strbuflen;
+	def->def.s.nmembers = 0;
+	do {
+		int len = 0;
+
+		if (bs_advance_token(bs)) return -1;
+		if (bs->tok.type != BS_TOKEN_IDENT) {
+			bs_emit_error(bs, "Expected struct field name");
+			return -1;
+		}
+		if (bs->strbuflen == BS_ARRSIZE(bs->strbuf)) {
+			bs_emit_error(bs, "String buffer max hit");
+			return -1;
+		}
+		if (bs->ntypes == BS_ARRSIZE(bs->types)) {
+			bs_emit_error(bs, "Type pointer buffer max hit");
+			return -1;
+		}
+
+		bs->strbuf[bs->strbuflen++] = bs->tok.src;
+		bs->types[bs->ntypes] = bs->typebuf + bs->typebuflen;
+		if (bs_parse_type(bs, bs->types[bs->ntypes++], &len,
+				BS_ARRSIZE(bs->typebuf) - bs->typebuflen, 0))
+			return -1;
+		bs->typebuflen += len;
+		++def->def.s.nmembers;
+	} while (bs_parse_indent(bs) == bs->indent);
+
+	bs->ntemplates = tmplbase;
+	bs->indent = 0;
+	return 0;
 }
 
 #endif
