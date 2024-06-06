@@ -6,9 +6,7 @@
 #include "bs.h"
 
 static const char *const src =
-"type Point\n"
-"    x i32\n"
-"    y i32\n";
+"6 + 9.0";
 
 void print_err(void *user, int line, int col, const char *msg)
 {
@@ -20,6 +18,7 @@ int main(int argc, char **argv)
 	bs_byte	code[512];
 
 	struct bs bs;
+	struct bs_var testvar;
 	int len = 0;
 
 	struct bs_strview src_strview;
@@ -27,13 +26,10 @@ int main(int argc, char **argv)
 	src_strview.str = src;
 	src_strview.len = strlen(src);
 	bs_init(&bs, src_strview, print_err, NULL, NULL, 0, code, sizeof(code));
+	bs.mode = BS_MODE_COMPTIME;
 
-	bs_advance_token(&bs);
-	bs_parse_typedef(&bs);
-
-	/*bs_parse_type(&bs, bs.typebuf, &len,
-			BS_ARRSIZE(bs.typebuf) - bs.typebuflen, 0);
-	bs.typebuflen += len;*/
+	bs_advance_token(&bs, BS_TRUE);
+	bs_parse_expr(&bs, BS_PREC_FULL, &testvar, 0);
 
 	return 0;
 }

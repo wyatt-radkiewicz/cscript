@@ -4,6 +4,7 @@
 #ifndef _BS_H_
 #define _BS_H_
 
+#include <limits.h>
 #include <stddef.h>
 
 typedef void(*bs_error_writer_t)(void *user, int line,
@@ -250,6 +251,90 @@ enum bs_typeclass {
 
 };
 
+#ifndef BS_PTR32
+# if _WIN32 || _WIN64
+#  if _WIN64
+#   define BS_PTR32 0
+#  else
+#   define BS_PTR32 1
+#  endif
+# elif __GNUC__
+#  if __x86_64__ || __ppc64__ || __aarch64__
+#   define BS_PTR32 0
+#  else
+#   define BS_PTR32 1
+#  endif
+# elif UINTPTR_MAX > UINT_MAX
+#  define BS_PTR32 0
+# else
+#  define BS_PTR32 1
+# endif
+#endif
+
+#ifdef BS_32BIT
+# define BS_INT BS_TYPE_I32
+# define BS_UINT BS_TYPE_U32
+typedef signed int bs_int;
+typedef unsigned int bs_uint;
+# ifndef BS_NOFP
+typedef float bs_float;
+#  define BS_FLOAT BS_TYPE_F32
+# endif
+# define BS_INT_MAX ((bs_int)0x7fffffff)
+# define BS_INT_MIN ((bs_int)-0x80000000)
+# define BS_UINT_MAX ((bs_uint)0xffffffff)
+# define BS_UINT_MIN ((bs_uint)0)
+# define BS_INT_ALIGN 4
+# define BS_MAX_ALIGN 4
+#else
+# define BS_INT_MAX ((bs_int)0x7fffffffffffffff)
+# define BS_INT_MIN ((bs_int)-0x8000000000000000)
+# define BS_UINT_MAX ((bs_uint)0xffffffffffffffff)
+# define BS_UINT_MIN ((bs_uint)0)
+# define BS_INT BS_TYPE_I64
+# define BS_UINT BS_TYPE_U64
+# define BS_INT_ALIGN 8
+# define BS_MAX_ALIGN 8
+# ifndef BS_NOFP
+typedef double bs_float;
+#  define BS_FLOAT BS_TYPE_F64
+# endif
+# if __STDC_VERSION__ >= 199901L
+#  include <stdint.h>
+typedef int64_t bs_int;
+typedef uint64_t bs_uint;
+# elif defined(__GNUC__)
+typedef signed long bs_int;
+typedef unsigned long bs_uint;
+# elif defined(_WIN32) || defined (_WIN64)
+#  include <Windows.h>
+typedef LONG64 bs_int;
+typedef DWORD64 bs_uint;
+# else
+#  error "Can't find 64-bit type for 64-bit mode in Based Script header file!"
+# endif
+#endif
+
+#if BS_PTR32
+typedef signed int bs_iptr;
+typedef unsigned int bs_uptr;
+#else
+# if __STDC_VERSION__ >= 199901L
+#  include <stdint.h>
+typedef intptr_t bs_iptr;
+typedef uintptr_t bs_uptr;
+# elif defined(__GNUC__)
+typedef signed long bs_iptr;
+typedef unsigned long bs_uptr;
+# elif defined(_WIN32) || defined (_WIN64)
+#  include <Windows.h>
+typedef LONG64 bs_iptr;
+typedef DWORD64 bs_uptr;
+# else
+#  error "Can't find 64-bit type for 64-bit mode in Based Script header file!"
+# endif
+#endif
+
 /*
  * Types are simply sentinal-terminated pointers and each level of a type
  * is a short.
@@ -361,22 +446,29 @@ struct bs_userdef {
  * Location of a Based Script object in memory
  */
 enum {
+	BS_LOC_TYPEONLY,/* The type information is only relevant */
 	BS_LOC_PCREL,	/* Relative to the interpreter program counter */
 	BS_LOC_SPREL,	/* Relative to the stack */
 	BS_LOC_CODEREL,	/* Relative to the start of the code segment */
 	BS_LOC_ABS,	/* Absolute memory addess */
+	BS_LOC_COMPTIME,/* Comptime code space */
 
 	/* Flag to indicate indirection of location */
 	BS_LOC_FLAG_IND = 0x80	
 };
+
+#ifndef BS_VARSIZE
+# define BS_VARSIZE 23
+#endif
 
 /*
  * Contains type, name, and location in memory of a variable. It can also be an
  * rvalue or generally unnamed.
  */
 struct bs_var {
-	bs_byte			loc;
-	bs_type_t		*type;
+	bs_byte			locty;
+	int			loc;
+	bs_type_t		type[BS_VARSIZE];
 	struct bs_strview	name;
 };
 
@@ -389,16 +481,29 @@ struct bs_tmpl_impl {
 };
 
 /*
+ * What code mode the parser state is in. This can change so that one can see
+ * if we are only finding the type of a part of code, compiling in in comptime,
+ * or compiling it for runtime code.
+ */
+enum bs_mode {
+	BS_MODE_OFF,
+	BS_MODE_DEFAULT,
+	BS_MODE_COMPTIME
+};
+
+/*
  * Main Based Script State
  */
 struct bs {
 	struct bs_token		tok;
 	struct bs_strview	src, srcall;
-	bs_byte			*code, *codebegin;
+	bs_byte			*code, *codebegin, *codeend;
 	size_t			codelen;
 
 	/* Virtual stack, compile time stack, and indent level */
-	int			stack, ctstack, indent;
+	int			stack, indent;
+	bs_byte			*ctstack;
+	enum bs_mode		mode;
 
 	/* This is the current scope basically */
 	struct bs_var		vars[256];
@@ -438,7 +543,8 @@ static void bs_init(struct bs *bs,
 	bs->srcall	= src;
 	bs->indent	= 0;
 	bs->stack	= 0;
-	bs->ctstack	= codelen;
+	bs->codeend	= code + codelen;
+	bs->ctstack	= bs->codeend;
 	bs->error_writer	= error_writer;
 	bs->error_writer_user	= error_writer_user;
 	bs->errors	= 0;
@@ -476,9 +582,11 @@ static void bs_emit_error(struct bs *bs, const char *msg) {
 /*
  * Also consumes indents but NOT newlines
  */
-static void bs_consume_whitespace(struct bs_strview *src)
+static void bs_consume_whitespace(struct bs_strview *src, bs_bool skip_newline)
 {
-	while ((src->str[0] == ' ' || src->str[0] == '\t') && src->len) {
+	while ((src->str[0] == ' ' || src->str[0] == '\t'
+		|| (skip_newline && src->str[0] == '\n'))
+		&& src->len) {
 		++src->str;
 		--src->len;
 	}
@@ -505,11 +613,11 @@ static int bs_parse_indent(struct bs *bs) {
  * Source pointer will point after the output token after this finishes.
  * Will output errors if it fails.
  */
-static int bs_advance_token(struct bs *bs)
+static int bs_advance_token(struct bs *bs, bs_bool skip_newline)
 {
 	char start;
 
-	bs_consume_whitespace(&bs->src);
+	bs_consume_whitespace(&bs->src, skip_newline);
 
 	bs->tok.type = BS_TOKEN_EOF;
 	bs->tok.src.str = bs->src.str;
@@ -667,8 +775,8 @@ static int bs_advance_token(struct bs *bs)
 	case '5': case '6': case '7': case '8': case '9':
 		bs->tok.type = BS_TOKEN_NUMBER;
 		while (bs_isdigit(bs->src.str[0]) || bs->src.str[0] == 'x'
-			|| bs_tolower(bs->src.str[0]) >= 'a'
-			|| bs_tolower(bs->src.str[0]) <= 'f'
+			|| (bs_tolower(bs->src.str[0]) >= 'a'
+			&& bs_tolower(bs->src.str[0]) <= 'f')
 			|| bs->src.str[0] == '.') {
 			++bs->src.str;
 			++bs->tok.src.len;
@@ -708,7 +816,7 @@ static int bs_parse_type_levels(struct bs *bs, bs_type_t *type,
 	 * that looks like "const mut &[] u8" */
 	int qualifiers_seen = 0;
 
-	if (bs_advance_token(bs)) return 1;
+	if (bs_advance_token(bs, BS_FALSE)) return 1;
 	type[*len] = 0;
 
 	while (BS_TRUE) {
@@ -728,9 +836,9 @@ static int bs_parse_type_levels(struct bs *bs, bs_type_t *type,
 			++qualifiers_seen;
 			type[*len] |= BS_TYPE_FLAG_MUT;
 		} else if (bs->tok.type == BS_TOKEN_STAR) {
-			if (bs_advance_token(bs)) return 1;
+			if (bs_advance_token(bs, BS_FALSE)) return 1;
 			if (bs->tok.type == BS_TOKEN_LBRACK) {
-				if (bs_advance_token(bs)) return 1;
+				if (bs_advance_token(bs, BS_FALSE)) return 1;
 				if (bs->tok.type != BS_TOKEN_RBRACK) {
 					bs_emit_error(bs, "Pointer to arrays shouldn't have length embedded into type.");
 					return 1;
@@ -747,9 +855,9 @@ static int bs_parse_type_levels(struct bs *bs, bs_type_t *type,
 			}
 			type[++(*len)] = 0;
 		} else if (bs->tok.type == BS_TOKEN_BITAND) {
-			if (bs_advance_token(bs)) return 1;
+			if (bs_advance_token(bs, BS_FALSE)) return 1;
 			if (bs->tok.type == BS_TOKEN_LBRACK) {
-				if (bs_advance_token(bs)) return 1;
+				if (bs_advance_token(bs, BS_FALSE)) return 1;
 				if (bs->tok.type != BS_TOKEN_RBRACK) {
 					bs_emit_error(bs, "Slices shouldn't have length embedded into type.");
 					return 1;
@@ -771,7 +879,7 @@ static int bs_parse_type_levels(struct bs *bs, bs_type_t *type,
 			return 0;
 		}
 
-		if (bs_advance_token(bs)) return 1;
+		if (bs_advance_token(bs, BS_FALSE)) return 1;
 		if (qualifiers_seen > 1) {
 			bs_emit_error(bs, "Only one qualifier is expected when parsing type!");
 			return 1;
@@ -817,7 +925,7 @@ static int bs_parse_type_integer(struct bs *bs, bs_type_t *type,
 		return -1;
 	}
 
-	if (bs_advance_token(bs)) return 1;
+	if (bs_advance_token(bs, BS_FALSE)) return 1;
 	return 0;
 }
 
@@ -898,7 +1006,7 @@ static int bs_parse_type_template_typedef(struct bs *bs, bs_type_t *type,
 	tmpls[0] = bs->src;
 	depth = 1;
 	while (depth) {
-		if (bs_advance_token(bs)) return -1;
+		if (bs_advance_token(bs, BS_FALSE)) return -1;
 		if (bs->tok.type == BS_TOKEN_LT) ++depth;
 		if (bs->tok.type == BS_TOKEN_GT) --depth;
 		if (bs->tok.type == BS_TOKEN_COMMA && depth == 1) {
@@ -910,7 +1018,7 @@ static int bs_parse_type_template_typedef(struct bs *bs, bs_type_t *type,
 		}
 	}
 	backup = bs->src;
-	if (bs_advance_token(bs)) return -1; /* Get past last > */
+	if (bs_advance_token(bs, BS_FALSE)) return -1; /* Get past last > */
 
 	/* Skip to where the template type list SHOULD be for the typedef
 	 * while also copying the type over */
@@ -996,7 +1104,7 @@ static int bs_parse_type_typedef(struct bs *bs, bs_type_t *type,
 	const bs_type_t *tdef;
 	int tmplen;
 
-	if (bs_advance_token(bs)) return -1;
+	if (bs_advance_token(bs, BS_FALSE)) return -1;
 	if (def->def.t.ntemplates != 0)
 		return bs_parse_type_template_typedef(bs, type, len, max,
 							def, rdepth);
@@ -1055,14 +1163,14 @@ static int bs_parse_type(struct bs *bs, bs_type_t *type,
 		if (bs->tok.src.len != 3) break;
 		if (bs->tok.src.str[1] == '3' && bs->tok.src.str[2] == '2') {
 			type[(*len)++] |= BS_TYPE_F32;
-			if (bs_advance_token(bs)) return 1;
+			if (bs_advance_token(bs, BS_FALSE)) return 1;
 			return 0;
 		}
 # ifndef BS_32BIT
 		else if (bs->tok.src.str[1] == '6'
 			&& bs->tok.src.str[2] == '4') {
 			type[(*len)++] |= BS_TYPE_F64;
-			if (bs_advance_token(bs)) return 1;
+			if (bs_advance_token(bs, BS_FALSE)) return 1;
 			return 0;
 		}
 # endif
@@ -1070,12 +1178,12 @@ static int bs_parse_type(struct bs *bs, bs_type_t *type,
 	case 'c':
 		if (!bs_strview_eq(bs->tok.src, _bs_strview_char)) break;
 		type[(*len)++] |= BS_TYPE_CHAR;
-		if (bs_advance_token(bs)) return 1;
+		if (bs_advance_token(bs, BS_FALSE)) return 1;
 		return 0;
 	case 'b':
 		if (!bs_strview_eq(bs->tok.src, _bs_strview_bool)) break;
 		type[(*len)++] |= BS_TYPE_BOOL;
-		if (bs_advance_token(bs)) return 1;
+		if (bs_advance_token(bs, BS_FALSE)) return 1;
 		return 0;
 	}
 
@@ -1151,7 +1259,7 @@ static int bs_parse_type(struct bs *bs, bs_type_t *type,
 
 parse_template_params:
 	/* Add additional template parameters */
-	if (bs_advance_token(bs)) return -1;
+	if (bs_advance_token(bs, BS_FALSE)) return -1;
 	if (ntemplates == 0) return 0;
 	if (bs->tok.type != BS_TOKEN_LT) {
 		bs_emit_error(bs, "Expected template parameter list");
@@ -1161,10 +1269,10 @@ parse_template_params:
 	while (bs->tok.type != BS_TOKEN_GT) {
 		if (bs_parse_type(bs, type, len, max, depth + 1)) return -1;
 		if (bs->tok.type == BS_TOKEN_COMMA) {
-			if (bs_advance_token(bs)) return -1;
+			if (bs_advance_token(bs, BS_FALSE)) return -1;
 		}
 	}
-	if (bs_advance_token(bs)) return -1;
+	if (bs_advance_token(bs, BS_FALSE)) return -1;
 	else return 0;
 
 storage_error:
@@ -1196,17 +1304,17 @@ static int bs_parse_typedef(struct bs *bs)
 	}
 	def = bs->defs + bs->ndefs++;
 
-	if (bs_advance_token(bs)) return -1;
+	if (bs_advance_token(bs, BS_FALSE)) return -1;
 	def->name = bs->tok.src;
 	backup = bs->src;
-	if (bs_advance_token(bs)) return -1;
+	if (bs_advance_token(bs, BS_FALSE)) return -1;
 
 	/* Parse template parameters */
 	templates = NULL;
 	ntemplates = 0;
 	if (bs->tok.type == BS_TOKEN_LT) {
 		templates = bs->strbuf + bs->strbuflen;
-		if (bs_advance_token(bs)) return -1;
+		if (bs_advance_token(bs, BS_FALSE)) return -1;
 		while (bs->tok.type != BS_TOKEN_GT) {
 			if (bs->strbuflen == BS_ARRSIZE(bs->strbuf)) {
 				bs_emit_error(bs, "Hit string buffer max");
@@ -1226,12 +1334,12 @@ static int bs_parse_typedef(struct bs *bs)
 			bs->templates[bs->ntemplates++].impl =
 				tmpl_types[ntemplates++];
 			bs->strbuf[bs->strbuflen++] = bs->tok.src;
-			if (bs_advance_token(bs)) return -1;
+			if (bs_advance_token(bs, BS_FALSE)) return -1;
 			if (bs->tok.type == BS_TOKEN_COMMA
-				&& bs_advance_token(bs)) return -1;
+				&& bs_advance_token(bs, BS_FALSE)) return -1;
 		}
 		backup = bs->src;
-		if (bs_advance_token(bs)) return -1;
+		if (bs_advance_token(bs, BS_FALSE)) return -1;
 	}
 
 	/* Do a typedef */
@@ -1267,7 +1375,7 @@ static int bs_parse_typedef(struct bs *bs)
 	do {
 		int len = 0;
 
-		if (bs_advance_token(bs)) return -1;
+		if (bs_advance_token(bs, BS_FALSE)) return -1;
 		if (bs->tok.type != BS_TOKEN_IDENT) {
 			bs_emit_error(bs, "Expected struct field name");
 			return -1;
@@ -1292,6 +1400,500 @@ static int bs_parse_typedef(struct bs *bs)
 
 	bs->ntemplates = tmplbase;
 	bs->indent = 0;
+	return 0;
+}
+
+struct bs_parser_backup {
+	enum bs_mode		mode;
+	struct bs_strview	src;
+	struct bs_token		tok;
+};
+
+static void bs_parser_backup_init(struct bs *bs, struct bs_parser_backup *b)
+{
+	b->src = bs->src;
+	b->tok = bs->tok;
+	b->mode = bs->mode;
+}
+
+static void bs_parser_backup_restore(struct bs *bs, struct bs_parser_backup *b)
+{
+	bs->src = b->src;
+	bs->tok = b->tok;
+	bs->mode = b->mode;
+}
+
+/*
+ * Based Script code emmiter
+ */
+
+static bs_bool bs_is_arithmetic(struct bs *bs, const bs_type_t *type)
+{
+	switch (*type) {
+	case BS_TYPE_CHAR: case BS_TYPE_BOOL: case BS_TYPE_I8: case BS_TYPE_U8:
+	case BS_TYPE_I16: case BS_TYPE_U16: case BS_TYPE_I32: case BS_TYPE_U32:
+#ifndef BS_32BIT
+	case BS_TYPE_I64: case BS_TYPE_U64:
+# ifndef BS_NOFP
+	case BS_TYPE_F32: case BS_TYPE_F64:
+# endif
+#elif !defined(BS_NOFP)
+	case BS_TYPE_F32:
+#endif
+		return BS_TRUE;
+	default:
+		return BS_FALSE;
+	}
+}
+
+static int bs_promote_arithmetic(struct bs *bs, const bs_type_t *type,
+				bs_type_t *out)
+{
+	switch (*type) {
+	case BS_TYPE_CHAR: case BS_TYPE_BOOL: case BS_TYPE_I8:
+	case BS_TYPE_I16: case BS_TYPE_I32:
+#ifndef BS_32BIT
+	case BS_TYPE_I64:
+#endif
+		*out = BS_INT;
+		return 0;
+	case BS_TYPE_U8: case BS_TYPE_U16: case BS_TYPE_U32:
+#ifndef BS_32BIT
+	case BS_TYPE_U64:
+#endif
+		*out = BS_UINT;
+		return 0;
+#ifndef BS_NOFP
+	case BS_TYPE_F32:
+# ifndef BS_32BIT
+	case BS_TYPE_F64:
+# endif
+		*out = BS_FLOAT;
+		return 0;
+#endif
+	default:
+		return -1;
+	}
+}
+
+#define BS_ALIGNDU(X, A) ((X) / (A) * (A))
+#define BS_ALIGNUU(X, A) ((((X) - 1) / (A) + 1) * (A))
+
+static int bs_push_data(void *boundary, bs_byte **out, const void *data,
+			size_t len, size_t align)
+{
+	bs_byte *newloc = (bs_byte *)BS_ALIGNDU(
+		(bs_uptr)*out - len, align);
+
+	if ((void *)newloc < boundary) return -1;
+	*out = newloc;
+	BS_MEMCPY(*out, data, len);
+	return 0;
+}
+
+static int bs_pop_data(void *boundary, bs_byte **ptr, void *out,
+			size_t len, size_t tonext)
+{
+	if ((void *)(*ptr + tonext) > boundary) return -1;
+	BS_MEMCPY(out, *ptr, len);
+	*ptr += tonext;
+	return 0;
+}
+/*
+ * NOTE: Only updates loctype and loc of out variable
+ */
+static int bs_compile_push_data(struct bs *bs, struct bs_var *out,
+				const void *data, size_t len, size_t align)
+{
+	switch (bs->mode) {
+	case BS_MODE_OFF:
+		out->locty = BS_LOC_TYPEONLY;
+		break;
+	case BS_MODE_DEFAULT:
+		out->locty = BS_LOC_SPREL;
+		out->loc = bs->stack;
+		break;
+	case BS_MODE_COMPTIME:
+		out->locty = BS_LOC_COMPTIME;
+		if (bs_push_data(bs->codebegin, &bs->ctstack, data, len, align)) {
+			bs_emit_error(bs, "Ran out of comptime stack space!");
+			return -1;
+		}
+		out->loc = bs->codeend - bs->ctstack;
+		break;
+	}
+	return 0;
+}
+
+/*
+ * Since objects may be aligned oddly on the stack, tonext specifies by how
+ * much to change the next pointer
+ */
+static int bs_compile_pop_data(struct bs *bs, void *out,
+				size_t len, size_t tonext)
+{
+	switch (bs->mode) {
+	case BS_MODE_OFF:
+		break;
+	case BS_MODE_DEFAULT:
+		break;
+	case BS_MODE_COMPTIME:
+		if (bs_pop_data(bs->codeend, &bs->ctstack, out, len, tonext)) {
+			bs_emit_error(bs, "Comptime stack underflow!");
+			return -1;
+		}
+		break;
+	}
+	return 0;
+}
+
+static int bs_compile_cast(struct bs *bs, struct bs_var *var,
+			const bs_type_t *newtype)
+{
+#ifndef BS_NOFP
+	bs_float f;
+	bs_uint u;
+	bs_int i;
+#endif
+
+	if (!bs_is_arithmetic(bs, var->type)
+		|| !bs_is_arithmetic(bs, newtype)) {
+		bs_emit_error(bs, "Expected arithmetic types in cast!");
+		return -1;
+	}
+
+	if (bs->mode == BS_MODE_OFF) return 0;
+#ifndef BS_NOFP
+	if (*newtype == BS_FLOAT && var->type[0] != BS_FLOAT) {
+		if (var->type[0] == BS_UINT) {
+			if (bs_compile_pop_data(bs, &u, sizeof(u), sizeof(u))) return -1;
+			f = (bs_float)u;
+		} else {
+			if (bs_compile_pop_data(bs, &i, sizeof(i), sizeof(i))) return -1;
+			f = (bs_float)i;
+		}
+		return bs_compile_push_data(bs, var, &f, sizeof(f), sizeof(f));
+	} else if (*newtype != BS_FLOAT && var->type[0] == BS_FLOAT) {
+		if (bs_compile_pop_data(bs, &f, sizeof(f), sizeof(f))) return -1;
+		if (*newtype == BS_UINT) {
+			u = (bs_uint)f;
+			if (bs_compile_push_data(bs, var, &u, sizeof(u), sizeof(u))) return -1;
+		} else {
+			i = (bs_int)f;
+			if (bs_compile_push_data(bs, var, &i, sizeof(i), sizeof(i))) return -1;
+		}
+	}
+#endif
+	var->type[0] = *newtype;
+	return 0;
+}
+
+static int bs_arithmetic_convert(struct bs *bs, const bs_type_t *left,
+				const bs_type_t *right, bs_type_t *out)
+{
+	bs_type_t pl, pr;
+	if (bs_promote_arithmetic(bs, left, &pl)) return -1;
+	if (bs_promote_arithmetic(bs, right, &pr)) return -1;
+#ifndef BS_NOFP
+	if (pl == BS_FLOAT || pr == BS_FLOAT) *out = BS_FLOAT;
+	else if (pl == BS_UINT || pr == BS_UINT) *out = BS_UINT;
+#else
+	if (pl == BS_UINT || pr == BS_UINT) *out = BS_UINT;
+#endif
+	else *out = BS_INT;
+	return 0;
+}
+
+static int bs_compile_math(struct bs *bs, bs_type_t type, int mathop)
+{
+	union {
+		bs_uint u;
+		bs_int i;
+		bs_float f;
+	} l, r;
+	size_t size;
+
+	switch (bs->mode) {
+	case BS_MODE_OFF: break;
+	case BS_MODE_DEFAULT:
+		break;
+	case BS_MODE_COMPTIME:
+		if (type == BS_UINT || type == BS_INT) size = sizeof(l.u);
+#ifndef BS_NOFP
+		else if (type == BS_FLOAT) size = sizeof(l.f);
+#endif
+		else bs_abort("expected int,uint, or fp in comptime expr");
+
+		if (bs_pop_data(bs->codeend, &bs->ctstack, &r, size, size)
+			|| bs_pop_data(bs->codeend, &bs->ctstack, &l, size, size)) {
+			bs_emit_error(bs, "Comptime stack underflow!");
+			return -1;
+		}
+
+		if (type == BS_UINT) l.u += r.u;
+		else if (type == BS_INT) l.i += r.i;
+#ifndef BS_NOFP
+		else if (type == BS_FLOAT) l.f += r.f;
+#endif
+
+		if (bs_push_data(bs->codebegin, &bs->ctstack, &l, size, size)) {
+			bs_emit_error(bs, "Comptime stack overflow!");
+			return -1;
+		}
+		break;
+	}
+
+	return 0;
+}
+
+/*
+ * Based Script expression compiler
+ */
+enum bs_prec {
+	BS_PREC_FACTOR,
+	BS_PREC_GROUPING,
+	BS_PREC_POSTFIX,
+	BS_PREC_BUILTIN,
+	BS_PREC_PREFIX,
+	BS_PREC_MUL,
+	BS_PREC_ADD,
+	BS_PREC_SHIFT,
+	BS_PREC_BITAND,
+	BS_PREC_BITXOR,
+	BS_PREC_BITOR,
+	BS_PREC_REL,
+	BS_PREC_EQ,
+	BS_PREC_AND,
+	BS_PREC_OR,
+	BS_PREC_COND,
+	BS_PREC_ASSIGN,
+	BS_PREC_FULL = BS_PREC_ASSIGN,
+	BS_PREC_NONE
+};
+
+#define BS_EXPR_TYBUF_SIZE 64
+
+typedef int(*bs_parse_expr_func_t)(struct bs *bs, enum bs_prec prec,
+				struct bs_var *out, int depth);
+
+struct bs_expr_rule {
+	bs_parse_expr_func_t	prefix;
+	bs_parse_expr_func_t	postfix;
+	enum bs_prec		prec;
+};
+
+static int bs_parse_expr(struct bs *bs, enum bs_prec prec,
+			struct bs_var *out, int depth);
+static int bs_parse_number(struct bs *bs, enum bs_prec prec,
+			struct bs_var *out, int depth);
+static int bs_parse_add(struct bs *bs, enum bs_prec prec,
+			struct bs_var *out, int depth);
+
+static const struct bs_expr_rule bs_expr_rules[BS_TOKEN_MAX] = {
+/*	  prefix	postfix		prec	     */
+	{ NULL,		NULL,		BS_PREC_NONE },	/* BS_TOKEN_EOF */
+	{ NULL,		NULL,		BS_PREC_NONE },	/* BS_TOKEN_NEWLINE */
+	{ NULL,		NULL,		BS_PREC_NONE },	/* BS_TOKEN_IDENT */
+	{ bs_parse_number, NULL,	BS_PREC_FACTOR },	/* BS_TOKEN_NUMBER */
+	{ NULL,		NULL,		BS_PREC_NONE },	/* BS_TOKEN_STRING */
+	{ NULL,		NULL,		BS_PREC_NONE },	/* BS_TOKEN_CHAR */
+	{ NULL,		NULL,		BS_PREC_NONE },	/* BS_TOKEN_OR */
+	{ NULL,		NULL,		BS_PREC_NONE },	/* BS_TOKEN_AND */
+	{ NULL,		NULL,		BS_PREC_NONE },	/* BS_TOKEN_EQEQ */
+	{ NULL,		NULL,		BS_PREC_NONE },	/* BS_TOKEN_NEQ */
+	{ NULL,		NULL,		BS_PREC_NONE },	/* BS_TOKEN_GT */
+	{ NULL,		NULL,		BS_PREC_NONE },	/* BS_TOKEN_GE */
+	{ NULL,		NULL,		BS_PREC_NONE },	/* BS_TOKEN_LT */
+	{ NULL,		NULL,		BS_PREC_NONE },	/* BS_TOKEN_LE */
+	{ NULL,		NULL,		BS_PREC_NONE },	/* BS_TOKEN_BITOR */
+	{ NULL,		NULL,		BS_PREC_NONE },	/* BS_TOKEN_BITXOR */
+	{ NULL,		NULL,		BS_PREC_NONE },	/* BS_TOKEN_BITAND */
+	{ NULL,		NULL,		BS_PREC_NONE },	/* BS_TOKEN_SHL */
+	{ NULL,		NULL,		BS_PREC_NONE },	/* BS_TOKEN_SHR */
+	{ NULL,		bs_parse_add,	BS_PREC_ADD },	/* BS_TOKEN_PLUS */
+	{ NULL,		NULL,		BS_PREC_NONE }, /* BS_TOKEN_MINUS */
+	{ NULL,		NULL,		BS_PREC_NONE }, /* BS_TOKEN_STAR */
+	{ NULL,		NULL,		BS_PREC_NONE }, /* BS_TOKEN_DIVIDE */
+	{ NULL,		NULL,		BS_PREC_NONE }, /* BS_TOKEN_MODULO */
+	{ NULL,		NULL,		BS_PREC_NONE }, /* BS_TOKEN_NOT */
+	{ NULL,		NULL,		BS_PREC_NONE }, /* BS_TOKEN_BITNOT */
+	{ NULL,		NULL,		BS_PREC_NONE }, /* BS_TOKEN_LPAREN */
+	{ NULL,		NULL,		BS_PREC_NONE }, /* BS_TOKEN_RPAREN */
+	{ NULL,		NULL,		BS_PREC_NONE }, /* BS_TOKEN_LBRACK */
+	{ NULL,		NULL,		BS_PREC_NONE }, /* BS_TOKEN_RBRACK */
+	{ NULL,		NULL,		BS_PREC_NONE }, /* BS_TOKEN_LBRACE */
+	{ NULL,		NULL,		BS_PREC_NONE }, /* BS_TOKEN_RBRACE */
+	{ NULL,		NULL,		BS_PREC_NONE }, /* BS_TOKEN_ARROW */
+	{ NULL,		NULL,		BS_PREC_NONE }, /* BS_TOKEN_DOT */
+	{ NULL,		NULL,		BS_PREC_NONE }, /* BS_TOKEN_COMMA */
+	{ NULL,		NULL,		BS_PREC_NONE }, /* BS_TOKEN_EQUAL */
+};
+
+static int bs_parse_uint(struct bs *bs, bs_uint *out)
+{
+	bs_uint pow = 1, last = 0; /* last is to detect overflow */
+	bs_bool hex = BS_FALSE;
+	int i;
+
+	struct bs_token tok = bs->tok;
+
+	if (bs->tok.src.len > 2 && bs->tok.src.str[2] == 'x') {
+		hex = BS_TRUE;
+		tok.src.str += 2;
+		tok.src.len -= 2;
+	}
+
+	*out = 0;
+	for (i = tok.src.len - 1; i >= 0; --i) {
+		int digit;
+
+		if (!bs_isdigit(tok.src.str[i])
+			&& (!hex || bs_tolower(tok.src.str[i] < 'a')
+				|| bs_tolower(tok.src.str[i] > 'f'))) {
+			bs_emit_error(bs, "Malformed int literal");
+			return -1;
+		}
+		if (*out < last) { /* detect overflow */
+			bs_emit_error(bs, "Overflow detected in int literal");
+			return -1;
+		}
+
+		if (bs_isdigit(tok.src.str[i])) {
+			digit = tok.src.str[i] - '0';
+		} else {
+			digit = bs_tolower(tok.src.str[i]) - 'a' + 10;
+		}
+
+		last = *out;
+		*out += digit * pow;
+		pow *= hex ? 16 : 10;
+	}
+
+	return 0;
+}
+#ifndef BS_NOFP
+static int bs_parse_float(struct bs *bs, bs_float *out)
+{
+	bs_float pow = 1.0;
+	int i, dot;
+
+	for (dot = 0; dot < bs->tok.src.len; ++dot) {
+		if (bs->tok.src.str[dot] == '.') break;
+	}
+
+	*out = 0;
+	for (i = dot - 1; i >= 0; --i) {
+		if (!bs_isdigit(bs->tok.src.str[i])) {
+			bs_emit_error(bs, "Malformed float literal");
+			return -1;
+		}
+		*out += (bs_float)(bs->tok.src.str[i] - '0') * pow;
+		pow *= 10.0;
+	}
+	pow = 0.1;
+	for (i = dot + 1; i < bs->tok.src.len; ++i) {
+		if (!bs_isdigit(bs->tok.src.str[i])) {
+			bs_emit_error(bs, "Malformed float literal");
+			return -1;
+		}
+		*out += (bs_float)(bs->tok.src.str[i] - '0') * pow;
+		pow *= 0.1;
+	}
+
+	return 0;
+}
+#endif
+
+static int bs_parse_number_lit(struct bs *bs, struct bs_var *out, bs_bool neg)
+{
+	bs_uint u;
+
+#ifndef BS_NOFP
+	int i;
+
+	for (i = 0; i < bs->tok.src.len; i++) {
+		if (bs->tok.src.str[i] == '.') {
+			bs_float fp;
+
+			if (bs_parse_float(bs, &fp)) return -1;
+			out->type[0] = BS_FLOAT;
+			return bs_compile_push_data(bs, out, &fp, sizeof(fp), sizeof(fp));
+		}
+	}
+#endif
+
+	if (bs_parse_uint(bs, &u)) return -1;
+	if (neg || u <= BS_INT_MAX) {
+		bs_int i = neg ? -(bs_int)u : u;
+		out->type[0] = BS_INT;
+		return bs_compile_push_data(bs, out, &i, sizeof(i), sizeof(i));
+	} else {
+		out->type[0] = BS_UINT;
+		return bs_compile_push_data(bs, out, &u, sizeof(u), sizeof(u));
+	}
+}
+
+static int bs_parse_number(struct bs *bs, enum bs_prec prec,
+			struct bs_var *out, int depth)
+{
+	if (bs_parse_number_lit(bs, out, BS_FALSE)) return -1;
+	if (bs_advance_token(bs, BS_TRUE)) return -1;
+	return 0;
+}
+
+static int bs_parse_add(struct bs *bs, enum bs_prec prec,
+			struct bs_var *out, int depth)
+{
+	struct bs_var right;
+	bs_type_t common;
+	struct bs_parser_backup backup;
+
+	if (bs_advance_token(bs, BS_TRUE)) return -1;
+
+	/* Get the right type, and get the common type */
+	bs_parser_backup_init(bs, &backup);
+	bs->mode = BS_MODE_OFF;
+	if (bs_parse_expr(bs, BS_PREC_MUL, &right, depth + 1)) return -1;
+	bs_parser_backup_restore(bs, &backup);
+	if (bs_arithmetic_convert(bs, out->type, right.type, &common)) return -1;
+
+	/* Cast left hand side first */
+	if (bs_compile_cast(bs, out, &common)) return -1;
+
+	/* Compile and cast right hand side */
+	if (bs_parse_expr(bs, BS_PREC_MUL, &right, depth + 1)) return -1;
+	if (bs_compile_cast(bs, &right, &common)) return -1;
+
+	/* Add the two */
+	if (bs_compile_math(bs, common, BS_TOKEN_PLUS)) return -1;
+
+	return 0;
+}
+
+static int bs_parse_expr(struct bs *bs, enum bs_prec prec,
+			struct bs_var *out, int depth)
+{
+	const struct bs_expr_rule *rule = bs_expr_rules + bs->tok.type;
+
+	BS_DBG_ASSERT(out, "bs_parse_expr: out parameter is NULL");
+
+	if (depth >= BS_RECURRSION_LIMIT) {
+		bs_emit_error(bs, "Hit expression recurrsion limit");
+		return -1;
+	}
+
+	if (!rule->prefix) {
+		bs_emit_error(bs, "Expected expression");
+		return -1;
+	}
+	if (rule->prefix(bs, rule->prec, out, depth)) return -1;
+
+	rule = bs_expr_rules + bs->tok.type;
+	while (rule->postfix && prec >= rule->prec) {
+		if (rule->postfix(bs, rule->prec, out, depth)) return -1;
+		rule = bs_expr_rules + bs->tok.type;
+	}
+
 	return 0;
 }
 
