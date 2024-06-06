@@ -1,16 +1,16 @@
-# CScript
+# Based Script
 
-A semi-freestanding, ANSI-C, single-header modern scripting language with just enough bells and whistles to make coding in it a breeze, while also making it safe and fast to run.
+A 100% freestanding, ANSI-C, single-header modern scripting language with just enough bells and whistles to make coding in it a breeze, while also making it safe and fast to run.
 
-CScript is a scripting language meant to be embedded into other apps. By default cscript comes with very little:
+Based Script is a scripting language meant to be embedded into other apps. By default cscript comes with very little:
 - No standard library
 - No sweep and mark garbage collection instead opting for a refrence counting implementation
 - Basic types: PODs, enums (as tagged unions), structs, typedefs, functions, refrences, slices, etc
 - Templated functions and types to make safe programming in a c-like language fun and not inferuating
 
-CScript also has no mark and sweep garbage collector. All allocations are explicit through the use of refrence counted pointers. Memory saftey is also enforced meaning the only vector that can be used to attack a cscript program is the foreign functions exposed to the script itself.
+Based Script also has no mark and sweep garbage collector. All allocations are explicit through the use of refrence counted pointers. Memory saftey is also enforced meaning the only vector that can be used to attack a cscript program is the foreign functions exposed to the script itself.
 
-Demo CScript file:
+Demo CsemiScript file:
 ```
 ext print_str(s &[] char)
 
