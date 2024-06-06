@@ -351,6 +351,8 @@ struct bs_struct {
 	struct bs_strview	*member_names;
 	bs_type_t		**members;
 	int			nmembers;
+
+	int			parentenum;
 };
 
 /*
@@ -530,6 +532,8 @@ struct bs {
 	size_t			nextern_fns;
 };
 
+#define BS_CTLOC(BS) ((BS)->codeend - (BS)->ctstack)
+
 static void bs_init(struct bs *bs,
 		struct bs_strview src,
 		bs_error_writer_t error_writer,
@@ -566,8 +570,8 @@ static void bs_emit_error(struct bs *bs, const char *msg) {
 
 	line = 1;
 	col = 1;
-	curr = bs->src.str;
-	while (curr < bs->srcall.str) {
+	curr = bs->srcall.str;
+	while (curr < bs->src.str) {
 		++col;
 		if (*(curr++) == '\n') {
 			++line;
@@ -799,6 +803,256 @@ static int bs_advance_token(struct bs *bs, bs_bool skip_newline)
 	return 0;
 }
 
+/*
+ * Based Script code emmiter
+ */
+
+static bs_bool bs_is_arithmetic(struct bs *bs, const bs_type_t *type)
+{
+	switch (*type) {
+	case BS_TYPE_CHAR: case BS_TYPE_BOOL: case BS_TYPE_I8: case BS_TYPE_U8:
+	case BS_TYPE_I16: case BS_TYPE_U16: case BS_TYPE_I32: case BS_TYPE_U32:
+#ifndef BS_32BIT
+	case BS_TYPE_I64: case BS_TYPE_U64:
+# ifndef BS_NOFP
+	case BS_TYPE_F32: case BS_TYPE_F64:
+# endif
+#elif !defined(BS_NOFP)
+	case BS_TYPE_F32:
+#endif
+		return BS_TRUE;
+	default:
+		return BS_FALSE;
+	}
+}
+
+static int bs_promote_arithmetic(struct bs *bs, const bs_type_t *type,
+				bs_type_t *out)
+{
+	switch (*type) {
+	case BS_TYPE_CHAR: case BS_TYPE_BOOL: case BS_TYPE_I8:
+	case BS_TYPE_I16: case BS_TYPE_I32:
+#ifndef BS_32BIT
+	case BS_TYPE_I64:
+#endif
+		*out = BS_INT;
+		return 0;
+	case BS_TYPE_U8: case BS_TYPE_U16: case BS_TYPE_U32:
+#ifndef BS_32BIT
+	case BS_TYPE_U64:
+#endif
+		*out = BS_UINT;
+		return 0;
+#ifndef BS_NOFP
+	case BS_TYPE_F32:
+# ifndef BS_32BIT
+	case BS_TYPE_F64:
+# endif
+		*out = BS_FLOAT;
+		return 0;
+#endif
+	default:
+		return -1;
+	}
+}
+
+#define BS_ALIGNDU(X, A) ((X) / (A) * (A))
+#define BS_ALIGNUU(X, A) ((((X) - 1) / (A) + 1) * (A))
+
+static int bs_push_data(void *boundary, bs_byte **out, const void *data,
+			size_t len, size_t align)
+{
+	bs_byte *newloc = (bs_byte *)BS_ALIGNDU(
+		(bs_uptr)*out - len, align);
+
+	if ((void *)newloc < boundary) return -1;
+	*out = newloc;
+	BS_MEMCPY(*out, data, len);
+	return 0;
+}
+
+static int bs_pop_data(void *boundary, bs_byte **ptr, void *out,
+			size_t len, size_t tonext)
+{
+	if ((void *)(*ptr + tonext) > boundary) return -1;
+	BS_MEMCPY(out, *ptr, len);
+	*ptr += tonext;
+	return 0;
+}
+/*
+ * NOTE: Only updates loctype and loc of out variable
+ */
+static int bs_compile_push_data(struct bs *bs, struct bs_var *out,
+				const void *data, size_t len, size_t align)
+{
+	switch (bs->mode) {
+	case BS_MODE_OFF:
+		out->locty = BS_LOC_TYPEONLY;
+		break;
+	case BS_MODE_DEFAULT:
+		out->locty = BS_LOC_SPREL;
+		out->loc = bs->stack;
+		break;
+	case BS_MODE_COMPTIME:
+		out->locty = BS_LOC_COMPTIME;
+		if (bs_push_data(bs->codebegin, &bs->ctstack, data, len, align)) {
+			bs_emit_error(bs, "Ran out of comptime stack space!");
+			return -1;
+		}
+		out->loc = BS_CTLOC(bs);
+		break;
+	}
+	return 0;
+}
+
+/*
+ * Since objects may be aligned oddly on the stack, tonext specifies by how
+ * much to change the next pointer
+ */
+static int bs_compile_pop_data(struct bs *bs, void *out,
+				size_t len, size_t tonext)
+{
+	switch (bs->mode) {
+	case BS_MODE_OFF:
+		break;
+	case BS_MODE_DEFAULT:
+		break;
+	case BS_MODE_COMPTIME:
+		BS_DBG_ASSERT(!bs_pop_data(bs->codeend, &bs->ctstack, out, len, tonext), "ctstack undeflow");
+		break;
+	}
+	return 0;
+}
+
+static int bs_compile_cast(struct bs *bs, struct bs_var *var,
+			const bs_type_t *newtype)
+{
+#ifndef BS_NOFP
+	bs_float f;
+	bs_uint u;
+	bs_int i;
+#endif
+
+	if (!bs_is_arithmetic(bs, var->type)
+		|| !bs_is_arithmetic(bs, newtype)) {
+		bs_emit_error(bs, "Expected arithmetic types in cast!");
+		return -1;
+	}
+
+	if (bs->mode == BS_MODE_OFF) return 0;
+#ifndef BS_NOFP
+	if (*newtype == BS_FLOAT && var->type[0] != BS_FLOAT) {
+		if (var->type[0] == BS_UINT) {
+			if (bs_compile_pop_data(bs, &u, sizeof(u), sizeof(u))) return -1;
+			f = (bs_float)u;
+		} else {
+			if (bs_compile_pop_data(bs, &i, sizeof(i), sizeof(i))) return -1;
+			f = (bs_float)i;
+		}
+		return bs_compile_push_data(bs, var, &f, sizeof(f), sizeof(f));
+	} else if (*newtype != BS_FLOAT && var->type[0] == BS_FLOAT) {
+		if (bs_compile_pop_data(bs, &f, sizeof(f), sizeof(f))) return -1;
+		if (*newtype == BS_UINT) {
+			u = (bs_uint)f;
+			if (bs_compile_push_data(bs, var, &u, sizeof(u), sizeof(u))) return -1;
+		} else {
+			i = (bs_int)f;
+			if (bs_compile_push_data(bs, var, &i, sizeof(i), sizeof(i))) return -1;
+		}
+	}
+#endif
+	var->type[0] = *newtype;
+	return 0;
+}
+
+static int bs_arithmetic_convert(struct bs *bs, const bs_type_t *left,
+				const bs_type_t *right, bs_type_t *out)
+{
+	bs_type_t pl, pr;
+	if (bs_promote_arithmetic(bs, left, &pl)) return -1;
+	if (bs_promote_arithmetic(bs, right, &pr)) return -1;
+#ifndef BS_NOFP
+	if (pl == BS_FLOAT || pr == BS_FLOAT) *out = BS_FLOAT;
+	else if (pl == BS_UINT || pr == BS_UINT) *out = BS_UINT;
+#else
+	if (pl == BS_UINT || pr == BS_UINT) *out = BS_UINT;
+#endif
+	else *out = BS_INT;
+	return 0;
+}
+
+static int bs_compile_math(struct bs *bs, bs_type_t type, int mathop)
+{
+	union {
+		bs_uint u;
+		bs_int i;
+		bs_float f;
+	} l, r;
+	size_t size;
+
+	switch (bs->mode) {
+	case BS_MODE_OFF: break;
+	case BS_MODE_DEFAULT:
+		break;
+	case BS_MODE_COMPTIME:
+		if (type == BS_UINT || type == BS_INT) size = sizeof(l.u);
+#ifndef BS_NOFP
+		else if (type == BS_FLOAT) size = sizeof(l.f);
+#endif
+		else bs_abort("expected int,uint, or fp in comptime expr");
+
+		BS_DBG_ASSERT(!bs_pop_data(bs->codeend, &bs->ctstack, &r, size, size)
+			&& !bs_pop_data(bs->codeend, &bs->ctstack, &l, size, size),
+			"ctstack underflow!");
+
+		if (type == BS_UINT) l.u += r.u;
+		else if (type == BS_INT) l.i += r.i;
+#ifndef BS_NOFP
+		else if (type == BS_FLOAT) l.f += r.f;
+#endif
+
+		if (bs_push_data(bs->codebegin, &bs->ctstack, &l, size, size)) {
+			bs_emit_error(bs, "Comptime stack overflow!");
+			return -1;
+		}
+		break;
+	}
+
+	return 0;
+}
+
+/*
+ * Forward definitions for based script expression parsing engine
+ * This is needed by the type parser to get array sizes
+ */
+enum bs_prec {
+	BS_PREC_FACTOR,
+	BS_PREC_GROUPING,
+	BS_PREC_POSTFIX,
+	BS_PREC_BUILTIN,
+	BS_PREC_PREFIX,
+	BS_PREC_MUL,
+	BS_PREC_ADD,
+	BS_PREC_SHIFT,
+	BS_PREC_BITAND,
+	BS_PREC_BITXOR,
+	BS_PREC_BITOR,
+	BS_PREC_REL,
+	BS_PREC_EQ,
+	BS_PREC_AND,
+	BS_PREC_OR,
+	BS_PREC_COND,
+	BS_PREC_ASSIGN,
+	BS_PREC_FULL = BS_PREC_ASSIGN,
+	BS_PREC_NONE
+};
+
+static int bs_parse_expr(struct bs *bs, enum bs_prec prec,
+			struct bs_var *out, int depth);
+
+/*
+ * Based Script type parser engine
+ */
 static int bs_parse_type(struct bs *bs, bs_type_t *type,
 			int *len, int max, int depth);
 
@@ -816,7 +1070,6 @@ static int bs_parse_type_levels(struct bs *bs, bs_type_t *type,
 	 * that looks like "const mut &[] u8" */
 	int qualifiers_seen = 0;
 
-	if (bs_advance_token(bs, BS_FALSE)) return 1;
 	type[*len] = 0;
 
 	while (BS_TRUE) {
@@ -874,7 +1127,51 @@ static int bs_parse_type_levels(struct bs *bs, bs_type_t *type,
 			}
 			type[++(*len)] = 0;
 		} else if (bs->tok.type == BS_TOKEN_LBRACK) {
-			BS_DBG_ASSERT(BS_FALSE, "TODO: Implement array length in types");
+			enum bs_mode mode = bs->mode;
+			struct bs_var arrlen_var;
+			bs_uint arrlen, tonext = BS_CTLOC(bs);
+
+			if (bs_advance_token(bs, BS_TRUE)) return 1;
+			
+			bs->mode = BS_MODE_COMPTIME;
+			if (bs_parse_expr(bs, BS_PREC_FULL, &arrlen_var, depth + 1)) return -1;
+			bs->mode = mode;
+
+			tonext = BS_CTLOC(bs) - tonext;
+			if (arrlen_var.type[0] == BS_INT) {
+				bs_int i;
+				BS_DBG_ASSERT(!bs_pop_data(bs->codeend,
+						&bs->ctstack, &i,
+						sizeof(i), tonext),
+						"ctstack underflow");
+				if (i < 1) {
+					bs_emit_error(bs, "Negative array lengths not allowed");
+					return -1;
+				}
+				arrlen = i;
+			} else if (arrlen_var.type[0] == BS_UINT) {
+				BS_DBG_ASSERT(!bs_pop_data(bs->codeend,
+						&bs->ctstack, &arrlen,
+						sizeof(arrlen), tonext),
+						"ctstack underflow");
+			} else {
+				bs_emit_error(bs, "Non-integer array length specified!");
+				return -1;
+			}
+
+			if (bs->tok.type != BS_TOKEN_RBRACK) {
+				bs_emit_error(bs, "Expected ] after array size!");
+				return -1;
+			}
+
+			type[*len] |= BS_TYPE_ARR;
+			qualifiers_seen = 0;
+			if (*len + 2 > max) {
+				bs_emit_error(bs, "Ran out of storage buffer space");
+				return -1;
+			}
+			type[++(*len)] = arrlen;
+			type[++(*len)] = 0;
 		} else {
 			return 0;
 		}
@@ -949,6 +1246,8 @@ static int bs_type_len(const struct bs *bs, const bs_type_t *type,
 		case BS_TYPE_PTR: case BS_TYPE_SLICE:
 			++len;
 			continue;
+		case BS_TYPE_TEMPLATE:
+			return len + 2;
 		case BS_TYPE_ARR:
 			len += 2;
 			continue;
@@ -1230,6 +1529,7 @@ static int bs_parse_type(struct bs *bs, bs_type_t *type,
 		type[(*len)++] |= BS_TYPE_USER;
 		BS_DBG_ASSERT(i <= 0xffff, "ID Passed max type ID!");
 		type[(*len)++] = i;
+		if (bs_advance_token(bs, BS_FALSE)) return -1;
 		goto parse_template_params;
 	}
 
@@ -1244,13 +1544,14 @@ static int bs_parse_type(struct bs *bs, bs_type_t *type,
 		if (!(tmp = bs_type_len(bs, tmpl, 0)))
 			return -1;
 
-		if (max - *len > tmp) goto storage_error;
+		if (*len + tmp > max) goto storage_error;
 		/* Keep previous modifier? */
 		type[(*len)++] |= *tmpl++ & ~BS_TYPE_FLAG_MUT;
 		--tmp;
 		BS_MEMCPY(type + *len, tmpl, sizeof(*tmpl) * tmp);
 		*len += tmp;
 
+		if (bs_advance_token(bs, BS_FALSE)) return -1;
 		return 0;
 	}
 
@@ -1281,46 +1582,25 @@ storage_error:
 }
 
 /*
- * Parse type and advance source pointer
+ * Based Script USER type compiler engine
  */
-static int bs_parse_typedef(struct bs *bs)
+static int bs_parse_template_params(struct bs *bs,
+				struct bs_strview **templates,
+				int *ntemplates,
+				bs_type_t (*tmpl_types)[2],
+				int maxtemplates)
 {
-	static const struct bs_strview _type_str = { "type", 4 };
-
-	bs_type_t tmpl_types[16][2];
-	struct bs_strview *templates, backup;
-	struct bs_userdef *def;
-	int ntemplates;
-
-	const int tmplbase = bs->ntemplates;
-
-	BS_DBG_ASSERT(bs->tok.type == BS_TOKEN_IDENT
-		&& bs_strview_eq(bs->tok.src, _type_str), "Expected 'type'");
-
-	/* Allocate the definition */
-	if (bs->ndefs == BS_ARRSIZE(bs->defs)) {
-		bs_emit_error(bs, "Hit def buffer max");
-		return -1;
-	}
-	def = bs->defs + bs->ndefs++;
-
-	if (bs_advance_token(bs, BS_FALSE)) return -1;
-	def->name = bs->tok.src;
-	backup = bs->src;
-	if (bs_advance_token(bs, BS_FALSE)) return -1;
-
-	/* Parse template parameters */
-	templates = NULL;
-	ntemplates = 0;
+	*templates = NULL;
+	*ntemplates = 0;
 	if (bs->tok.type == BS_TOKEN_LT) {
-		templates = bs->strbuf + bs->strbuflen;
+		*templates = bs->strbuf + bs->strbuflen;
 		if (bs_advance_token(bs, BS_FALSE)) return -1;
 		while (bs->tok.type != BS_TOKEN_GT) {
 			if (bs->strbuflen == BS_ARRSIZE(bs->strbuf)) {
 				bs_emit_error(bs, "Hit string buffer max");
 				return -1;
 			}
-			if (ntemplates == BS_ARRSIZE(tmpl_types)) {
+			if (*ntemplates == maxtemplates) {
 				bs_emit_error(bs, "Hit max templates");
 				return -1;
 			}
@@ -1329,80 +1609,204 @@ static int bs_parse_typedef(struct bs *bs)
 				return -1;
 			}
 			bs->templates[bs->ntemplates].nameid = bs->strbuflen;
-			tmpl_types[ntemplates][0] = BS_TYPE_TEMPLATE;
-			tmpl_types[ntemplates][1] = bs->strbuflen;
+			tmpl_types[*ntemplates][0] = BS_TYPE_TEMPLATE;
+			tmpl_types[*ntemplates][1] = bs->strbuflen;
 			bs->templates[bs->ntemplates++].impl =
-				tmpl_types[ntemplates++];
+				tmpl_types[(*ntemplates)++];
 			bs->strbuf[bs->strbuflen++] = bs->tok.src;
 			if (bs_advance_token(bs, BS_FALSE)) return -1;
 			if (bs->tok.type == BS_TOKEN_COMMA
 				&& bs_advance_token(bs, BS_FALSE)) return -1;
 		}
-		backup = bs->src;
 		if (bs_advance_token(bs, BS_FALSE)) return -1;
 	}
 
-	/* Do a typedef */
-	if (bs->tok.type != BS_TOKEN_NEWLINE) {
-		int len = 0;
-		bs->src = backup;
-		def->def.t.type = bs->typebuf + bs->typebuflen;
-		if (bs_parse_type(bs, def->def.t.type, &len,
-				BS_ARRSIZE(bs->typebuf) - bs->typebuflen, 0))
-			return -1;
-		bs->typebuflen += len;
-		def->type = BS_USERDEF_TYPEDEF;
-		def->def.t.templates = templates;
-		def->def.t.ntemplates = ntemplates;
+	return 0;
+}
 
-		bs->ntemplates = tmplbase;
-		return 0;
-	}
-	
-	/* Else, do a struct */
-	bs->indent = 1;
-	if (bs_parse_indent(bs) != bs->indent) {
-		bs_emit_error(bs, "Ident level incorrect after struct definition");
+static int bs_alloc_def(struct bs *bs, struct bs_userdef **def)
+{
+	if (bs->ndefs == BS_ARRSIZE(bs->defs)) {
+		bs_emit_error(bs, "Hit max number of user definables");
 		return -1;
 	}
+	*def = bs->defs + bs->ndefs++;
+	return 0;
+}
+
+static int bs_parse_typedef_type(struct bs *bs, struct bs_userdef *def,
+			struct bs_strview *templates, int ntemplates)
+{
+	int len = 0;
+	def->def.t.type = bs->typebuf + bs->typebuflen;
+	if (bs_parse_type(bs, def->def.t.type, &len,
+			BS_ARRSIZE(bs->typebuf) - bs->typebuflen, 0))
+		return -1;
+	bs->typebuflen += len;
+	def->type = BS_USERDEF_TYPEDEF;
+	def->def.t.templates = templates;
+	def->def.t.ntemplates = ntemplates;
+
+	return 0;
+}
+
+static int bs_parse_struct_members(struct bs *bs, struct bs_userdef *def,
+			struct bs_strview *templates, int ntemplates,
+			bs_bool optional)
+{
+	bs_type_t tmpl_types[16][2];
+	struct bs_strview backup;
 
 	def->type = BS_USERDEF_STRUCT;
 	def->def.s.templates = templates;
 	def->def.s.ntemplates = ntemplates;
+	def->def.s.members = NULL;
+	def->def.s.member_names = NULL;
+	def->def.s.nmembers = 0;
+	def->def.s.parentenum = -1;
+
+	++bs->indent;
+	backup = bs->src;
+	if (bs_parse_indent(bs) != bs->indent) {
+		if (!optional) bs_emit_error(bs, "Ident level incorrect after struct declaration");
+		bs->src = backup;
+		--bs->indent;
+		return optional ? 0 : -1;
+	}
+
 	def->def.s.members = bs->types + bs->ntypes;
 	def->def.s.member_names = bs->strbuf + bs->strbuflen;
-	def->def.s.nmembers = 0;
+
 	do {
 		int len = 0;
 
 		if (bs_advance_token(bs, BS_FALSE)) return -1;
 		if (bs->tok.type != BS_TOKEN_IDENT) {
 			bs_emit_error(bs, "Expected struct field name");
-			return -1;
+			goto error;
 		}
 		if (bs->strbuflen == BS_ARRSIZE(bs->strbuf)) {
 			bs_emit_error(bs, "String buffer max hit");
-			return -1;
+			goto error;
 		}
 		if (bs->ntypes == BS_ARRSIZE(bs->types)) {
 			bs_emit_error(bs, "Type pointer buffer max hit");
-			return -1;
+			goto error;
 		}
 
 		bs->strbuf[bs->strbuflen++] = bs->tok.src;
 		bs->types[bs->ntypes] = bs->typebuf + bs->typebuflen;
+		if (bs_advance_token(bs, BS_FALSE)) return -1;
 		if (bs_parse_type(bs, bs->types[bs->ntypes++], &len,
 				BS_ARRSIZE(bs->typebuf) - bs->typebuflen, 0))
-			return -1;
+			goto error;
 		bs->typebuflen += len;
 		++def->def.s.nmembers;
+		backup = bs->src;
 	} while (bs_parse_indent(bs) == bs->indent);
+	bs->src = backup;
 
-	bs->ntemplates = tmplbase;
-	bs->indent = 0;
+	--bs->indent;
+	return 0;
+
+error:
+	--bs->indent;
+	return -1;
+}
+
+static int bs_parse_enumdef(struct bs *bs)
+{
+	bs_type_t tmpl_types[16][2];
+	struct bs_strview *templates, backup;
+	struct bs_userdef *def;
+	int ntemplates;
+
+	const int tmplbase = bs->ntemplates;
+
+	if (bs_alloc_def(bs, &def)) return -1;
+	def->name = bs->tok.src;
+	def->type = BS_USERDEF_ENUMSTART;
+	def->def.e.templates = templates;
+	def->def.e.ntemplates = ntemplates;
+	def->def.e.nvariants = 0;
+	if (bs_advance_token(bs, BS_FALSE)) return -1;
+	if (bs_parse_template_params(bs, &templates, &ntemplates, tmpl_types,
+				BS_ARRSIZE(tmpl_types)))
+		return -1;
+	if (bs->tok.type != BS_TOKEN_NEWLINE) {
+		bs_emit_error(bs, "Expected newline and enum variants after enum declaration");
+		return -1;
+	}
+
+	++bs->indent;
+	if (bs_parse_indent(bs) != bs->indent) {
+		bs_emit_error(bs, "Indent level incorrect after enum declaration");
+		return -1;
+	}
+	do {
+		struct bs_userdef *variant;
+
+		if (bs_alloc_def(bs, &variant)) return -1;
+		if (bs_advance_token(bs, BS_FALSE)) return -1;
+		variant->name = bs->tok.src;
+		if (bs_advance_token(bs, BS_FALSE)) return -1;
+		if (bs->tok.type != BS_TOKEN_NEWLINE) {
+			bs_emit_error(bs, "Expected newline after variant declaration.");
+			return -1;
+		}
+		if (bs_parse_struct_members(bs, variant, templates, ntemplates, BS_TRUE))
+			return -1;
+		variant->def.s.parentenum = def - bs->defs;
+		++def->def.e.nvariants;
+		backup = bs->src;
+	} while (bs_parse_indent(bs) == bs->indent);
+	bs->src = backup;
+	--bs->indent;
+
 	return 0;
 }
 
+static int bs_parse_typedef(struct bs *bs)
+{
+	static const struct bs_strview _type_str = { "type", 4 };
+	static const struct bs_strview _enum_str = { "enum", 4 };
+
+	bs_type_t tmpl_types[16][2];
+	struct bs_strview *templates;
+	struct bs_userdef *def;
+	int ntemplates;
+
+	const int tmplbase = bs->ntemplates;
+
+	BS_DBG_ASSERT(bs->tok.type == BS_TOKEN_IDENT, "expected type/enum");
+	if (bs_strview_eq(bs->tok.src, _enum_str)) {
+		if (bs_advance_token(bs, BS_FALSE)) return -1;
+		return bs_parse_enumdef(bs);
+	}
+	BS_DBG_ASSERT(bs_strview_eq(bs->tok.src, _type_str), "expected 'type'");
+
+	/* Parse the name and template params */
+	if (bs_advance_token(bs, BS_FALSE)) return -1;
+	if (bs_alloc_def(bs, &def)) return -1;
+	def->name = bs->tok.src;
+	if (bs_advance_token(bs, BS_FALSE)) return -1;
+	if (bs_parse_template_params(bs, &templates, &ntemplates, tmpl_types,
+				BS_ARRSIZE(tmpl_types)))
+		return -1;
+	
+	if (bs->tok.type != BS_TOKEN_NEWLINE) { /* Do a typedef */
+		if (bs_parse_typedef_type(bs, def, templates, ntemplates)) return -1;
+	} else { /* Else, do a struct */
+		if (bs_parse_struct_members(bs, def, templates, ntemplates, BS_FALSE)) return -1;
+	}
+
+	bs->ntemplates = tmplbase;
+	return 0;
+}
+
+/*
+ * This is used to backup state after getting an expression's type
+ */
 struct bs_parser_backup {
 	enum bs_mode		mode;
 	struct bs_strview	src;
@@ -1424,255 +1828,8 @@ static void bs_parser_backup_restore(struct bs *bs, struct bs_parser_backup *b)
 }
 
 /*
- * Based Script code emmiter
- */
-
-static bs_bool bs_is_arithmetic(struct bs *bs, const bs_type_t *type)
-{
-	switch (*type) {
-	case BS_TYPE_CHAR: case BS_TYPE_BOOL: case BS_TYPE_I8: case BS_TYPE_U8:
-	case BS_TYPE_I16: case BS_TYPE_U16: case BS_TYPE_I32: case BS_TYPE_U32:
-#ifndef BS_32BIT
-	case BS_TYPE_I64: case BS_TYPE_U64:
-# ifndef BS_NOFP
-	case BS_TYPE_F32: case BS_TYPE_F64:
-# endif
-#elif !defined(BS_NOFP)
-	case BS_TYPE_F32:
-#endif
-		return BS_TRUE;
-	default:
-		return BS_FALSE;
-	}
-}
-
-static int bs_promote_arithmetic(struct bs *bs, const bs_type_t *type,
-				bs_type_t *out)
-{
-	switch (*type) {
-	case BS_TYPE_CHAR: case BS_TYPE_BOOL: case BS_TYPE_I8:
-	case BS_TYPE_I16: case BS_TYPE_I32:
-#ifndef BS_32BIT
-	case BS_TYPE_I64:
-#endif
-		*out = BS_INT;
-		return 0;
-	case BS_TYPE_U8: case BS_TYPE_U16: case BS_TYPE_U32:
-#ifndef BS_32BIT
-	case BS_TYPE_U64:
-#endif
-		*out = BS_UINT;
-		return 0;
-#ifndef BS_NOFP
-	case BS_TYPE_F32:
-# ifndef BS_32BIT
-	case BS_TYPE_F64:
-# endif
-		*out = BS_FLOAT;
-		return 0;
-#endif
-	default:
-		return -1;
-	}
-}
-
-#define BS_ALIGNDU(X, A) ((X) / (A) * (A))
-#define BS_ALIGNUU(X, A) ((((X) - 1) / (A) + 1) * (A))
-
-static int bs_push_data(void *boundary, bs_byte **out, const void *data,
-			size_t len, size_t align)
-{
-	bs_byte *newloc = (bs_byte *)BS_ALIGNDU(
-		(bs_uptr)*out - len, align);
-
-	if ((void *)newloc < boundary) return -1;
-	*out = newloc;
-	BS_MEMCPY(*out, data, len);
-	return 0;
-}
-
-static int bs_pop_data(void *boundary, bs_byte **ptr, void *out,
-			size_t len, size_t tonext)
-{
-	if ((void *)(*ptr + tonext) > boundary) return -1;
-	BS_MEMCPY(out, *ptr, len);
-	*ptr += tonext;
-	return 0;
-}
-/*
- * NOTE: Only updates loctype and loc of out variable
- */
-static int bs_compile_push_data(struct bs *bs, struct bs_var *out,
-				const void *data, size_t len, size_t align)
-{
-	switch (bs->mode) {
-	case BS_MODE_OFF:
-		out->locty = BS_LOC_TYPEONLY;
-		break;
-	case BS_MODE_DEFAULT:
-		out->locty = BS_LOC_SPREL;
-		out->loc = bs->stack;
-		break;
-	case BS_MODE_COMPTIME:
-		out->locty = BS_LOC_COMPTIME;
-		if (bs_push_data(bs->codebegin, &bs->ctstack, data, len, align)) {
-			bs_emit_error(bs, "Ran out of comptime stack space!");
-			return -1;
-		}
-		out->loc = bs->codeend - bs->ctstack;
-		break;
-	}
-	return 0;
-}
-
-/*
- * Since objects may be aligned oddly on the stack, tonext specifies by how
- * much to change the next pointer
- */
-static int bs_compile_pop_data(struct bs *bs, void *out,
-				size_t len, size_t tonext)
-{
-	switch (bs->mode) {
-	case BS_MODE_OFF:
-		break;
-	case BS_MODE_DEFAULT:
-		break;
-	case BS_MODE_COMPTIME:
-		if (bs_pop_data(bs->codeend, &bs->ctstack, out, len, tonext)) {
-			bs_emit_error(bs, "Comptime stack underflow!");
-			return -1;
-		}
-		break;
-	}
-	return 0;
-}
-
-static int bs_compile_cast(struct bs *bs, struct bs_var *var,
-			const bs_type_t *newtype)
-{
-#ifndef BS_NOFP
-	bs_float f;
-	bs_uint u;
-	bs_int i;
-#endif
-
-	if (!bs_is_arithmetic(bs, var->type)
-		|| !bs_is_arithmetic(bs, newtype)) {
-		bs_emit_error(bs, "Expected arithmetic types in cast!");
-		return -1;
-	}
-
-	if (bs->mode == BS_MODE_OFF) return 0;
-#ifndef BS_NOFP
-	if (*newtype == BS_FLOAT && var->type[0] != BS_FLOAT) {
-		if (var->type[0] == BS_UINT) {
-			if (bs_compile_pop_data(bs, &u, sizeof(u), sizeof(u))) return -1;
-			f = (bs_float)u;
-		} else {
-			if (bs_compile_pop_data(bs, &i, sizeof(i), sizeof(i))) return -1;
-			f = (bs_float)i;
-		}
-		return bs_compile_push_data(bs, var, &f, sizeof(f), sizeof(f));
-	} else if (*newtype != BS_FLOAT && var->type[0] == BS_FLOAT) {
-		if (bs_compile_pop_data(bs, &f, sizeof(f), sizeof(f))) return -1;
-		if (*newtype == BS_UINT) {
-			u = (bs_uint)f;
-			if (bs_compile_push_data(bs, var, &u, sizeof(u), sizeof(u))) return -1;
-		} else {
-			i = (bs_int)f;
-			if (bs_compile_push_data(bs, var, &i, sizeof(i), sizeof(i))) return -1;
-		}
-	}
-#endif
-	var->type[0] = *newtype;
-	return 0;
-}
-
-static int bs_arithmetic_convert(struct bs *bs, const bs_type_t *left,
-				const bs_type_t *right, bs_type_t *out)
-{
-	bs_type_t pl, pr;
-	if (bs_promote_arithmetic(bs, left, &pl)) return -1;
-	if (bs_promote_arithmetic(bs, right, &pr)) return -1;
-#ifndef BS_NOFP
-	if (pl == BS_FLOAT || pr == BS_FLOAT) *out = BS_FLOAT;
-	else if (pl == BS_UINT || pr == BS_UINT) *out = BS_UINT;
-#else
-	if (pl == BS_UINT || pr == BS_UINT) *out = BS_UINT;
-#endif
-	else *out = BS_INT;
-	return 0;
-}
-
-static int bs_compile_math(struct bs *bs, bs_type_t type, int mathop)
-{
-	union {
-		bs_uint u;
-		bs_int i;
-		bs_float f;
-	} l, r;
-	size_t size;
-
-	switch (bs->mode) {
-	case BS_MODE_OFF: break;
-	case BS_MODE_DEFAULT:
-		break;
-	case BS_MODE_COMPTIME:
-		if (type == BS_UINT || type == BS_INT) size = sizeof(l.u);
-#ifndef BS_NOFP
-		else if (type == BS_FLOAT) size = sizeof(l.f);
-#endif
-		else bs_abort("expected int,uint, or fp in comptime expr");
-
-		if (bs_pop_data(bs->codeend, &bs->ctstack, &r, size, size)
-			|| bs_pop_data(bs->codeend, &bs->ctstack, &l, size, size)) {
-			bs_emit_error(bs, "Comptime stack underflow!");
-			return -1;
-		}
-
-		if (type == BS_UINT) l.u += r.u;
-		else if (type == BS_INT) l.i += r.i;
-#ifndef BS_NOFP
-		else if (type == BS_FLOAT) l.f += r.f;
-#endif
-
-		if (bs_push_data(bs->codebegin, &bs->ctstack, &l, size, size)) {
-			bs_emit_error(bs, "Comptime stack overflow!");
-			return -1;
-		}
-		break;
-	}
-
-	return 0;
-}
-
-/*
  * Based Script expression compiler
  */
-enum bs_prec {
-	BS_PREC_FACTOR,
-	BS_PREC_GROUPING,
-	BS_PREC_POSTFIX,
-	BS_PREC_BUILTIN,
-	BS_PREC_PREFIX,
-	BS_PREC_MUL,
-	BS_PREC_ADD,
-	BS_PREC_SHIFT,
-	BS_PREC_BITAND,
-	BS_PREC_BITXOR,
-	BS_PREC_BITOR,
-	BS_PREC_REL,
-	BS_PREC_EQ,
-	BS_PREC_AND,
-	BS_PREC_OR,
-	BS_PREC_COND,
-	BS_PREC_ASSIGN,
-	BS_PREC_FULL = BS_PREC_ASSIGN,
-	BS_PREC_NONE
-};
-
-#define BS_EXPR_TYBUF_SIZE 64
-
 typedef int(*bs_parse_expr_func_t)(struct bs *bs, enum bs_prec prec,
 				struct bs_var *out, int depth);
 
@@ -1682,8 +1839,6 @@ struct bs_expr_rule {
 	enum bs_prec		prec;
 };
 
-static int bs_parse_expr(struct bs *bs, enum bs_prec prec,
-			struct bs_var *out, int depth);
 static int bs_parse_number(struct bs *bs, enum bs_prec prec,
 			struct bs_var *out, int depth);
 static int bs_parse_add(struct bs *bs, enum bs_prec prec,

@@ -87,5 +87,5 @@ fn hashmap_set<K, V>(map &mut HashMap<K, V>, key &K, val &V) bool
 	true
 			
 -- Array creation:
--- const arr = initarr(type, len, default (optional))
+-- const arr = [; type; len; (optional) default]
 
