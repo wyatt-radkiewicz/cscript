@@ -4,23 +4,39 @@
 #ifndef _BS_H_
 #define _BS_H_
 
-#include <limits.h>
 #include <stddef.h>
 
+/*
+ * This callback is called when the based script compiler encounters and error
+ * and needs to give the user feedback to show that the error occured.
+ */
 typedef void(*bs_error_writer_t)(void *user, int line,
 				int col, const char *msg);
+
+/*
+ * You pass and array of this struct to based script to tell it about external
+ * functions.
+ */
+struct bsvm;
 struct bs_extern_fn {
-	void (*pfn)(void *vm);
+	void (*pfn)(struct bsvm *vm);
 	const char *name;
 };
+
+/*
+ * When a based script script needs to allocate memory or free it, it calls
+ * these functions. Also zalloc must allocate ZERO initialized memory.
+ */
+typedef void*(*bs_vmzalloc_t)(void *user, size_t size);
+typedef void(*bs_vmfree_t)(void *user, void *blk);
 
 #define BS_IMPL
 #define BS_DEBUG
 
 #ifdef BS_IMPL
-/*
+/******************************************************************************
  * Utilities
- */
+ *****************************************************************************/
 
 #ifndef BS_RECURRSION_LIMIT
 # define BS_RECURRSION_LIMIT 32
@@ -146,6 +162,10 @@ BS_INLINE bs_bool bs_tolower(char x)
 	return x + (x >= 'A' && x <= 'Z') * 0x20;
 }
 
+/******************************************************************************
+ * Based Script Types
+ *****************************************************************************/
+
 /*
  * Lexer
  */
@@ -197,9 +217,6 @@ struct bs_token {
 	struct bs_strview	src;
 };
 
-/*
- * Based Script Types
- */
 enum bs_typeclass {
 	/* Special void type */
 	BS_TYPE_VOID,
@@ -303,15 +320,43 @@ typedef double bs_float;
 #  include <stdint.h>
 typedef int64_t bs_int;
 typedef uint64_t bs_uint;
+typedef uint64_t bs_u64;
+typedef uint64_t bs_i64;
 # elif defined(__GNUC__)
 typedef signed long bs_int;
 typedef unsigned long bs_uint;
+typedef unsigned long bs_u64;
+typedef unsigned long bs_i64;
 # elif defined(_WIN32) || defined (_WIN64)
 #  include <Windows.h>
 typedef LONG64 bs_int;
 typedef DWORD64 bs_uint;
+typedef DWORD64 bs_u64;
+typedef DWORD64 bs_i64;
 # else
 #  error "Can't find 64-bit type for 64-bit mode in Based Script header file!"
+# endif
+#endif
+
+#if __STDC_VERSION__ >= 199901L
+# include <stdint.h>
+typedef int8_t		bs_i8;
+typedef int16_t		bs_i16;
+typedef uint16_t	bs_u16;
+typedef int32_t		bs_i32;
+typedef uint32_t	bs_u32;
+#else
+typedef char		bs_i8;
+typedef signed short	bs_i16;
+typedef unsigned short	bs_u16;
+typedef signed int	bs_i32;
+typedef unsigned int	bs_u32;
+#endif
+
+#ifndef BS_NOFP
+typedef float		bs_f32;
+# ifndef BS_32BIT
+typedef double		bs_f64;
 # endif
 #endif
 
@@ -453,10 +498,7 @@ enum {
 	BS_LOC_SPREL,	/* Relative to the stack */
 	BS_LOC_CODEREL,	/* Relative to the start of the code segment */
 	BS_LOC_ABS,	/* Absolute memory addess */
-	BS_LOC_COMPTIME,/* Comptime code space */
-
-	/* Flag to indicate indirection of location */
-	BS_LOC_FLAG_IND = 0x80	
+	BS_LOC_COMPTIME /* Comptime code space */
 };
 
 #ifndef BS_VARSIZE
@@ -490,7 +532,8 @@ struct bs_tmpl_impl {
 enum bs_mode {
 	BS_MODE_OFF,
 	BS_MODE_DEFAULT,
-	BS_MODE_COMPTIME
+	BS_MODE_COMPTIME,
+	BS_MODE_TRY_COMPTIME
 };
 
 /*
@@ -558,6 +601,10 @@ static void bs_init(struct bs *bs,
 	bs->codebegin	= code;
 	bs->codelen	= codelen;
 }
+
+/******************************************************************************
+ * Based Script parsing and lexing utilities
+ *****************************************************************************/
 
 /*
  * Emits an error with the error writer function, incs error count
@@ -804,8 +851,600 @@ static int bs_advance_token(struct bs *bs, bs_bool skip_newline)
 }
 
 /*
- * Based Script code emmiter
+ * This is used to backup state after getting an expression's type
  */
+struct bs_parser_backup {
+	enum bs_mode		mode;
+	struct bs_strview	src;
+	struct bs_token		tok;
+};
+
+static void bs_parser_backup_init(struct bs *bs, struct bs_parser_backup *b)
+{
+	b->src = bs->src;
+	b->tok = bs->tok;
+	b->mode = bs->mode;
+}
+
+static void bs_parser_backup_restore(struct bs *bs, struct bs_parser_backup *b)
+{
+	bs->src = b->src;
+	bs->tok = b->tok;
+	bs->mode = b->mode;
+}
+
+/******************************************************************************
+ * Based Script Virtual Machine (VM)
+ *****************************************************************************/
+enum bs_opcode {
+	/* Math ops */
+	BS_OPADD,
+	BS_OPADDQ,
+	BS_OPSUB,
+	BS_OPSUBQ,
+	BS_OPMULI,
+	BS_OPDIVI,
+	BS_OPMULU,
+	BS_OPDIVU,
+	BS_OPMODI,
+	BS_OPMODU,
+	BS_OPNEG,
+	BS_OPSLL,
+	BS_OPSRL,
+	BS_OPSRA,
+	BS_OPAND,
+	BS_OPOR,
+	BS_OPXOR,
+	BS_OPNOT,
+
+#ifndef BS_NOFP
+	BS_OPADDF,
+	BS_OPSUBF,
+	BS_OPMULF,
+	BS_OPDIVF,
+	BS_OPNEGF,
+#endif
+
+	/* Branching/Calling ops */
+	BS_OPBEQ,
+	BS_OPBNE,
+	BS_OPBGT,
+	BS_OPBLT,
+	BS_OPBGE,
+	BS_OPBLE,
+	BS_OPJMP,
+	BS_OPCALL,
+	BS_OPRET,
+
+#ifndef BS_NOFP
+	BS_OPBGTF,
+	BS_OPBLTF,
+	BS_OPBGEF,
+	BS_OPBLEF,
+#endif
+
+	/* Stack operations */
+	BS_OPPUSH,
+	BS_OPPOP,
+	BS_OPCONST1,
+	BS_OPCONST2,
+	BS_OPCONST2Q,
+	BS_OPCONST4,
+	BS_OPCONST4Q,
+	BS_OPDUP1,
+	BS_OPDUP2,
+	BS_OPDUP4,
+#ifndef BS_32BIT
+	BS_OPCONST8,
+	BS_OPCONST8Q,
+	BS_OPDUP8,
+#endif
+	BS_OPALLOC,
+	BS_OPDECRC,
+
+	/* Load/Store ops */
+	BS_OPLOADSP,
+	BS_OPLOADPC,
+	BS_OPLOADCODE,
+
+	BS_OPLOADBUF,
+	BS_OPSTOREBUF,
+	BS_OPLOADI8,
+	BS_OPLOADI8SQ,
+	BS_OPLOADI16,
+	BS_OPLOADI16SQ,
+	BS_OPLOADI32,
+	BS_OPLOADI32SQ,
+	BS_OPLOADU8,
+	BS_OPLOADU8SQ,
+	BS_OPLOADU16,
+	BS_OPLOADU16SQ,
+	BS_OPLOADU32,
+	BS_OPLOADU32SQ,
+	BS_OPSTOREB8,
+	BS_OPSTOREB8SQ,
+	BS_OPSTOREB16,
+	BS_OPSTOREB16SQ,
+	BS_OPSTOREB32,
+	BS_OPSTOREB32SQ,
+
+#ifndef BS_32BIT
+	BS_OPLOADB64,
+	BS_OPLOADB64SQ,
+	BS_OPSTOREB64,
+	BS_OPSTOREB64SQ,
+#endif
+
+#ifndef BS_NOFP
+	BS_OPLOADF32,
+	BS_OPLOADF32SQ,
+	BS_OPSTOREF32,
+	BS_OPSTOREF32SQ
+#endif
+};
+
+struct bs_ptrhdr {
+	bs_uint		refs;
+	bs_uint		len;
+};
+
+struct bs_pfn {
+	bs_bool		ext;
+	unsigned	loc;
+};
+
+struct bs_slice {
+	void		*ptr;
+	size_t		len;
+};
+
+#define BS_ALIGNDU(X, A) ((X) / (A) * (A))
+#define BS_ALIGNUU(X, A) ((((X) - 1) / (A) + 1) * (A))
+
+static int bs_push_data(void *boundary, bs_byte **out, const void *data,
+			size_t len, size_t align)
+{
+	bs_byte *newloc = (bs_byte *)BS_ALIGNDU(
+		(bs_uptr)*out - len, align);
+
+	if ((void *)newloc < boundary) return -1;
+	*out = newloc;
+	BS_MEMCPY(*out, data, len);
+	return 0;
+}
+
+static int bs_pop_data(void *boundary, bs_byte **ptr, void *out,
+			size_t len, size_t tonext)
+{
+	if ((void *)(*ptr + tonext) > boundary) return -1;
+	BS_MEMCPY(out, *ptr, len);
+	*ptr += tonext;
+	return 0;
+}
+
+#ifndef BS_VMSTACK_SIZE
+# define BS_VMSTACK_SIZE 1024*8
+#endif
+#ifndef BS_VMCALLSTACK_SIZE
+# define BS_VMCALLSTACK_SIZE 256
+#endif
+
+enum bs_vmerror {
+	BS_VMERROR_OKAY,
+	BS_VMERROR_ERROR,
+	BS_VMERROR_OUTOFMEM,
+	BS_VMERROR_STACKOVERFLOW,
+	BS_VMERROR_CALLSTACKOVERFLOW,
+	BS_VMERROR_NOEXTFUNC,
+	BS_VMERROR_NULLREF
+};
+
+struct bsvm {
+	const bs_byte		*pc;
+	const bs_byte		*code;
+	size_t			codelen;
+
+	bs_byte			stack[BS_VMSTACK_SIZE];
+	bs_byte			*sp;
+
+	int			callstack[BS_VMCALLSTACK_SIZE];
+	int			ret;
+
+	bs_vmzalloc_t		alloc;
+	bs_vmfree_t		free;
+	void			*alloc_user;
+
+	struct bs_extern_fn	*extfns;
+	size_t			nextfns;
+};
+
+static void bsvm_init(struct bsvm *vm, const bs_byte *code, size_t codelen,
+			bs_vmzalloc_t alloc, bs_vmfree_t free, void *user,
+			struct bs_extern_fn *fns, size_t nfns)
+{
+	vm->code = code;
+	vm->codelen = codelen;
+	vm->pc = code;
+	vm->sp = vm->stack + BS_VMSTACK_SIZE;
+	vm->ret = 0;
+	vm->alloc = alloc;
+	vm->free = free;
+	vm->alloc_user = user;
+	vm->extfns = fns;
+	vm->nextfns = nfns;
+}
+
+#define bs_vmpop(VM, DATA, SIZE, MAXALIGN)				\
+	(bs_pop_data((VM)->stack + BS_ARRSIZE((VM)->stack),		\
+			&(VM)->sp,					\
+			(DATA), sizeof(*(DATA)),			\
+			BS_ALIGNUU(sizeof(*(DATA)),			\
+			((MAXALIGN) ? BS_MAX_ALIGN : sizeof(*(DATA)))))	\
+		? BS_VMERROR_ERROR : BS_VMERROR_OKAY)
+#define bs_vmpush(VM, DATA, SIZE, MAXALIGN)				\
+	(bs_push_data((VM)->stack + BS_ARRSIZE((VM)->stack),		\
+			&(VM)->sp,					\
+			(DATA), sizeof(*(DATA)),			\
+			BS_ALIGNUU(sizeof(*(DATA)),			\
+			((MAXALIGN) ? BS_MAX_ALIGN : sizeof(*(DATA)))))	\
+		? BS_VMERROR_STACKOVERFLOW : BS_VMERROR_OKAY)
+
+static int bsvm_extract_b16(struct bsvm *vm, void *out)
+{
+	if (vm->pc + 2 > vm->code + vm->codelen) return BS_VMERROR_ERROR;
+	*(bs_u16 *)out = *vm->pc++;
+	*(bs_u16 *)out |= *vm->pc++ << 8;
+	return BS_VMERROR_OKAY;
+}
+
+static int bsvm_extract_b32(struct bsvm *vm, void *out)
+{
+	if (vm->pc + 4 > vm->code + vm->codelen) return BS_VMERROR_ERROR;
+	*(bs_u32 *)out = *vm->pc++;
+	*(bs_u32 *)out |= *vm->pc++ << 8;
+	*(bs_u32 *)out |= *vm->pc++ << 16;
+	*(bs_u32 *)out |= *vm->pc++ << 24;
+	return BS_VMERROR_OKAY;
+}
+
+#ifndef BS_32BIT
+static int bsvm_extract_b64(struct bsvm *vm, void *out)
+{
+	if (vm->pc + 8 > vm->code + vm->codelen) return BS_VMERROR_ERROR;
+	*(bs_u64 *)out =  (bs_u64)*vm->pc++;
+	*(bs_u64 *)out |= (bs_u64)*vm->pc++ << 8;
+	*(bs_u64 *)out |= (bs_u64)*vm->pc++ << 16;
+	*(bs_u64 *)out |= (bs_u64)*vm->pc++ << 24;
+	*(bs_u64 *)out |= (bs_u64)*vm->pc++ << 32;
+	*(bs_u64 *)out |= (bs_u64)*vm->pc++ << 40;
+	*(bs_u64 *)out |= (bs_u64)*vm->pc++ << 48;
+	*(bs_u64 *)out |= (bs_u64)*vm->pc++ << 56;
+	return BS_VMERROR_OKAY;
+}
+#endif
+
+static int bsvm_runop(struct bsvm *vm, bs_bool *keep_running)
+{
+	bs_uint		ul, ur;
+	bs_int		il, ir;
+#ifndef BS_NOFP
+	bs_float	fl, fr;
+#endif
+	struct bs_pfn	pfn;
+	struct bs_slice	slice;
+	union {
+		bs_byte			*b;
+		struct bs_ptrhdr	*ph;
+	}		p;
+	bs_byte		b;
+	unsigned	u;
+	int		i;
+
+	bs_u16		bu16;
+	bs_u32 		bu32;
+	bs_i16 		bi16;
+	bs_i32 		bi32;
+#ifndef BS_32BIT
+	bs_u64		bu64;
+	bs_i64		bi64;
+#endif
+
+	switch ((enum bs_opcode)*vm->pc++) {
+	/* Math ops */
+#define BINARYOP(OP, NAME, PREFIX)					\
+	case BS_OP##NAME:						\
+		if (bs_vmpop(vm, &PREFIX##r, sizeof(PREFIX##r), BS_TRUE)) return BS_VMERROR_ERROR;\
+		if (bs_vmpop(vm, &PREFIX##l, sizeof(PREFIX##l), BS_TRUE)) return BS_VMERROR_ERROR;\
+		PREFIX##l OP PREFIX##r;					\
+		if (bs_vmpush(vm, &PREFIX##l, sizeof(PREFIX##l), BS_TRUE)) return BS_VMERROR_STACKOVERFLOW;\
+		break;
+	BINARYOP(+=, ADD, u)
+	BINARYOP(-=, SUB, u)
+	BINARYOP(*=, MULI, i)
+	BINARYOP(*=, MULU, u)
+	BINARYOP(/=, DIVI, i)
+	BINARYOP(/=, DIVU, u)
+	BINARYOP(%=, MODI, i)
+	BINARYOP(%=, MODU, u)
+	BINARYOP(<<=, SLL, u)
+	BINARYOP(>>=, SRL, u)
+	BINARYOP(>>=, SRA, i)
+	BINARYOP(&=, AND, u)
+	BINARYOP(|=, OR, u)
+	BINARYOP(^=, XOR, u)
+	case BS_OPADDQ:
+		if (vm->pc >= vm->code + vm->codelen) return BS_VMERROR_ERROR;
+		*(bs_uint *)(vm->sp) += *vm->pc++;
+		break;
+	case BS_OPSUBQ:
+		if (vm->pc >= vm->code + vm->codelen) return BS_VMERROR_ERROR;
+		*(bs_uint *)(vm->sp) -= *vm->pc++;
+		break;
+	case BS_OPNEG:
+		*(bs_int *)(vm->sp) = -(*(bs_int *)(vm->sp));
+		break;
+	case BS_OPNOT:
+		*(bs_uint *)(vm->sp) = ~(*(bs_uint *)(vm->sp));
+		break;
+
+#ifndef BS_NOFP
+	BINARYOP(+=, ADDF, f)
+	BINARYOP(-=, SUBF, f)
+	BINARYOP(*=, MULF, f)
+	BINARYOP(/=, DIVF, f)
+	case BS_OPNEGF:
+		*(bs_float *)(vm->sp) = -(*(bs_float *)(vm->sp));
+		break;
+#endif
+
+	/* Branching/Calling ops */
+#define BRANCHOP(COND, NAME, VAR)					\
+	case BS_OP##NAME:						\
+		if (bsvm_extract_b32(vm, &u)) return BS_VMERROR_ERROR;	\
+		if (bs_vmpop(vm, &(VAR), sizeof(VAR), BS_TRUE)) return BS_VMERROR_ERROR;\
+		if (u >= vm->codelen) return BS_VMERROR_ERROR;		\
+		if (COND) vm->pc = vm->code + u;			\
+		break;
+
+	BRANCHOP(!ul, BEQ, ul)
+	BRANCHOP(ul, BNE, ul)
+	BRANCHOP(il > 0, BGT, il)
+	BRANCHOP(il < 0, BLT, il)
+	BRANCHOP(il >= 0, BGE, il)
+	BRANCHOP(il <= 0, BLE, il)
+	case BS_OPJMP:
+		if (bsvm_extract_b32(vm, &u)) return BS_VMERROR_ERROR;
+		if (u >= vm->codelen) return BS_VMERROR_ERROR;
+		vm->pc = vm->code + u;
+		break;
+	case BS_OPCALL:
+		if (bs_vmpop(vm, &pfn, sizeof(pfn), BS_TRUE)) return BS_VMERROR_ERROR;
+		if (pfn.ext) {
+			if (pfn.loc >= vm->nextfns || !vm->extfns
+				|| !vm->extfns[pfn.loc].pfn)
+				return BS_VMERROR_NOEXTFUNC;
+			vm->extfns[pfn.loc].pfn(vm);
+		} else {
+			if (vm->ret >= BS_VMCALLSTACK_SIZE)
+				return BS_VMERROR_CALLSTACKOVERFLOW;
+			vm->callstack[vm->ret++] = vm->pc - vm->code;
+			vm->pc = vm->pc + pfn.loc;
+		}
+		break;
+	case BS_OPRET:
+		if (!vm->ret) {
+			*keep_running = BS_FALSE;
+			break;
+		}
+		vm->pc = vm->code + vm->callstack[--vm->ret];
+		break;
+
+#ifndef BS_NOFP
+	BRANCHOP(fl > 0.0, BGTF, fl)
+	BRANCHOP(fl < 0.0, BLTF, fl)
+	BRANCHOP(fl >= 0.0, BGEF, fl)
+	BRANCHOP(fl <= 0.0, BLEF, fl)
+#endif
+
+	/* Stack operations */
+	case BS_OPPUSH:
+		if (bsvm_extract_b32(vm, &u)) return BS_VMERROR_ERROR;
+		if (vm->sp - u < vm->stack) return BS_VMERROR_STACKOVERFLOW;
+		vm->sp -= u;
+		break;
+	case BS_OPPOP:
+		if (bsvm_extract_b32(vm, &u)) return BS_VMERROR_ERROR;
+		if (vm->sp - u >= vm->stack + BS_VMSTACK_SIZE)
+			return BS_VMERROR_STACKOVERFLOW;
+		vm->sp -= u;
+		break;
+	case BS_OPCONST1:
+		if (vm->pc >= vm->code + vm->codelen) return BS_VMERROR_ERROR;
+		b = *vm->pc++;
+		if (bs_vmpush(vm, &b, sizeof(b), BS_FALSE)) return BS_VMERROR_STACKOVERFLOW;
+		break;
+	case BS_OPCONST2:
+		if (bsvm_extract_b16(vm, &bu16)) return BS_VMERROR_ERROR;
+		if (bs_vmpush(vm, &bu16, sizeof(bu16), BS_FALSE)) return BS_VMERROR_STACKOVERFLOW;
+		break;
+	case BS_OPCONST2Q:
+		if (vm->pc >= vm->code + vm->codelen) return BS_VMERROR_ERROR;
+		bi16 = *(bs_i8 *)vm->pc++;
+		if (bs_vmpush(vm, &bi16, sizeof(bi16), BS_FALSE)) return BS_VMERROR_STACKOVERFLOW;
+		break;
+	case BS_OPCONST4:
+		if (bsvm_extract_b32(vm, &bu32)) return BS_VMERROR_ERROR;
+		if (bs_vmpush(vm, &bu32, sizeof(bu32), BS_FALSE)) return BS_VMERROR_STACKOVERFLOW;
+		break;
+	case BS_OPCONST4Q:
+		if (vm->pc >= vm->code + vm->codelen) return BS_VMERROR_ERROR;
+		bi32 = *(bs_i8 *)vm->pc++;
+		if (bs_vmpush(vm, &bi32, sizeof(bi32), BS_FALSE)) return BS_VMERROR_STACKOVERFLOW;
+		break;
+	case BS_OPDUP1:
+		b = *vm->sp;
+		if (bs_vmpush(vm, &b, sizeof(b), BS_FALSE)) return BS_VMERROR_STACKOVERFLOW;
+		break;
+	case BS_OPDUP2:
+		bu16 = *(bs_u16 *)vm->sp;
+		if (bs_vmpush(vm, &bu16, sizeof(bu16), BS_FALSE)) return BS_VMERROR_STACKOVERFLOW;
+		break;
+	case BS_OPDUP4:
+		bu32 = *(bs_u32 *)vm->sp;
+		if (bs_vmpush(vm, &bu32, sizeof(bu32), BS_FALSE)) return BS_VMERROR_STACKOVERFLOW;
+		break;
+#ifndef BS_32BIT
+	case BS_OPCONST8:
+		if (bsvm_extract_b64(vm, &bu64)) return BS_VMERROR_ERROR;
+		if (bs_vmpush(vm, &bu64, sizeof(bu64), BS_FALSE)) return BS_VMERROR_STACKOVERFLOW;
+		break;
+	case BS_OPCONST8Q:
+		if (vm->pc >= vm->code + vm->codelen) return BS_VMERROR_ERROR;
+		bi64 = *vm->pc++;
+		if (bs_vmpush(vm, &bi64, sizeof(bi64), BS_FALSE)) return BS_VMERROR_STACKOVERFLOW;
+		break;
+	case BS_OPDUP8:
+		bu64 = *(bs_u64 *)vm->sp;
+		if (bs_vmpush(vm, &bu64, sizeof(bu64), BS_FALSE)) return BS_VMERROR_STACKOVERFLOW;
+		break;
+#endif
+	case BS_OPALLOC:
+		if (bs_vmpop(vm, &ur, sizeof(ur), BS_TRUE)) return BS_VMERROR_ERROR;
+		if (bs_vmpop(vm, &ul, sizeof(ul), BS_TRUE)) return BS_VMERROR_ERROR;
+		p.ph = vm->alloc ? vm->alloc(vm->alloc_user, ur * ul + sizeof(struct bs_ptrhdr)) : NULL;
+		if (!p.ph) return BS_VMERROR_OUTOFMEM;
+		p.ph->refs = 1;
+		p.ph->len = ur;
+		++p.ph;
+		if (bs_vmpush(vm, &p, sizeof(p), BS_FALSE)) return BS_VMERROR_STACKOVERFLOW;
+		break;
+	case BS_OPDECRC:
+		if (vm->sp + sizeof(void *) > vm->stack + BS_VMSTACK_SIZE) return BS_VMERROR_ERROR;
+		p.b = *(bs_byte **)vm->sp;
+		p.ph = (struct bs_ptrhdr *)p.b - 1;
+		if (--p.ph->refs != 0) break;
+		*(bs_byte **)vm->sp = NULL;
+		if (!vm->free) break;
+		vm->free(vm->alloc_user, p.ph);
+		break;
+
+	/* Load/Store ops */
+	case BS_OPLOADSP:
+		if (bs_vmpush(vm, &vm->sp, sizeof(vm->sp), BS_TRUE)) return BS_VMERROR_STACKOVERFLOW;
+		break;
+	case BS_OPLOADPC:
+		if (bs_vmpush(vm, &vm->pc, sizeof(vm->pc), BS_TRUE)) return BS_VMERROR_STACKOVERFLOW;
+		break;
+	case BS_OPLOADCODE:
+		if (bs_vmpush(vm, &vm->code, sizeof(vm->code), BS_TRUE)) return BS_VMERROR_STACKOVERFLOW;
+		break;
+
+	case BS_OPLOADBUF:
+		if (bsvm_extract_b32(vm, &u)) return BS_VMERROR_ERROR;
+		if (vm->sp - u < vm->stack) return BS_VMERROR_STACKOVERFLOW;
+		vm->sp -= u;
+		if (bs_vmpop(vm, &p, sizeof(p), BS_TRUE)) return BS_VMERROR_ERROR;
+		if (!p.b) return BS_VMERROR_NULLREF;
+		BS_MEMCPY(vm->sp, p.b, u);
+		break;
+	case BS_OPSTOREBUF:
+		if (bsvm_extract_b32(vm, &u)) return BS_VMERROR_ERROR;
+		if (vm->sp + u >= vm->stack + BS_VMSTACK_SIZE) return BS_VMERROR_STACKOVERFLOW;
+		if (bs_vmpop(vm, &p, sizeof(p), BS_TRUE)) return BS_VMERROR_ERROR;
+		if (!p.b) return BS_VMERROR_NULLREF;
+		BS_MEMCPY(p.b, vm->sp, u);
+		break;
+#define LOADOP(NAME, TY, VAR)						\
+	case BS_OPLOAD##NAME:						\
+		if (bs_vmpop(vm, &p, sizeof(p), BS_TRUE)) return BS_VMERROR_ERROR;\
+		VAR = *(TY *)p.b;					\
+		if (bs_vmpush(vm, &(VAR), sizeof(VAR), BS_TRUE)) return BS_VMERROR_STACKOVERFLOW;\
+		break;
+#define LOADSQOP(NAME, TY, VAR)						\
+	case BS_OPLOAD##NAME##SQ:					\
+		if (vm->pc >= vm->code + vm->codelen) return BS_VMERROR_ERROR;\
+		b = *vm->pc++;						\
+		if (vm->sp + b + sizeof(VAR) > vm->code + vm->codelen) return BS_VMERROR_ERROR;\
+		VAR = *(TY *)(vm->sp + b);				\
+		if (bs_vmpush(vm, &(VAR), sizeof(VAR), BS_TRUE)) return BS_VMERROR_STACKOVERFLOW;\
+		break;
+	LOADOP(I8, bs_i8, il)
+	LOADSQOP(I8, bs_i8, il)
+	LOADOP(I16, bs_i16, il)
+	LOADSQOP(I16, bs_i16, il)
+	LOADOP(I32, bs_i32, il)
+	LOADSQOP(I32, bs_i32, il)
+	LOADOP(U8, bs_byte, ul)
+	LOADSQOP(U8, bs_byte, ul)
+	LOADOP(U16, bs_u16, ul)
+	LOADSQOP(U16, bs_u16, ul)
+	LOADOP(U32, bs_u32, ul)
+	LOADSQOP(U32, bs_u32, ul)
+#define STOREOP(NAME, TY, VAR)						\
+	case BS_OPSTORE##NAME:						\
+		if (bs_vmpop(vm, &p, sizeof(p), BS_TRUE)) return BS_VMERROR_ERROR;\
+		if (bs_vmpop(vm, &(VAR), sizeof(VAR), BS_TRUE)) return BS_VMERROR_ERROR;\
+		if (!p.b) return BS_VMERROR_NULLREF;			\
+		*(TY *)p.b = VAR;				\
+		break;
+#define STORESQOP(NAME, TY, VAR)					\
+	case BS_OPSTORE##NAME##SQ:					\
+		if (bs_vmpop(vm, &(VAR), sizeof(VAR), BS_TRUE)) return BS_VMERROR_ERROR;\
+		if (vm->pc >= vm->code + vm->codelen) return BS_VMERROR_ERROR;\
+		b = *vm->pc++;						\
+		if (vm->sp + b + sizeof(VAR) > vm->code + vm->codelen) return BS_VMERROR_ERROR;\
+		*(TY *)(vm->sp + b) = VAR;				\
+		break;
+	STOREOP(B8, bs_byte, ul)
+	STORESQOP(B8, bs_byte, ul)
+	STOREOP(B16, bs_u16, ul)
+	STORESQOP(B16, bs_u16, ul)
+	STOREOP(B32, bs_u32, ul)
+	STORESQOP(B32, bs_u32, ul)
+
+#ifndef BS_32BIT
+	LOADOP(B64, bs_u64, ul)
+	LOADSQOP(B64, bs_u64, ul)
+	STOREOP(B64, bs_u64, ul)
+	STORESQOP(B64, bs_u64, ul)
+#endif
+
+#ifndef BS_NOFP
+	LOADOP(F32, bs_f32, fl)
+	LOADSQOP(F32, bs_f32, fl)
+	STOREOP(F32, bs_f32, fl)
+	STORESQOP(F32, bs_f32, fl)
+#endif
+	}
+
+	return BS_VMERROR_OKAY;
+
+#undef BINARYOP
+#undef BRANCHOP
+#undef LOADSQOP
+#undef STORESQOP
+#undef LOADOP
+#undef STOREOP
+}
+
+static int bsvm_run(struct bsvm *vm, int loc)
+{
+	bs_bool running = BS_TRUE;
+
+	if (loc < 0 || loc > vm->codelen) return BS_VMERROR_ERROR;
+	vm->pc = vm->code + loc;
+
+	while (running) {
+		const int ret = bsvm_runop(vm, &running);
+		if (ret) return ret;
+	}
+	
+	return BS_VMERROR_OKAY;
+}
+
+/******************************************************************************
+ * Based Script code emmiter
+ *****************************************************************************/
 
 static bs_bool bs_is_arithmetic(struct bs *bs, const bs_type_t *type)
 {
@@ -856,29 +1495,6 @@ static int bs_promote_arithmetic(struct bs *bs, const bs_type_t *type,
 	}
 }
 
-#define BS_ALIGNDU(X, A) ((X) / (A) * (A))
-#define BS_ALIGNUU(X, A) ((((X) - 1) / (A) + 1) * (A))
-
-static int bs_push_data(void *boundary, bs_byte **out, const void *data,
-			size_t len, size_t align)
-{
-	bs_byte *newloc = (bs_byte *)BS_ALIGNDU(
-		(bs_uptr)*out - len, align);
-
-	if ((void *)newloc < boundary) return -1;
-	*out = newloc;
-	BS_MEMCPY(*out, data, len);
-	return 0;
-}
-
-static int bs_pop_data(void *boundary, bs_byte **ptr, void *out,
-			size_t len, size_t tonext)
-{
-	if ((void *)(*ptr + tonext) > boundary) return -1;
-	BS_MEMCPY(out, *ptr, len);
-	*ptr += tonext;
-	return 0;
-}
 /*
  * NOTE: Only updates loctype and loc of out variable
  */
@@ -894,6 +1510,7 @@ static int bs_compile_push_data(struct bs *bs, struct bs_var *out,
 		out->loc = bs->stack;
 		break;
 	case BS_MODE_COMPTIME:
+	case BS_MODE_TRY_COMPTIME:
 		out->locty = BS_LOC_COMPTIME;
 		if (bs_push_data(bs->codebegin, &bs->ctstack, data, len, align)) {
 			bs_emit_error(bs, "Ran out of comptime stack space!");
@@ -918,6 +1535,7 @@ static int bs_compile_pop_data(struct bs *bs, void *out,
 	case BS_MODE_DEFAULT:
 		break;
 	case BS_MODE_COMPTIME:
+	case BS_MODE_TRY_COMPTIME:
 		BS_DBG_ASSERT(!bs_pop_data(bs->codeend, &bs->ctstack, out, len, tonext), "ctstack undeflow");
 		break;
 	}
@@ -995,6 +1613,7 @@ static int bs_compile_math(struct bs *bs, bs_type_t type, int mathop)
 	case BS_MODE_DEFAULT:
 		break;
 	case BS_MODE_COMPTIME:
+	case BS_MODE_TRY_COMPTIME:
 		if (type == BS_UINT || type == BS_INT) size = sizeof(l.u);
 #ifndef BS_NOFP
 		else if (type == BS_FLOAT) size = sizeof(l.f);
@@ -1050,9 +1669,9 @@ enum bs_prec {
 static int bs_parse_expr(struct bs *bs, enum bs_prec prec,
 			struct bs_var *out, int depth);
 
-/*
+/******************************************************************************
  * Based Script type parser engine
- */
+ *****************************************************************************/
 static int bs_parse_type(struct bs *bs, bs_type_t *type,
 			int *len, int max, int depth);
 
@@ -1804,32 +2423,9 @@ static int bs_parse_typedef(struct bs *bs)
 	return 0;
 }
 
-/*
- * This is used to backup state after getting an expression's type
- */
-struct bs_parser_backup {
-	enum bs_mode		mode;
-	struct bs_strview	src;
-	struct bs_token		tok;
-};
-
-static void bs_parser_backup_init(struct bs *bs, struct bs_parser_backup *b)
-{
-	b->src = bs->src;
-	b->tok = bs->tok;
-	b->mode = bs->mode;
-}
-
-static void bs_parser_backup_restore(struct bs *bs, struct bs_parser_backup *b)
-{
-	bs->src = b->src;
-	bs->tok = b->tok;
-	bs->mode = b->mode;
-}
-
-/*
+/******************************************************************************
  * Based Script expression compiler
- */
+ *****************************************************************************/
 typedef int(*bs_parse_expr_func_t)(struct bs *bs, enum bs_prec prec,
 				struct bs_var *out, int depth);
 

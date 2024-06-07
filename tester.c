@@ -6,11 +6,11 @@
 #include "bs.h"
 
 static const char *const src =
-"enum Shape\n"
-"    Circle\n"
-"    Square\n"
-"        width f32\n"
-"        height f32\n";
+"type HashElem<K, V>\n"
+"    used bool\n"
+"    psl u32\n"
+"    key K\n"
+"    val V\n";
 
 void print_err(void *user, int line, int col, const char *msg)
 {
