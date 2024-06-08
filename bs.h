@@ -38,6 +38,10 @@ typedef void(*bs_vmfree_t)(void *user, void *blk);
  * Utilities
  *****************************************************************************/
 
+#ifndef BS_32BIT
+# define BS_32BIT 0
+#endif
+
 #ifndef BS_RECURRSION_LIMIT
 # define BS_RECURRSION_LIMIT 32
 #endif
@@ -228,7 +232,7 @@ enum bs_typeclass {
 	BS_TYPE_U8,
 	BS_TYPE_I16,
 	BS_TYPE_U16,
-#ifdef BS_32BIT
+#if BS_32BIT
 	BS_TYPE_I32,
 	BS_TYPE_ISIZE,
 	BS_TYPE_U32,
@@ -243,7 +247,7 @@ enum bs_typeclass {
 #endif
 #ifndef BS_NOFP
 	BS_TYPE_F32,
-# ifndef BS_32BIT
+# if !BS_32BIT
 	BS_TYPE_F64,
 # endif
 #endif
@@ -288,7 +292,7 @@ enum bs_typeclass {
 # endif
 #endif
 
-#ifdef BS_32BIT
+#if BS_32BIT
 # define BS_INT BS_TYPE_I32
 # define BS_UINT BS_TYPE_U32
 typedef signed int bs_int;
@@ -355,7 +359,7 @@ typedef unsigned int	bs_u32;
 
 #ifndef BS_NOFP
 typedef float		bs_f32;
-# ifndef BS_32BIT
+# if !BS_32BIT
 typedef double		bs_f64;
 # endif
 #endif
@@ -903,6 +907,10 @@ enum bs_opcode {
 	BS_OPMULF,
 	BS_OPDIVF,
 	BS_OPNEGF,
+	BS_OPF2I,
+	BS_OPF2U,
+	BS_OPU2F,
+	BS_OPI2F,
 #endif
 
 	/* Branching/Calling ops */
@@ -925,7 +933,9 @@ enum bs_opcode {
 
 	/* Stack operations */
 	BS_OPPUSH,
+	BS_OPPUSHQ,
 	BS_OPPOP,
+	BS_OPPOPQ,
 	BS_OPCONST1,
 	BS_OPCONST2,
 	BS_OPCONST2Q,
@@ -934,7 +944,7 @@ enum bs_opcode {
 	BS_OPDUP1,
 	BS_OPDUP2,
 	BS_OPDUP4,
-#ifndef BS_32BIT
+#if !BS_32BIT
 	BS_OPCONST8,
 	BS_OPCONST8Q,
 	BS_OPDUP8,
@@ -968,7 +978,7 @@ enum bs_opcode {
 	BS_OPSTOREB32,
 	BS_OPSTOREB32SQ,
 
-#ifndef BS_32BIT
+#if !BS_32BIT
 	BS_OPLOADB64,
 	BS_OPLOADB64SQ,
 	BS_OPSTOREB64,
@@ -1017,7 +1027,7 @@ static int bs_pop_data(void *boundary, bs_byte **ptr, void *out,
 			size_t len, size_t tonext)
 {
 	if ((void *)(*ptr + tonext) > boundary) return -1;
-	BS_MEMCPY(out, *ptr, len);
+	if (out) BS_MEMCPY(out, *ptr, len);
 	*ptr += tonext;
 	return 0;
 }
@@ -1107,7 +1117,7 @@ static int bsvm_extract_b32(struct bsvm *vm, void *out)
 	return BS_VMERROR_OKAY;
 }
 
-#ifndef BS_32BIT
+#if !BS_32BIT
 static int bsvm_extract_b64(struct bsvm *vm, void *out)
 {
 	if (vm->pc + 8 > vm->code + vm->codelen) return BS_VMERROR_ERROR;
@@ -1144,7 +1154,7 @@ static int bsvm_runop(struct bsvm *vm, bs_bool *keep_running)
 	bs_u32 		bu32;
 	bs_i16 		bi16;
 	bs_i32 		bi32;
-#ifndef BS_32BIT
+#if !BS_32BIT
 	bs_u64		bu64;
 	bs_i64		bi64;
 #endif
@@ -1194,6 +1204,18 @@ static int bsvm_runop(struct bsvm *vm, bs_bool *keep_running)
 	BINARYOP(/=, DIVF, f)
 	case BS_OPNEGF:
 		*(bs_float *)(vm->sp) = -(*(bs_float *)(vm->sp));
+		break;
+	case BS_OPF2I:
+		*(bs_int *)(vm->sp) = *(bs_float *)(vm->sp);
+		break;
+	case BS_OPF2U:
+		*(bs_uint *)(vm->sp) = *(bs_float *)(vm->sp);
+		break;
+	case BS_OPU2F:
+		*(bs_float *)(vm->sp) = *(bs_uint *)(vm->sp);
+		break;
+	case BS_OPI2F:
+		*(bs_float *)(vm->sp) = *(bs_int *)(vm->sp);
 		break;
 #endif
 
@@ -1252,11 +1274,24 @@ static int bsvm_runop(struct bsvm *vm, bs_bool *keep_running)
 		if (vm->sp - u < vm->stack) return BS_VMERROR_STACKOVERFLOW;
 		vm->sp -= u;
 		break;
+	case BS_OPPUSHQ:
+		if (vm->pc >= vm->code + vm->codelen) return BS_VMERROR_ERROR;
+		u = *vm->pc++;
+		if (vm->sp - u < vm->stack) return BS_VMERROR_STACKOVERFLOW;
+		vm->sp -= u;
+		break;
 	case BS_OPPOP:
 		if (bsvm_extract_b32(vm, &u)) return BS_VMERROR_ERROR;
-		if (vm->sp - u >= vm->stack + BS_VMSTACK_SIZE)
+		if (vm->sp + u >= vm->stack + BS_VMSTACK_SIZE)
 			return BS_VMERROR_STACKOVERFLOW;
-		vm->sp -= u;
+		vm->sp += u;
+		break;
+	case BS_OPPOPQ:
+		if (vm->pc >= vm->code + vm->codelen) return BS_VMERROR_ERROR;
+		u = *vm->pc++;
+		if (vm->sp + u >= vm->stack + BS_VMSTACK_SIZE)
+			return BS_VMERROR_STACKOVERFLOW;
+		vm->sp += u;
 		break;
 	case BS_OPCONST1:
 		if (vm->pc >= vm->code + vm->codelen) return BS_VMERROR_ERROR;
@@ -1293,7 +1328,7 @@ static int bsvm_runop(struct bsvm *vm, bs_bool *keep_running)
 		bu32 = *(bs_u32 *)vm->sp;
 		if (bs_vmpush(vm, &bu32, sizeof(bu32), BS_FALSE)) return BS_VMERROR_STACKOVERFLOW;
 		break;
-#ifndef BS_32BIT
+#if !BS_32BIT
 	case BS_OPCONST8:
 		if (bsvm_extract_b64(vm, &bu64)) return BS_VMERROR_ERROR;
 		if (bs_vmpush(vm, &bu64, sizeof(bu64), BS_FALSE)) return BS_VMERROR_STACKOVERFLOW;
@@ -1402,7 +1437,7 @@ static int bsvm_runop(struct bsvm *vm, bs_bool *keep_running)
 	STOREOP(B32, bs_u32, ul)
 	STORESQOP(B32, bs_u32, ul)
 
-#ifndef BS_32BIT
+#if !BS_32BIT
 	LOADOP(B64, bs_u64, ul)
 	LOADSQOP(B64, bs_u64, ul)
 	STOREOP(B64, bs_u64, ul)
@@ -1446,12 +1481,44 @@ static int bsvm_run(struct bsvm *vm, int loc)
  * Based Script code emmiter
  *****************************************************************************/
 
+/*
+ * Writes a byte to the code segment, incrementing the code pointer in the
+ * process. If there is no space left, the function returns NULL and
+ * also throws a compiler error, otherwise it returns the old byte pointer
+ * before the increment.
+ */
+BS_INLINE bs_byte *bs_emit_byte(struct bs *bs, bs_byte byte)
+{
+	bs_byte *ptr = bs->code;
+
+	if (bs->code >= bs->ctstack) {
+		bs_emit_error(bs, "Ran out of code space");
+		return NULL;
+	}
+
+	*bs->code++ = byte;
+	return ptr;
+}
+BS_INLINE bs_byte *bs_emit_len(struct bs *bs, const void *buf, size_t len)
+{
+	bs_byte *ptr = bs->code;
+
+	if (bs->code + len > bs->ctstack) {
+		bs_emit_error(bs, "Ran out of code space");
+		return NULL;
+	}
+
+	BS_MEMCPY(bs->code, buf, len);
+	bs->code += len;
+	return ptr;
+}
+
 static bs_bool bs_is_arithmetic(struct bs *bs, const bs_type_t *type)
 {
 	switch (*type) {
 	case BS_TYPE_CHAR: case BS_TYPE_BOOL: case BS_TYPE_I8: case BS_TYPE_U8:
 	case BS_TYPE_I16: case BS_TYPE_U16: case BS_TYPE_I32: case BS_TYPE_U32:
-#ifndef BS_32BIT
+#if !BS_32BIT
 	case BS_TYPE_I64: case BS_TYPE_U64:
 # ifndef BS_NOFP
 	case BS_TYPE_F32: case BS_TYPE_F64:
@@ -1471,20 +1538,20 @@ static int bs_promote_arithmetic(struct bs *bs, const bs_type_t *type,
 	switch (*type) {
 	case BS_TYPE_CHAR: case BS_TYPE_BOOL: case BS_TYPE_I8:
 	case BS_TYPE_I16: case BS_TYPE_I32:
-#ifndef BS_32BIT
+#if !BS_32BIT
 	case BS_TYPE_I64:
 #endif
 		*out = BS_INT;
 		return 0;
 	case BS_TYPE_U8: case BS_TYPE_U16: case BS_TYPE_U32:
-#ifndef BS_32BIT
+#if !BS_32BIT
 	case BS_TYPE_U64:
 #endif
 		*out = BS_UINT;
 		return 0;
 #ifndef BS_NOFP
 	case BS_TYPE_F32:
-# ifndef BS_32BIT
+# if !BS_32BIT
 	case BS_TYPE_F64:
 # endif
 		*out = BS_FLOAT;
@@ -1495,24 +1562,29 @@ static int bs_promote_arithmetic(struct bs *bs, const bs_type_t *type,
 	}
 }
 
-/*
- * NOTE: Only updates loctype and loc of out variable
- */
-static int bs_compile_push_data(struct bs *bs, struct bs_var *out,
-				const void *data, size_t len, size_t align)
+static int bs_compile_const_int(struct bs *bs, struct bs_var *out, bs_int i)
 {
+	out->type[0] = BS_INT;
 	switch (bs->mode) {
 	case BS_MODE_OFF:
 		out->locty = BS_LOC_TYPEONLY;
 		break;
 	case BS_MODE_DEFAULT:
 		out->locty = BS_LOC_SPREL;
+		if (i <= 127 || i >= -128) {
+			if (!bs_emit_byte(bs, BS_32BIT ? BS_OPCONST4Q : BS_OPCONST8Q)) return -1;
+			if (!bs_emit_byte(bs, (char)i)) return -1;
+		} else {
+			if (!bs_emit_byte(bs, BS_32BIT ? BS_OPCONST4 : BS_OPCONST8)) return -1;
+			if (!bs_emit_len(bs, &i, sizeof(i))) return -1;
+		}
+		bs->stack -= BS_ALIGNUU(sizeof(i), BS_MAX_ALIGN);
 		out->loc = bs->stack;
 		break;
 	case BS_MODE_COMPTIME:
 	case BS_MODE_TRY_COMPTIME:
 		out->locty = BS_LOC_COMPTIME;
-		if (bs_push_data(bs->codebegin, &bs->ctstack, data, len, align)) {
+		if (bs_push_data(bs->codebegin, &bs->ctstack, &i, sizeof(i), BS_MAX_ALIGN)) {
 			bs_emit_error(bs, "Ran out of comptime stack space!");
 			return -1;
 		}
@@ -1522,35 +1594,146 @@ static int bs_compile_push_data(struct bs *bs, struct bs_var *out,
 	return 0;
 }
 
+static int bs_compile_const_uint(struct bs *bs, struct bs_var *out, bs_uint u)
+{
+	out->type[0] = BS_UINT;
+	switch (bs->mode) {
+	case BS_MODE_OFF:
+		out->locty = BS_LOC_TYPEONLY;
+		break;
+	case BS_MODE_DEFAULT:
+		out->locty = BS_LOC_SPREL;
+		if (u < 128) {
+			if (!bs_emit_byte(bs, BS_32BIT ? BS_OPCONST4Q : BS_OPCONST8Q)) return -1;
+			if (!bs_emit_byte(bs, (bs_byte)u)) return -1;
+		} else {
+			if (!bs_emit_byte(bs, BS_32BIT ? BS_OPCONST4 : BS_OPCONST8)) return -1;
+			if (!bs_emit_len(bs, &u, sizeof(u))) return -1;
+		}
+		bs->stack -= BS_ALIGNUU(sizeof(u), BS_MAX_ALIGN);
+		out->loc = bs->stack;
+		break;
+	case BS_MODE_COMPTIME:
+	case BS_MODE_TRY_COMPTIME:
+		out->locty = BS_LOC_COMPTIME;
+		if (bs_push_data(bs->codebegin, &bs->ctstack, &u, sizeof(u), BS_MAX_ALIGN)) {
+			bs_emit_error(bs, "Ran out of comptime stack space!");
+			return -1;
+		}
+		out->loc = BS_CTLOC(bs);
+		break;
+	}
+	return 0;
+}
+
+#ifndef BS_NOFP
+static int bs_compile_const_float(struct bs *bs, struct bs_var *out, bs_float f)
+{
+	out->type[0] = BS_FLOAT;
+	switch (bs->mode) {
+	case BS_MODE_OFF:
+		out->locty = BS_LOC_TYPEONLY;
+		break;
+	case BS_MODE_DEFAULT:
+		out->locty = BS_LOC_SPREL;
+		if (!bs_emit_byte(bs, BS_32BIT ? BS_OPCONST4 : BS_OPCONST8)) return -1;
+		if (!bs_emit_len(bs, &f, sizeof(f))) return -1;
+		bs->stack -= BS_ALIGNUU(sizeof(f), BS_MAX_ALIGN);
+		out->loc = bs->stack;
+		break;
+	case BS_MODE_COMPTIME:
+	case BS_MODE_TRY_COMPTIME:
+		out->locty = BS_LOC_COMPTIME;
+		if (bs_push_data(bs->codebegin, &bs->ctstack, &f, sizeof(f), BS_MAX_ALIGN)) {
+			bs_emit_error(bs, "Ran out of comptime stack space!");
+			return -1;
+		}
+		out->loc = BS_CTLOC(bs);
+		break;
+	}
+	return 0;
+}
+#endif
+
 /*
  * Since objects may be aligned oddly on the stack, tonext specifies by how
  * much to change the next pointer
  */
-static int bs_compile_pop_data(struct bs *bs, void *out,
-				size_t len, size_t tonext)
+static int bs_compile_pop_data(struct bs *bs, size_t amount)
 {
+	bs_u32 buf = amount;
+
 	switch (bs->mode) {
 	case BS_MODE_OFF:
 		break;
 	case BS_MODE_DEFAULT:
+		if (amount < 0x100) {
+			if (bs_emit_byte(bs, BS_OPPOPQ)) return -1;
+			if (bs_emit_byte(bs, amount)) return -1;
+		} else {
+			if (bs_emit_byte(bs, BS_OPPOP)) return -1;
+			if (bs_emit_len(bs, &buf, sizeof(buf))) return -1;
+		}
 		break;
 	case BS_MODE_COMPTIME:
 	case BS_MODE_TRY_COMPTIME:
-		BS_DBG_ASSERT(!bs_pop_data(bs->codeend, &bs->ctstack, out, len, tonext), "ctstack undeflow");
+		BS_DBG_ASSERT(!bs_pop_data(bs->codeend, &bs->ctstack, NULL, 0, amount), "ctstack undeflow");
 		break;
 	}
+	return 0;
+}
+
+static int bs_compile_cast_comptime(struct bs *bs, struct bs_var *var,
+				const bs_type_t *newtype)
+{
+#ifndef BS_NOFP
+	bs_float f;
+	union {
+		bs_uint u;
+		bs_int i;
+	} ints;
+
+	if (*newtype == BS_FLOAT && var->type[0] != BS_FLOAT) {
+		if (bs_pop_data(bs->code + bs->codelen, &bs->ctstack,
+				&ints, sizeof(ints), BS_MAX_ALIGN))
+			return -1;
+		if (var->type[0] == BS_UINT) f = (bs_float)ints.u;
+		else f = (bs_float)ints.i;
+		return bs_push_data(bs->codebegin, &bs->ctstack,
+				&f, sizeof(f), BS_MAX_ALIGN);
+	} else if (*newtype != BS_FLOAT && var->type[0] == BS_FLOAT) {
+		if (bs_pop_data(bs->codeend, &bs->ctstack,
+				&f, sizeof(f), BS_MAX_ALIGN))
+			return -1;
+		if (*newtype == BS_UINT) ints.u = (bs_uint)f;
+		else ints.i = (bs_int)f;
+		return bs_push_data(bs->codebegin, &bs->ctstack,
+				&ints, sizeof(ints), BS_MAX_ALIGN);
+	}
+#endif
+	return 0;
+}
+
+static int bs_compile_cast_default(struct bs *bs, struct bs_var *var,
+				const bs_type_t *newtype)
+{
+#ifndef BS_NOFP
+	if (*newtype == BS_FLOAT && var->type[0] != BS_FLOAT) {
+		if (var->type[0] == BS_UINT) {
+			if (bs_emit_byte(bs, BS_OPU2F)) return -1;
+		} else if (bs_emit_byte(bs, BS_OPI2F)) return -1;
+	} else if (*newtype != BS_FLOAT && var->type[0] == BS_FLOAT) {
+		if (*newtype == BS_UINT) {
+			if (bs_emit_byte(bs, BS_OPF2U)) return -1;
+		} else if (bs_emit_byte(bs, BS_OPF2I)) return -1;
+	}
+#endif
 	return 0;
 }
 
 static int bs_compile_cast(struct bs *bs, struct bs_var *var,
 			const bs_type_t *newtype)
 {
-#ifndef BS_NOFP
-	bs_float f;
-	bs_uint u;
-	bs_int i;
-#endif
-
 	if (!bs_is_arithmetic(bs, var->type)
 		|| !bs_is_arithmetic(bs, newtype)) {
 		bs_emit_error(bs, "Expected arithmetic types in cast!");
@@ -1558,27 +1741,11 @@ static int bs_compile_cast(struct bs *bs, struct bs_var *var,
 	}
 
 	if (bs->mode == BS_MODE_OFF) return 0;
-#ifndef BS_NOFP
-	if (*newtype == BS_FLOAT && var->type[0] != BS_FLOAT) {
-		if (var->type[0] == BS_UINT) {
-			if (bs_compile_pop_data(bs, &u, sizeof(u), sizeof(u))) return -1;
-			f = (bs_float)u;
-		} else {
-			if (bs_compile_pop_data(bs, &i, sizeof(i), sizeof(i))) return -1;
-			f = (bs_float)i;
-		}
-		return bs_compile_push_data(bs, var, &f, sizeof(f), sizeof(f));
-	} else if (*newtype != BS_FLOAT && var->type[0] == BS_FLOAT) {
-		if (bs_compile_pop_data(bs, &f, sizeof(f), sizeof(f))) return -1;
-		if (*newtype == BS_UINT) {
-			u = (bs_uint)f;
-			if (bs_compile_push_data(bs, var, &u, sizeof(u), sizeof(u))) return -1;
-		} else {
-			i = (bs_int)f;
-			if (bs_compile_push_data(bs, var, &i, sizeof(i), sizeof(i))) return -1;
-		}
-	}
-#endif
+	if ((bs->mode == BS_MODE_COMPTIME
+		|| bs->mode == BS_MODE_TRY_COMPTIME)
+		&& bs_compile_cast_comptime(bs, var, newtype)) return -1;
+	else if (bs->mode == BS_MODE_DEFAULT
+		&& bs_compile_cast_default(bs, var, newtype)) return -1;
 	var->type[0] = *newtype;
 	return 0;
 }
@@ -1599,7 +1766,7 @@ static int bs_arithmetic_convert(struct bs *bs, const bs_type_t *left,
 	return 0;
 }
 
-static int bs_compile_math(struct bs *bs, bs_type_t type, int mathop)
+static int bs_compile_math_comptime(struct bs *bs, bs_type_t type, int mathop)
 {
 	union {
 		bs_uint u;
@@ -1608,33 +1775,127 @@ static int bs_compile_math(struct bs *bs, bs_type_t type, int mathop)
 	} l, r;
 	size_t size;
 
+	if (type == BS_UINT || type == BS_INT) size = sizeof(l.u);
+#ifndef BS_NOFP
+	else if (type == BS_FLOAT) size = sizeof(l.f);
+#endif
+	else bs_abort("expected int,uint, or fp in comptime expr");
+
+	BS_DBG_ASSERT(!bs_pop_data(bs->codeend, &bs->ctstack, &r, size, size)
+		&& !bs_pop_data(bs->codeend, &bs->ctstack, &l, size, size),
+		"ctstack underflow!");
+
+#ifndef BS_NOFP
+# define OPF(NAME, OP)							\
+	case NAME:							\
+		if (type == BS_UINT) l.u OP r.u;			\
+		else if (type == BS_INT) l.i OP r.i;			\
+		else if (type == BS_FLOAT) l.f OP r.f;			\
+		break;
+#else
+# define OPF(NAME, _OP) OP(NAME, _OP)
+#endif
+
+# define OP(NAME, OP)							\
+	case NAME:							\
+		if (type == BS_UINT) l.u OP r.u;			\
+		else if (type == BS_INT) l.i OP r.i;			\
+		break;
+
+	switch (mathop) {
+	OPF(BS_TOKEN_PLUS, +=)
+	OPF(BS_TOKEN_MINUS, -=)
+	OPF(BS_TOKEN_DIVIDE, /=)
+	OPF(BS_TOKEN_STAR, *=)
+	OP(BS_TOKEN_BITAND, &=)
+	OP(BS_TOKEN_BITOR, |=)
+	OP(BS_TOKEN_BITXOR, ^=)
+	OP(BS_TOKEN_SHL, <<=)
+	OP(BS_TOKEN_SHR, >>=)
+	}
+
+	if (bs_push_data(bs->codebegin, &bs->ctstack, &l, size, size)) {
+		bs_emit_error(bs, "Comptime stack overflow!");
+		return -1;
+	}
+	
+	return 0;
+#undef OP
+#undef OPF
+}
+
+static int bs_compile_math_default(struct bs *bs, bs_type_t type, int mathop)
+{
+	switch (mathop) {
+# define OP(NAME, MATHOP)						\
+	case NAME:							\
+		if (type == BS_FLOAT) {					\
+			bs_emit_error(bs, "Expected int or float");	\
+			return -1;					\
+		}							\
+		if (bs_emit_byte(bs, MATHOP)) return -1;		\
+		break;
+
+	case BS_TOKEN_PLUS:
+		if (type == BS_FLOAT) {
+			if (bs_emit_byte(bs, BS_OPADDF)) return -1;
+		} else if (bs_emit_byte(bs, BS_OPADD)) return -1;
+		break;
+	case BS_TOKEN_MINUS:
+		if (type == BS_FLOAT) {
+			if (bs_emit_byte(bs, BS_OPSUBF)) return -1;
+		} else if (bs_emit_byte(bs, BS_OPSUB)) return -1;
+		break;
+	case BS_TOKEN_DIVIDE:
+		if (type == BS_FLOAT) {
+			if (bs_emit_byte(bs, BS_OPDIVF)) return -1;
+		} else if (type == BS_UINT) {
+			if (bs_emit_byte(bs, BS_OPDIVU)) return -1;
+		} else if (bs_emit_byte(bs, BS_OPDIVI)) return -1;
+		break;
+	case BS_TOKEN_STAR:
+		if (type == BS_FLOAT) {
+			if (bs_emit_byte(bs, BS_OPMULF)) return -1;
+		} else if (type == BS_UINT) {
+			if (bs_emit_byte(bs, BS_OPMULU)) return -1;
+		} else if (bs_emit_byte(bs, BS_OPMULI)) return -1;
+		break;
+	OP(BS_TOKEN_BITAND, BS_OPAND)
+	OP(BS_TOKEN_BITOR, BS_OPOR)
+	OP(BS_TOKEN_BITXOR, BS_OPXOR)
+	case BS_TOKEN_SHL:
+		if (type == BS_FLOAT) {
+			bs_emit_error(bs, "Expected int or uint");
+			return -1;
+		}
+		if (bs_emit_byte(bs, BS_OPSLL)) return -1;
+		break;
+	case BS_TOKEN_SHR:
+		if (type == BS_FLOAT) {
+			bs_emit_error(bs, "Expected int or uint");
+			return -1;
+		}
+		if (type == BS_UINT) {
+			if (bs_emit_byte(bs, BS_OPSRL)) return -1;
+		} else {
+			if (bs_emit_byte(bs, BS_OPSRA)) return -1;
+		}
+		break;
+	}
+
+	return 0;
+#undef OP
+}
+
+static int bs_compile_math(struct bs *bs, bs_type_t type, int mathop)
+{
 	switch (bs->mode) {
 	case BS_MODE_OFF: break;
 	case BS_MODE_DEFAULT:
-		break;
+		return bs_compile_math_default(bs, type, mathop);
 	case BS_MODE_COMPTIME:
 	case BS_MODE_TRY_COMPTIME:
-		if (type == BS_UINT || type == BS_INT) size = sizeof(l.u);
-#ifndef BS_NOFP
-		else if (type == BS_FLOAT) size = sizeof(l.f);
-#endif
-		else bs_abort("expected int,uint, or fp in comptime expr");
-
-		BS_DBG_ASSERT(!bs_pop_data(bs->codeend, &bs->ctstack, &r, size, size)
-			&& !bs_pop_data(bs->codeend, &bs->ctstack, &l, size, size),
-			"ctstack underflow!");
-
-		if (type == BS_UINT) l.u += r.u;
-		else if (type == BS_INT) l.i += r.i;
-#ifndef BS_NOFP
-		else if (type == BS_FLOAT) l.f += r.f;
-#endif
-
-		if (bs_push_data(bs->codebegin, &bs->ctstack, &l, size, size)) {
-			bs_emit_error(bs, "Comptime stack overflow!");
-			return -1;
-		}
-		break;
+		return bs_compile_math_comptime(bs, type, mathop);
 	}
 
 	return 0;
@@ -1825,7 +2086,7 @@ static int bs_parse_type_integer(struct bs *bs, bs_type_t *type,
 		} else if (bs->tok.src.str[1] == '3' && bs->tok.src.str[2] == '2') {
 			type[(*len)++] |= u ? BS_TYPE_U32 : BS_TYPE_I32;
 		}
-#ifndef BS_32BIT
+#if !BS_32BIT
 		else if (bs->tok.src.str[1] == '6' && bs->tok.src.str[2] == '4') {
 			type[(*len)++] |= u ? BS_TYPE_U64 : BS_TYPE_I64;
 		}
@@ -2084,7 +2345,7 @@ static int bs_parse_type(struct bs *bs, bs_type_t *type,
 			if (bs_advance_token(bs, BS_FALSE)) return 1;
 			return 0;
 		}
-# ifndef BS_32BIT
+# if !BS_32BIT
 		else if (bs->tok.src.str[1] == '6'
 			&& bs->tok.src.str[2] == '4') {
 			type[(*len)++] |= BS_TYPE_F64;
@@ -2568,7 +2829,7 @@ static int bs_parse_number_lit(struct bs *bs, struct bs_var *out, bs_bool neg)
 
 			if (bs_parse_float(bs, &fp)) return -1;
 			out->type[0] = BS_FLOAT;
-			return bs_compile_push_data(bs, out, &fp, sizeof(fp), sizeof(fp));
+			return bs_compile_const_float(bs, out, fp);
 		}
 	}
 #endif
@@ -2577,10 +2838,10 @@ static int bs_parse_number_lit(struct bs *bs, struct bs_var *out, bs_bool neg)
 	if (neg || u <= BS_INT_MAX) {
 		bs_int i = neg ? -(bs_int)u : u;
 		out->type[0] = BS_INT;
-		return bs_compile_push_data(bs, out, &i, sizeof(i), sizeof(i));
+		return bs_compile_const_int(bs, out, i);
 	} else {
 		out->type[0] = BS_UINT;
-		return bs_compile_push_data(bs, out, &u, sizeof(u), sizeof(u));
+		return bs_compile_const_uint(bs, out, u);
 	}
 }
 

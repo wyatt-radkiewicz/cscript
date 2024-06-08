@@ -6,11 +6,7 @@
 #include "bs.h"
 
 static const char *const src =
-"type HashElem<K, V>\n"
-"    used bool\n"
-"    psl u32\n"
-"    key K\n"
-"    val V\n";
+" 6 + 9";
 
 void print_err(void *user, int line, int col, const char *msg)
 {
@@ -33,9 +29,9 @@ int main(int argc, char **argv)
 	bs.mode = BS_MODE_COMPTIME;
 
 	bs_advance_token(&bs, BS_TRUE);
-	bs_parse_typedef(&bs);
+	/*bs_parse_typedef(&bs);*/
 	/*bs_parse_type(&bs, testvar.type, &testvar.loc, BS_ARRSIZE(testvar.type), 0);*/
-	/*bs_parse_expr(&bs, BS_PREC_FULL, &testvar, 0);*/
+	bs_parse_expr(&bs, BS_PREC_FULL, &testvar, 0);
 
 	return 0;
 }
