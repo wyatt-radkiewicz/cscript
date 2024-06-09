@@ -70,6 +70,7 @@ typedef void(*bs_vmfree_t)(void *user, void *blk);
 # define BS_MEMCMP __builtin_memcmp
 # define BS_MEMSET __builtin_memset
 # define BS_MEMCPY __builtin_memcpy
+# define BS_STRLEN __builtin_strlen
 BS_INLINE void bs_abort(const char *msg)
 {
 	BS_EPRINTLN(msg);
@@ -118,6 +119,15 @@ BS_INLINE void bs_abort(const char *msg)
 {
 	BS_EPRINTLN(msg);
 	while (1);
+}
+BS_INLINE int BS_STRLEN(const char *s)
+{
+	int len = 0;
+	while (*s) {
+		++len;
+		++s;
+	}
+	return len;
 }
 #endif
 
@@ -421,6 +431,7 @@ struct bs_enum {
  */
 struct bs_fnsig {
 	bs_type_t		**params;
+	struct bs_strview	*param_names;
 	int			nparams;
 	bs_type_t		*ret;
 };
@@ -430,7 +441,8 @@ struct bs_fnsig {
  * the code segment.
  */
 struct bs_fnimpl {
-	struct bs_fnsig		sig;
+	/* This may be zero if the function is not templated */
+	bs_type_t		**types;
 	int			loc;
 };
 
@@ -439,10 +451,10 @@ struct bs_fnimpl {
  */
 struct bs_fn {
 	bs_bool			ext;
+	struct bs_fnsig		sig;
 
 	union {
 		struct {
-			struct bs_fnsig		sig;
 			/* We use external ID here so that the compiled code can
 			 * be saved to disk and then read back and interpreted
 			 * right there and then. */
@@ -452,6 +464,7 @@ struct bs_fn {
 		struct {
 			struct bs_strview	*templates;
 			int			ntemplates;
+
 			struct bs_fnimpl	*impls;
 			int			nimpls;
 		} internal;
@@ -571,6 +584,9 @@ struct bs {
 	int			ntypes;
 	struct bs_userdef	defs[256];
 	int			ndefs;
+
+	struct bs_fnimpl	fnimpls[256];
+	int			nfnimpls;
 
 	bs_error_writer_t	error_writer;
 	void			*error_writer_user;
@@ -881,6 +897,8 @@ static void bs_parser_backup_restore(struct bs *bs, struct bs_parser_backup *b)
  * Based Script Virtual Machine (VM)
  *****************************************************************************/
 enum bs_opcode {
+	BS_OPEXIT,
+	
 	/* Math ops */
 	BS_OPADD,
 	BS_OPADDQ,
@@ -1160,6 +1178,9 @@ static int bsvm_runop(struct bsvm *vm, bs_bool *keep_running)
 #endif
 
 	switch ((enum bs_opcode)*vm->pc++) {
+	case BS_OPEXIT:
+		*keep_running = BS_FALSE;
+		break;
 	/* Math ops */
 #define BINARYOP(OP, NAME, PREFIX)					\
 	case BS_OP##NAME:						\
@@ -2461,9 +2482,9 @@ storage_error:
 	return 1;
 }
 
-/*
+/******************************************************************************
  * Based Script USER type compiler engine
- */
+ *****************************************************************************/
 static int bs_parse_template_params(struct bs *bs,
 				struct bs_strview **templates,
 				int *ntemplates,
@@ -2681,6 +2702,146 @@ static int bs_parse_typedef(struct bs *bs)
 	}
 
 	bs->ntemplates = tmplbase;
+	return 0;
+}
+
+/******************************************************************************
+ * Based Script function compiler
+ *****************************************************************************/
+static int bs_parse_func_sig(struct bs *bs, struct bs_fnsig *sig, bs_bool named)
+{
+	int len;
+
+	sig->nparams = 0;
+	sig->params = NULL;
+	sig->param_names = NULL;
+	sig->ret = NULL;
+
+	if (bs->tok.type != BS_TOKEN_LPAREN) {
+		bs_emit_error(bs, "Expected parameter list starting with (");
+		return -1;
+	}
+	if (bs_advance_token(bs, BS_TRUE)) return -1;
+	if (bs->tok.type != BS_TOKEN_RPAREN) {
+		if (named) sig->param_names = bs->strbuf + bs->strbuflen;
+		sig->params = bs->types + bs->ntypes;
+	}
+	while (bs->tok.type != BS_TOKEN_RPAREN) {
+		if (named) {
+			if (bs->strbuflen >= BS_ARRSIZE(bs->strbuf)) {
+				bs_emit_error(bs, "Ran out of string buffer space.");
+				return -1;
+			}
+			if (bs->tok.type != BS_TOKEN_IDENT) {
+				bs_emit_error(bs, "Expected parameter name");
+				return -1;
+			}
+			sig->param_names[sig->nparams] = bs->tok.src;
+			if (bs_advance_token(bs, BS_FALSE)) return -1;
+			++bs->strbuflen;
+		}
+
+		if (bs->ntypes >= BS_ARRSIZE(bs->types)
+			|| bs->typebuflen >= BS_ARRSIZE(bs->typebuf)) {
+			bs_emit_error(bs, "Ran out of type space.");
+			return -1;
+		}
+
+		len = 0;
+		sig->params[sig->nparams] = bs->typebuf + bs->typebuflen;
+		if (bs_parse_type(bs, sig->params[sig->nparams], &len,
+				BS_ARRSIZE(bs->typebuf)-bs->typebuflen, 0))
+			return -1;
+		bs->typebuflen += len;
+		++bs->ntypes;
+
+		++sig->nparams;
+		if (bs->tok.type == BS_TOKEN_COMMA
+			&& bs_advance_token(bs, BS_TRUE)) return -1;
+	}
+	if (bs_advance_token(bs, BS_FALSE)) return -1;
+
+	len = 0;
+	sig->ret = bs->typebuf + bs->typebuflen;
+	if (bs->typebuflen >= BS_ARRSIZE(bs->typebuf)) {
+		bs_emit_error(bs, "Ran out of type space.");
+		return -1;
+	}
+	if (bs_parse_type(bs, sig->ret, &len, BS_ARRSIZE(bs->typebuf) - bs->typebuflen, 0))
+		return -1;
+
+	return 0;
+}
+
+static int bs_parse_func(struct bs *bs)
+{
+	static const struct bs_strview _str_ext = { "ext", 3 };
+	static const struct bs_strview _str_fn = { "fn", 2 };
+
+	bs_type_t tmpl_types[16][2];
+	struct bs_userdef *def;
+	struct bs_fn *fn;
+	const int template_base = bs->ntemplates;
+
+	if (bs->ndefs >= BS_ARRSIZE(bs->defs)) {
+		bs_emit_error(bs, "Definition buffer full, can't compile function");
+		return -1;
+	}
+	def = bs->defs + bs->ndefs++;
+	def->type = BS_USERDEF_FN;
+	fn = &def->def.f;
+
+	BS_DBG_ASSERT(bs->tok.type == BS_TOKEN_IDENT, "expected ext or fn");
+
+	if (bs_strview_eq(bs->tok.src, _str_ext)) {
+		fn->ext = BS_TRUE;
+	} else if (bs_strview_eq(bs->tok.src, _str_fn)) {
+		fn->ext = BS_FALSE;
+	} else {
+		bs_emit_error(bs, "Expected 'ext' or 'fn'");
+		return -1;
+	}
+
+	if (bs_advance_token(bs, BS_FALSE)) return -1;
+	if (bs->tok.type != BS_TOKEN_IDENT) {
+		bs_emit_error(bs, "Expected function name!");
+		return -1;
+	}
+	def->name = bs->tok.src;
+	if (fn->ext) {
+		int i;
+		fn->impl.external.id = -1;
+		for (i = 0; i < bs->nextern_fns; i++) {
+			struct bs_strview extfn;
+			extfn.str = bs->extern_fns[i].name;
+			extfn.len = BS_STRLEN(bs->extern_fns[i].name);
+
+			if (!bs_strview_eq(def->name, extfn))
+				continue;
+			fn->impl.external.id = i;
+			break;
+		}
+	} else {
+		fn->impl.internal.templates = NULL;
+		fn->impl.internal.ntemplates = 0;
+		fn->impl.internal.impls = NULL;
+		fn->impl.internal.nimpls = 0;
+	}
+
+	if (bs_advance_token(bs, BS_FALSE)) return -1;
+	if (bs->tok.type == BS_TOKEN_LT && !fn->ext) {
+		if (bs_parse_template_params(bs,
+					&fn->impl.internal.templates,
+					&fn->impl.internal.ntemplates,
+					tmpl_types,
+					BS_ARRSIZE(tmpl_types))) return -1;
+	} else if (bs->tok.type == BS_TOKEN_LT && fn->ext) {
+		bs_emit_error(bs, "Can not have templated external functions!");
+		return -1;
+	}
+	if (bs_parse_func_sig(bs, &fn->sig, BS_TRUE)) return -1;
+
+	bs->ntemplates = template_base;
 	return 0;
 }
 
