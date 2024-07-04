@@ -1,6 +1,6 @@
 ext print_str(s &[] char)
 
-fn copyarr<T>(from &[] T, to &[] mut T)
+fn copyarr(from &[] any, to &[] mut any)
 	for 0 min(len(from), len(to)) with i
 		to[i] = from[i]
 
@@ -21,9 +21,11 @@ fn strbuf_cat(buf &mut StrBuf, s &[] mut char)
 	copyarr(s, &mut buf.str[buf.len..])
 	buf.len = buf.len + len(s)
 
+type Hash u32
+any calc_hash(x &any) Hash
 
 -- FNV-1a hash algorithm for strings
-fn calc_hash<StrBuf>(buf &StrBuf) Hash
+impl StrBuf calc_hash(buf &StrBuf) Hash
 	const OFFSET_BIAS = Hash{2166136261}
 	const PRIME = Hash{16777619}
 
@@ -36,20 +38,19 @@ fn calc_hash<StrBuf>(buf &StrBuf) Hash
 			x = x | buf.str[i++] << 8
 			x = x | buf.str[i++] << 16
 			x = x | buf.str[i++] << 24
+			return x
 		}
 	if i == buf.len
 		return hash
 	hash = hash * PRIME
-	hash ^ {
+	hash = hash ^ {
 		mut x = 0
 		mut shift = 0
 		while i < buf.len
 			x = x | buf.str[i++] << shift
 			shift = shift + 8
+		return x
 	}
-
-type Hash u32
-fn calc_hash<T>(x &T) Hash
 
 type HashElem<K, V>
 	used bool
