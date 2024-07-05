@@ -3,26 +3,30 @@
 
 #include "common.h"
 
+#define tokid_xmacro \
+	X(tok_uninit) \
+	X(tok_eof)	X(tok_ident)	X(tok_int)	X(tok_str) \
+	X(tok_char)	X(tok_newln)	X(tok_fp) \
+	\
+	X(tok_dot) \
+	X(tok_comma) \
+	X(tok_and)	X(tok_or)	X(tok_not)	X(tok_bxor) \
+	X(tok_bnot)	X(tok_band)	X(tok_bor)	X(tok_bsl) \
+	X(tok_bsr) \
+	X(tok_eq)	X(tok_eqeq)	X(tok_neq)	X(tok_le) \
+	X(tok_lt)	X(tok_ge)	X(tok_gt) \
+	X(tok_plus)	X(tok_dash)	X(tok_div)	X(tok_star) \
+	X(tok_mod) \
+	X(tok_lpar)	X(tok_rpar) \
+	X(tok_lbrk)	X(tok_rbrk) \
+	X(tok_lbra)	X(tok_rbra)
+
+#define X(NAME) NAME,
 typedef enum {
-	tok_uninit,
-	tok_eof,	tok_ident,	tok_int,	tok_str,
-	tok_char,	tok_newln,	tok_fp,
-
-	tok_dot,
-	tok_comma,
-	tok_and,	tok_or,		tok_not,	tok_bxor,
-	tok_bnot,	tok_band,	tok_bor,	tok_bsl,
-	tok_bsr,
-	tok_eq,		tok_eqeq,	tok_neq,	tok_le,
-	tok_lt,		tok_ge,		tok_gt,
-	tok_plus,	tok_dash,	tok_div,	tok_star,
-	tok_mod,
-	tok_lpar,	tok_rpar,
-	tok_lbrk,	tok_rbrk,
-	tok_lbra,	tok_rbra,
-
+	tokid_xmacro
 	tok_max,
 } tokid_t;
+#undef X
 
 typedef struct {
 	tokid_t id;
@@ -31,7 +35,11 @@ typedef struct {
 
 void tok_init(tok_t *self, strview_t src);
 
-tok_t *tok_next(tok_t *self, strview_t src, bool skip_newln);
+tok_t *tok_next(cnms_t *st, bool skip_newln);
+
+#ifndef NDEBUG
+const char *tokid_tostr(tokid_t id);
+#endif
 
 #endif
 

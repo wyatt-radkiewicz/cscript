@@ -14,10 +14,24 @@ struct cnms_s {
 	strview_t src;
 	tok_t tok;
 
-	cnms_error_handler_t err;
+	struct {
+		cnms_error_handler_t fn;
+		void *user;
+		bool ok;
+	} err;
 };
 
-void cnms_error(cnms_t *state, const char *msg);
+bool cnms_error(cnms_t *st, const char *msg);
+
+//
+// Error functions
+//
+bool err_tybuf_max(cnms_t *st);
+bool err_unknown_token(cnms_t *st);
+bool err_unknown_ident(cnms_t *st, strview_t ident);
+bool err_any_type(cnms_t *st);
+bool err_slice_bracket(cnms_t *st);
+bool err_no_void(cnms_t *st);
 
 #endif
 

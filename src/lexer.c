@@ -1,6 +1,7 @@
 #include <ctype.h>
 
 #include "lexer.h"
+#include "state.h"
 
 static const char *whitespace(const strview_t src, const char *ptr, const bool skip_newln) {
 	while (ptr < src.s + src.len
@@ -20,17 +21,30 @@ void tok_init(tok_t *const self, const strview_t src) {
 	};
 }
 
-tok_t *tok_next(tok_t *const self, const strview_t src, const bool skip_newln) {
-	const char *ptr = self->src.s + self->src.len;
-	
-	ptr = whitespace(src, ptr, skip_newln);
-	if (ptr >= src.s + src.len) {
-		self->id = tok_eof;
-		return self;
+tok_t *tok_next(cnms_t *const st, const bool skip_newln) {
+	// Find where the end of this token is (depends on token type)
+	const char *ptr = st->tok.src.s;
+	switch (st->tok.id) {
+	case tok_eof: break;
+	case tok_str: case tok_char:
+		ptr++;
+	default:
+		ptr += st->tok.src.len;
+		break;
 	}
+	
+	// Skip whitespace and set new token location
+	ptr = whitespace(st->src, ptr, skip_newln);
+	st->tok = (tok_t){
+		.id = tok_eof,
+		.src = {
+			.s = ptr,
+			.len = 1,
+		},
+	};
+	if (ptr >= st->src.s + st->src.len) return &st->tok;
 
-	self->src = (strview_t){ .s = ptr, .len = 1 };
-
+	// Get token type and length
 	switch (*ptr++) {
 	case 'a': case 'A': case 'b': case 'B': case 'c': case 'C': case 'd': case 'D':
 	case 'e': case 'E': case 'f': case 'F': case 'g': case 'G': case 'h': case 'H':
@@ -39,107 +53,119 @@ tok_t *tok_next(tok_t *const self, const strview_t src, const bool skip_newln) {
 	case 'q': case 'Q': case 'r': case 'R': case 's': case 'S': case 't': case 'T':
 	case 'u': case 'U': case 'v': case 'V': case 'w': case 'W': case 'y': case 'Y':
 	case 'x': case 'X': case 'z': case 'Z': case '_':
-		self->id = tok_ident;
+		st->tok.id = tok_ident;
 		while ((isalnum(*ptr) || *ptr == '_')
-			&& ptr < src.s + src.len) ptr++, self->src.len++;
+			&& ptr < st->src.s + st->src.len) ptr++, st->tok.src.len++;
 		break;
 	case '0': case '1': case '2': case '3': case '4':
 	case '5': case '6': case '7': case '8': case '9':
-		self->id = tok_int;
+		st->tok.id = tok_int;
 		while ((isdigit(*ptr) || *ptr == '.')
-			&& ptr < src.s + src.len) {
-			if (*ptr == '.') self->id = tok_fp;
-			ptr++, self->src.len++;
+			&& ptr < st->src.s + st->src.len) {
+			if (*ptr == '.') st->tok.id = tok_fp;
+			ptr++, st->tok.src.len++;
 		}
 		break;
 	case '"':
 	case '\'':
-		self->id = self->src.s[0] == '"' ? tok_str : tok_char;
-		while (*ptr != self->src.s[0] &&
-			ptr < src.s + src.len) {
-			if (*ptr == '\'' && ptr + 1 < src.s + src.len) {
-				ptr++, self->src.len++;
+		st->tok.id = st->tok.src.s[0] == '"' ? tok_str : tok_char;
+		while (*ptr != st->tok.src.s[0] &&
+			ptr < st->src.s + st->src.len) {
+			if (*ptr == '\'' && ptr + 1 < st->src.s + st->src.len) {
+				ptr++, st->tok.src.len++;
 			}
-			ptr++, self->src.len++;
+			ptr++, st->tok.src.len++;
 		}
-		self->src.s++;
-		self->src.len -= 2;
+		st->tok.src.s++;
+		st->tok.src.len--;
 		break;
 	case '<':
 		if (*ptr == '<') {
-			self->src.len = 2;
-			self->id = tok_bsl;
+			st->tok.src.len = 2;
+			st->tok.id = tok_bsl;
 		} else if (*ptr == '=') {
-			self->src.len = 2;
-			self->id = tok_le;
+			st->tok.src.len = 2;
+			st->tok.id = tok_le;
 		} else {
-			self->id = tok_lt;
+			st->tok.id = tok_lt;
 		}
 		break;
 	case '>':
 		if (*ptr == '>') {
-			self->src.len = 2;
-			self->id = tok_bsr;
+			st->tok.src.len = 2;
+			st->tok.id = tok_bsr;
 		} else if (*ptr == '=') {
-			self->src.len = 2;
-			self->id = tok_ge;
+			st->tok.src.len = 2;
+			st->tok.id = tok_ge;
 		} else {
-			self->id = tok_gt;
+			st->tok.id = tok_gt;
 		}
 		break;
 	case '&':
 		if (*ptr == '&') {
-			self->src.len = 2;
-			self->id = tok_and;
+			st->tok.src.len = 2;
+			st->tok.id = tok_and;
 		} else {
-			self->id = tok_band;
+			st->tok.id = tok_band;
 		}
 		break;
 	case '|':
 		if (*ptr == '|') {
-			self->src.len = 2;
-			self->id = tok_or;
+			st->tok.src.len = 2;
+			st->tok.id = tok_or;
 		} else {
-			self->id = tok_bor;
+			st->tok.id = tok_bor;
 		}
 		break;
 	case '!':
 		if (*ptr == '=') {
-			self->src.len = 2;
-			self->id = tok_neq;
+			st->tok.src.len = 2;
+			st->tok.id = tok_neq;
 		} else {
-			self->id = tok_not;
+			st->tok.id = tok_not;
 		}
 		break;
 	case '=':
 		if (*ptr == '=') {
-			self->src.len = 2;
-			self->id = tok_eqeq;
+			st->tok.src.len = 2;
+			st->tok.id = tok_eqeq;
 		} else {
-			self->id = tok_eq;
+			st->tok.id = tok_eq;
 		}
 		break;
-	case '\0': self->id = tok_eof; break;
-	case '\n': self->id = tok_newln; break;
-	case '.': self->id = tok_dot; break;
-	case ',': self->id = tok_comma; break;
-	case '^': self->id = tok_bxor; break;
-	case '~': self->id = tok_bnot; break;
-	case '+': self->id = tok_plus; break;
-	case '-': self->id = tok_dash; break;
-	case '/': self->id = tok_div; break;
-	case '*': self->id = tok_star; break;
-	case '%': self->id = tok_mod; break;
-	case '(': self->id = tok_lpar; break;
-	case ')': self->id = tok_rpar; break;
-	case '[': self->id = tok_lbrk; break;
-	case ']': self->id = tok_rbrk; break;
-	case '{': self->id = tok_lbra; break;
-	case '}': self->id = tok_rbra; break;
+	case '.': st->tok.id = tok_dot; break;
+	case ',': st->tok.id = tok_comma; break;
+	case '^': st->tok.id = tok_bxor; break;
+	case '~': st->tok.id = tok_bnot; break;
+	case '+': st->tok.id = tok_plus; break;
+	case '-': st->tok.id = tok_dash; break;
+	case '/': st->tok.id = tok_div; break;
+	case '*': st->tok.id = tok_star; break;
+	case '%': st->tok.id = tok_mod; break;
+	case '(': st->tok.id = tok_lpar; break;
+	case ')': st->tok.id = tok_rpar; break;
+	case '[': st->tok.id = tok_lbrk; break;
+	case ']': st->tok.id = tok_rbrk; break;
+	case '{': st->tok.id = tok_lbra; break;
+	case '}': st->tok.id = tok_rbra; break;
+	case '\n': st->tok.id = tok_newln; break;
+	case '\0': break;
 	default:
+		err_unknown_token(st);
 		return NULL;
 	}
 
-	return self;
+	return &st->tok;
 }
+
+#ifndef NDEBUG
+#define X(NAME) case NAME: return #NAME;
+const char *tokid_tostr(const tokid_t id) {
+	switch (id) {
+	tokid_xmacro
+	default: return NULL;
+	}
+}
+#undef X
+#endif
 
