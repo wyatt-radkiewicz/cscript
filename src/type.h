@@ -35,7 +35,54 @@ typedef struct {
 	size_t		len;
 } tyref_t;
 
+typedef struct {
+	size_t size;
+	size_t align;
+} tyinf_t;
+
+typedef struct {
+	int nmembers;
+	int enumid;
+	strview_t *names;
+	tyref_t *types;
+	int *offs;
+
+	tyinf_t inf;
+} struct_t;
+
+typedef struct {
+	int nvariants;
+	tyref_t idty;
+
+	tyinf_t inf;
+	int dataoffs;
+} enum_t;
+
+typedef enum {
+	userty_struct,
+	userty_enum,
+	userty_typedef,
+	userty_fdecl,
+} userty_cls_t;
+
+typedef struct {
+	strview_t name;
+	userty_cls_t ty;
+	union {
+		struct_t s;
+		enum_t e;
+		tyref_t t;
+	};
+} userty_t;
+
 bool type_parse(cnms_t *st, tyref_t *ref, size_t size, bool accept_void);
+
+bool type_eq(const cnms_t *st, const tyref_t lhs, const tyref_t rhs, bool test_quals);
+
+tyinf_t type_info(const cnms_t *st, const tyref_t ty);
+
+// Expects current token to be the name of the type
+bool typedef_parse(cnms_t *st);
 
 #endif
 

@@ -3,11 +3,18 @@
 #include "lexer.h"
 #include "state.h"
 
-static const char *whitespace(const strview_t src, const char *ptr, const bool skip_newln) {
+static const char *whitespace(const strview_t src, const char *ptr, const bool skip_newln, int *const indent) {
+	if (indent) *indent = 0;
 	while (ptr < src.s + src.len
 		&& (*ptr == ' '
 			|| *ptr == '\t'
-			|| (skip_newln && *ptr == '\n'))) ptr++;
+			|| (skip_newln && *ptr == '\n'))) {
+		if (*ptr == ' ' && indent) *indent += 1;
+		else if (*ptr == '\t' && indent) *indent += 4;
+		else if (*ptr == '\n' && indent) *indent = 0;
+		ptr++;
+	}
+
 	return ptr;
 }
 
@@ -34,7 +41,8 @@ tok_t *tok_next(cnms_t *const st, const bool skip_newln) {
 	}
 	
 	// Skip whitespace and set new token location
-	ptr = whitespace(st->src, ptr, skip_newln);
+	int indent = st->indent;
+	ptr = whitespace(st->src, ptr, skip_newln, (ptr > st->src.s && ptr[-1] == '\n') ? &indent : NULL);
 	st->tok = (tok_t){
 		.id = tok_eof,
 		.src = {
@@ -42,6 +50,17 @@ tok_t *tok_next(cnms_t *const st, const bool skip_newln) {
 			.len = 1,
 		},
 	};
+	if (indent > st->indent) {
+		st->tok.id = tok_indup;
+		st->tok.src.len = 0;
+		st->indent = indent;
+		return &st->tok;
+	} else if (indent < st->indent) {
+		st->tok.id = tok_inddn;
+		st->tok.src.len = 0;
+		st->indent = indent;
+		return &st->tok;
+	}
 	if (ptr >= st->src.s + st->src.len) return &st->tok;
 
 	// Get token type and length

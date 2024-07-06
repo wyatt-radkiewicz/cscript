@@ -5,6 +5,7 @@
 
 #define tokid_xmacro \
 	X(tok_uninit) \
+	X(tok_indup)	X(tok_inddn) \
 	X(tok_eof)	X(tok_ident)	X(tok_int)	X(tok_str) \
 	X(tok_char)	X(tok_newln)	X(tok_fp) \
 	\

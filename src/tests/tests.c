@@ -10,6 +10,7 @@
 static const test_t tests[] = {
 	add_test(lexer1),
 	add_test(lexer2),
+	add_test(lexer3),
 	add_test(type1),
 	add_test(type2),
 	add_test(type3),

@@ -91,6 +91,26 @@ typedef struct {
 static_assert(op_max < (1 << 6), "All opcodes must fall under this limit.");
 
 typedef struct {
+	bool ext;
+	int id;
+} vmpfn_t;
+
+typedef struct {
+	void *ptr;
+	size_t len;
+} vmslice_t;
+
+typedef struct {
+	int tyid;
+	void *ref;
+} vmanyref_t;
+
+typedef struct {
+	int tyid;
+	vmslice_t slice;
+} vmanyslice_t;
+
+typedef struct {
 	struct {
 		uint8_t *buf;
 		size_t len;

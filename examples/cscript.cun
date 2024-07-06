@@ -90,3 +90,19 @@ fn hashmap_set<K, V>(map &mut HashMap<K, V>, key &K, val &V) bool
 -- Array creation:
 -- const arr = [; type; len; (optional) default]
 
+-- struct definition
+type FooStruct
+	x i32
+	y i32
+-- forward declaration
+type FooEmpty
+-- typedef definition
+type FooAlias &f64
+-- enum definition
+type FooEnum
+	VariantA
+		x i32
+		y i32
+	VariantB
+		foo &[] u8
+

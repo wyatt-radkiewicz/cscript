@@ -110,13 +110,72 @@ static bool test_lexer2(void) {
 	};
 
 	tok_init(&st.tok, st.src);
-	for (int i = tok_max - 1; i > tok_uninit; i--) {
+	for (int i = tok_max - 1; i > tok_inddn; i--) {
 		const char *const tokname = tokid_tostr(i);
 		if (!tok_next(&st, false)) return false;
 		if (st.tok.id != i) return perr("expected token id. needed %s", tokname);
 		if (st.tok.src.s != st.src.s + tok_locs[i]) return perr("unexpected src location %s. got %d but needed %d", tokname, st.tok.src.s - st.src.s, tok_locs[i]);
 		if (st.tok.src.len != tok_lens[i]) return perr("unexpected src len %s. got %d but needed %d", tokname, st.tok.src.len, tok_lens[i]);
 	}
+
+	return true;
+}
+
+static bool test_lexer3(void) {
+	cnms_t st = {
+		.src = make_strview(
+		"\n"
+		"\t\n"
+		"\n"),
+	};
+	tok_init(&st.tok, st.src);
+
+	// uninit
+	if (st.tok.id != tok_uninit) return perr("expected tok_uninit");
+	if (st.tok.src.s != st.src.s + 0) return perr("unexpected src location");
+	if (st.tok.src.len != 0) return perr("unexpected src len");
+
+	// newln
+	if (!tok_next(&st, false)) return false;
+	if (st.tok.id != tok_newln) return perr("expected tok_newln");
+	if (st.tok.src.s != st.src.s + 0) return perr("unexpected src location");
+	if (st.tok.src.len != 1) return perr("unexpected src len");
+
+	// indup
+	if (!tok_next(&st, false)) return false;
+	if (st.tok.id != tok_indup) return perr("expected tok_indup");
+	if (st.tok.src.s != st.src.s + 2) return perr("unexpected src location");
+	if (st.tok.src.len != 0) return perr("unexpected src len");
+
+	// newln
+	if (!tok_next(&st, false)) return false;
+	if (st.tok.id != tok_newln) return perr("expected tok_newln");
+	if (st.tok.src.s != st.src.s + 2) return perr("unexpected src location");
+	if (st.tok.src.len != 1) return perr("unexpected src len");
+
+	// inddn
+	if (!tok_next(&st, false)) return false;
+	if (st.tok.id != tok_inddn) return perr("expected tok_inddn");
+	if (st.tok.src.s != st.src.s + 3) return perr("unexpected src location");
+	if (st.tok.src.len != 0) return perr("unexpected src len");
+
+	// newln
+	if (!tok_next(&st, false)) return false;
+	if (st.tok.id != tok_newln) return perr("expected tok_newln");
+	if (st.tok.src.s != st.src.s + 3) return perr("unexpected src location");
+	if (st.tok.src.len != 1) return perr("unexpected src len");
+
+	// eof
+	if (!tok_next(&st, false)) return false;
+	if (st.tok.id != tok_eof) return perr("expected tok_eof");
+	if (st.tok.src.s != st.src.s + 4) return perr("unexpected src location");
+	if (st.tok.src.len != 1) return perr("unexpected src len");
+
+	// eof
+	if (!tok_next(&st, false)) return false;
+	if (st.tok.id != tok_eof) return perr("expected tok_eof");
+	if (st.tok.src.s != st.src.s + 4) return perr("unexpected src location");
+	if (st.tok.src.len != 1) return perr("unexpected src len");
 
 	return true;
 }

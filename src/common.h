@@ -20,6 +20,14 @@ static inline bool strview_eq(const strview_t lhs, const strview_t rhs) {
 
 #define arrlen(A) (sizeof(A) / sizeof((A)[0]))
 
+static inline size_t align_up_size(const size_t x, const size_t a) {
+	return ((x - 1) / a + 1) * a;
+}
+
+#define align_up(X, A) _Generic(X + A,				\
+			size_t : align_up_size			\
+		)(X, A)
+
 typedef struct cnms_s cnms_t;
 
 #endif
