@@ -154,6 +154,31 @@ ret:
 	return true;
 }
 
+bool type_eq(const cnms_t *st, const tyref_t lhs, const tyref_t rhs, bool test_quals) {
+	if (lhs.len != rhs.len) return false;
+	
+	for (int i = 0;;i++) {
+		if (lhs.buf[i].inf.cls != rhs.buf[i].inf.cls) return false;
+		if (test_quals && lhs.buf[i].inf.isconst
+			!= rhs.buf[i].inf.isconst) return false;
+
+		switch (lhs.buf[i].inf.cls) {
+		case ty_ref: case ty_slice:
+		case ty_anyref: case ty_anyslice:
+			break;
+
+		case ty_pfn:
+		case ty_arr:
+			i++;
+			if (lhs.buf[i].id != rhs.buf[i].id) return false;
+			break;
+
+		default:
+			return true;
+		}
+	}
+}
+
 tyinf_t type_info(const cnms_t *st, const tyref_t ty) {
 	switch (ty.buf[0].inf.cls) {
 	case ty_void: return (tyinf_t){ .size = 0, .align = 1 };
@@ -211,7 +236,7 @@ static bool struct_parse(cnms_t *const st, userty_t *const ty, strview_t name) {
 			.buf = st->type.buf + st->type.len,
 		};
 		if (!type_parse(st, memberty, arrlen(st->type.buf) - st->type.len, false)) return false;
-		st->type.len += ty->t.len;
+		st->type.len += memberty->len;
 		ty->s.names[ty->s.nmembers] = name;
 
 		const tyinf_t inf = type_info(st, *memberty);
@@ -224,7 +249,7 @@ static bool struct_parse(cnms_t *const st, userty_t *const ty, strview_t name) {
 		ty->s.nmembers++;
 
 		// Look for next member name
-		if (st->tok.id != tok_newln) {
+		if (!tok_isnewln(st->tok)) {
 			return cnms_error(st, "expected newline after structure member.");
 		}
 
@@ -232,6 +257,9 @@ static bool struct_parse(cnms_t *const st, userty_t *const ty, strview_t name) {
 		name = st->tok.src;
 		tok_next(st, false);
 	} while (true);
+
+	if (!tok_isinddn(st->tok)) return err_no_inddn(st, "struct def");
+	tok_next(st, false);
 
 	ty->s.inf.size = align_up(ty->s.inf.size, ty->s.inf.align);
 	return true;
@@ -250,9 +278,9 @@ static bool enum_parse(cnms_t *const st, userty_t *const ty, strview_t name, con
 	};
 
 	do {
-		if (st->userty.len == arrlen(st->userty.buf)) return err_userty_max(st);
+		if (st->userty.len + 1 + ty->e.nvariants == arrlen(st->userty.buf)) return err_userty_max(st);
 		
-		userty_t *const v = st->userty.buf + st->userty.len++;
+		userty_t *const v = st->userty.buf + st->userty.len + 1 + ty->e.nvariants;
 		*v = (userty_t){
 			.ty = userty_struct,
 			.name = name,
@@ -266,20 +294,27 @@ static bool enum_parse(cnms_t *const st, userty_t *const ty, strview_t name, con
 				return err_expect_ident(st, "for type member or variant name");
 			}
 			const strview_t first_name = st->tok.src;
+			tok_next(st, false);
 			if (!struct_parse(st, v, first_name)) return false;
 			if (v->s.inf.size > ty->e.inf.size) ty->e.inf.size = v->s.inf.size;
 			if (v->s.inf.align > ty->e.inf.align) ty->e.inf.align = v->s.inf.align;
+
+			v->s.enumid = ty - st->userty.buf;
+			if (st->tok.id != tok_ident) break;
 		} else if (st->tok.id == tok_ident) {
-			// Continue to next variant
-			name = st->tok.src;
-			if (tok_next(st, false)->id != tok_newln) {
-				return cnms_error(st, "expected newline after enum variant.");
-			}
-		} else {
+			v->s.enumid = ty - st->userty.buf;
+		} else if (st->tok.id != tok_ident) {
 			break;
 		}
-		v->s.enumid = ty - st->userty.buf;
+
+		name = st->tok.src;
+		if (!tok_isnewln(*tok_next(st, false))) {
+			return cnms_error(st, "expected newline after enum variant.");
+		}
 	} while (true);
+
+	if (!tok_isinddn(st->tok)) return err_no_inddn(st, "enum def");
+	tok_next(st, false);
 
 	// Add id int to front
 	const tyinf_t idinf = type_info(st, idty);
@@ -303,18 +338,25 @@ static bool structenum_parse(cnms_t *const st, userty_t *const ty) {
 		};
 		idty.buf[0] = (type_t){ .inf.cls = ty_i32 };
 
-		return enum_parse(st, ty, first_name, idty);
+		const bool ret = enum_parse(st, ty, first_name, idty);
+		if (!ret) return false;
+		st->userty.len += st->userty.buf[st->userty.len].e.nvariants + 1;
+		return ret;
 	} else {
-		return struct_parse(st, ty, first_name);
+		const bool ret = struct_parse(st, ty, first_name);
+		st->userty.len++;
+		return ret;
 	}
 }
 
 bool typedef_parse(cnms_t *const st) {
 	if (st->userty.len == arrlen(st->userty.buf)) return err_userty_max(st);
 	userty_t *const ty = st->userty.buf + st->userty.len;
+
+	if (tok_next(st, false)->id != tok_ident) return err_expect_ident(st, "for type name");
 	ty->name = st->tok.src;
 
-	if (tok_next(st, false)->id == tok_newln) {
+	if (tok_isnewln(*tok_next(st, false))) {
 		if (tok_next(st, true)->id != tok_indup) {
 			// Add a forward declaration
 			ty->ty = userty_fdecl;
@@ -322,9 +364,7 @@ bool typedef_parse(cnms_t *const st) {
 		}
 
 		// Create either struct or enum
-		const bool ret = structenum_parse(st, ty);
-		st->userty.len++;
-		return ret;
+		return structenum_parse(st, ty);
 	}
 
 	// Create a typedef
@@ -333,7 +373,7 @@ bool typedef_parse(cnms_t *const st) {
 	if (!type_parse(st, &ty->t, arrlen(st->type.buf) - st->type.len, true)) return false;
 	st->type.len += ty->t.len;
 
-	if (st->tok.id != tok_newln) {
+	if (!tok_isnewln(st->tok)) {
 		return cnms_error(st, "expected newline after type definition");
 	}
 
@@ -344,9 +384,12 @@ bool typedef_parse(cnms_t *const st) {
 		}
 		if (tok_next(st, false)->id != tok_ident) return err_expect_ident(st, "for variant name");
 		const strview_t variant_name = st->tok.src;
-		if (tok_next(st, false)->id != tok_newln) return cnms_error(st, "variants in enums must be either"
+		if (!tok_isnewln(*tok_next(st, false))) return cnms_error(st, "variants in enums must be either"
 				" empty or structs");
 		const bool ret = enum_parse(st, ty, variant_name, ty->t);
+		if (!ret) return false;
+		st->userty.len += st->userty.buf[st->userty.len].e.nvariants + 1;
+		return ret;
 	}
 	
 	st->userty.len++;

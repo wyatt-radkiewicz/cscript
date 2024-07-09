@@ -38,6 +38,13 @@ void tok_init(tok_t *self, strview_t src);
 
 tok_t *tok_next(cnms_t *st, bool skip_newln);
 
+static inline bool tok_isnewln(const tok_t tok) {
+	return tok.id == tok_newln || tok.id == tok_eof;
+}
+static inline bool tok_isinddn(const tok_t tok) {
+	return tok.id == tok_inddn || tok.id == tok_eof;
+}
+
 #ifndef NDEBUG
 const char *tokid_tostr(tokid_t id);
 #endif

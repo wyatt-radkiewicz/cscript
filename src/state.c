@@ -40,6 +40,12 @@ bool err_no_void(cnms_t *const st) {
 bool err_userty_max(cnms_t *const st) {
 	return cnms_error(st, "userty_max: hit maximum number of declarable user defined types.");
 }
+bool err_no_inddn(cnms_t *st, const char *context) {
+	char tmp[512];
+	strcpy(tmp, "no_inddn: expected identation level to decrease once because ");
+	strcat(tmp, context);
+	return cnms_error(st, tmp);
+}
 bool err_expect_ident(cnms_t *const st, const char *const situation) {
 	char tmp[512];
 	strcpy(tmp, "expect_ident: expected identifier ");

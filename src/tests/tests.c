@@ -33,6 +33,16 @@ static const test_t tests[] = {
 	add_test(type20),
 	add_test(type21),
 	add_test(type22),
+	add_test(typedef1),
+	add_test(typedef2),
+	add_test(typedef3),
+	add_test(typedef4),
+	add_test(typeeq1),
+	add_test(typeeq2),
+	add_test(typeneq1),
+	add_test(typeneq2),
+	add_test(typeneq3),
+	add_test(typeneq4),
 };
 
 //

@@ -64,6 +64,7 @@ bool err_str_max(cnms_t *st);
 bool err_offs_max(cnms_t *st);
 bool err_expect_ident(cnms_t *st, const char *situation);
 bool err_type_size_unknown(cnms_t *st, tyref_t ty);
+bool err_no_inddn(cnms_t *st, const char *context);
 
 #endif
 
