@@ -10,6 +10,7 @@ OBJS :=$(patsubst %.c,$(BUILD)/%.o,$(SRCS))
 
 # Environment variables
 CFLAGS :=$(CFLAGS) -O0 -g
+LDFLAGS :=$(LDFLAGS) -lm
 
 # Run the test suite
 test: $(TESTER)
