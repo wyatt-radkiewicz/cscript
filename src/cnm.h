@@ -430,8 +430,7 @@ static bool cnm_vm_run_instr(cnm_vm *vm, bool *running) {
             .val.fp = fp,
         });
     }
-    case CNM_OP_SEQZ:
-    case CNM_OP_SNEZ:
+    case CNM_OP_SEQZ: case CNM_OP_SNEZ:
         instr = instr == CNM_OP_SNEZ ? CNM_OP_SNE : CNM_OP_SEQ;
         switch (cnm_vm_top(vm)->type) {
         case CNM_TYPE_INT: if (!cnm_vm_push(vm, &(cnm_val){
@@ -456,12 +455,8 @@ static bool cnm_vm_run_instr(cnm_vm *vm, bool *running) {
             if (vm->error) vm->error(vm->line, "can not convert type to boolean");
             return false;
         }
-    case CNM_OP_SLT:
-    case CNM_OP_SGE:
-    case CNM_OP_SGT:
-    case CNM_OP_SLE:
-    case CNM_OP_SEQ:
-    case CNM_OP_SNE: {
+    case CNM_OP_SLT: case CNM_OP_SGE: case CNM_OP_SGT:
+    case CNM_OP_SLE: case CNM_OP_SEQ: case CNM_OP_SNE: {
         cnm_val left, right;
         if (!cnm_vm_pop(vm, &right, 1)) return false;
         if (!cnm_vm_pop(vm, &left, 1)) return false;
@@ -923,6 +918,12 @@ static int cnm_eval_math(cnm_cg *const cg, int left, int prec) {
     case CNM_TOK_BAND: op = CNM_OP_AND; break;
     case CNM_TOK_BOR: op = CNM_OP_OR; break;
     case CNM_TOK_BXOR: op = CNM_OP_XOR; break;
+    case CNM_TOK_EQEQ: op = CNM_OP_SEQ; break;
+    case CNM_TOK_NEQ: op = CNM_OP_SNE; break;
+    case CNM_TOK_GT: op = CNM_OP_SGT; break;
+    case CNM_TOK_LT: op = CNM_OP_SLT; break;
+    case CNM_TOK_GE: op = CNM_OP_SGE; break;
+    case CNM_TOK_LE: op = CNM_OP_SLE; break;
     default: return -1;
     }
     cnm_toknext(cg);
@@ -973,6 +974,12 @@ static const cnm_expr_rule cnm_expr_rules[CNM_TOK_MAX] = {
     [CNM_TOK_BOR] = { .prec_in = 6, .in = cnm_eval_math },
     [CNM_TOK_NOT] = { .prec_pre = 14, .pre = cnm_eval_pre },
     [CNM_TOK_BNOT] = { .prec_pre = 14, .pre = cnm_eval_pre },
+    [CNM_TOK_EQEQ] = { .prec_in = 9, .in = cnm_eval_math },
+    [CNM_TOK_NEQ] = { .prec_in = 9, .in = cnm_eval_math },
+    [CNM_TOK_GT] = { .prec_in = 10, .in = cnm_eval_math },
+    [CNM_TOK_LT] = { .prec_in = 10, .in = cnm_eval_math },
+    [CNM_TOK_GE] = { .prec_in = 10, .in = cnm_eval_math },
+    [CNM_TOK_LE] = { .prec_in = 10, .in = cnm_eval_math },
 };
 
 static int cnm_eval_expr(cnm_cg *cg, const int prec) {
