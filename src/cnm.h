@@ -26,10 +26,30 @@ typedef struct {
     cnm_fn pfn;
 } cnm_efn;
 
+typedef enum {
+    CNM_TYPE_INT,   CNM_TYPE_UINT,  CNM_TYPE_FP,    CNM_TYPE_STR,
+    CNM_TYPE_REF,   CNM_TYPE_HNDL,  CNM_TYPE_PFN,   CNM_TYPE_BUF,
+} cnm_type;
+
+typedef struct cnm_val {
+    cnm_type type;
+
+    union {
+        struct cnm_val *ref;
+        void *hndl;
+        size_t bufsz;
+        cnm_int i;
+        cnm_uint ui;
+        cnm_fp fp;
+        const char *str;
+        int pfn;
+    } val;
+} cnm_val;
+
 void cnm_error_default_printf(int line, const char *msg);
 int cnm_fnid(const uint8_t *code, const char *name);
 // Pass in NULL to use the error handler used in compilation
-bool cnm_run_ex(const uint8_t *code, int fn, cnm_error error);
+bool cnm_run_ex(const uint8_t *code, int fn, cnm_error error, cnm_val **vals, size_t nvals);
 bool cnm_compile_ex(uint8_t *buf, size_t buflen, cnm_error error,
                  const char *src, size_t nvals, size_t nvars,
                  const cnm_efn *fns, size_t nfns);
@@ -40,8 +60,9 @@ static inline bool cnm_compile(uint8_t *buf, size_t buflen, const char *src,
                           src, 1024, 256,
                           fns, nfns);
 }
-static inline bool cnm_run(const uint8_t *codebuf, const char *name) {
-    return cnm_run_ex(codebuf, cnm_fnid(codebuf, name), NULL);
+static inline bool cnm_run(const uint8_t *codebuf, const char *name,
+                           cnm_val **vals, size_t nvals) {
+    return cnm_run_ex(codebuf, cnm_fnid(codebuf, name), NULL, vals, nvals);
 }
 
 typedef struct {
@@ -79,36 +100,14 @@ typedef struct {
     unsigned loc;
 } cnm_ifn;
 
-typedef enum {
-    CNM_TYPE_INT,   CNM_TYPE_UINT,  CNM_TYPE_FP,    CNM_TYPE_STR,
-    CNM_TYPE_DICT,  CNM_TYPE_BUF,   CNM_TYPE_PFN,   CNM_TYPE_DICTENT,
-    CNM_TYPE_REF,
-} cnm_type;
-
-typedef struct cnm_val {
-    cnm_type type;
-    bool isarr;                     // Is array type dictionary
-    uint16_t offs;                  // The offset of the entry
-
-    union {
-        struct cnm_val *ref;
-        cnm_int i;
-        cnm_uint ui;
-        cnm_fp fp;
-        const char *str;
-        int pfn;
-        size_t len;                 // Length of dictionary or buffer
-    } val;
-} cnm_val;
-
 typedef struct {
     cnm_strview name;
     bool inited;
 } cnm_scope;
 
 typedef enum {
+    CNM_OP_HALT,
     CNM_OP_LINE,
-
     CNM_OP_ADD,
     CNM_OP_SUB,
     CNM_OP_MUL,
@@ -121,7 +120,6 @@ typedef enum {
     CNM_OP_XOR,
     CNM_OP_SHL,
     CNM_OP_SHR,
-
     CNM_OP_CI,
     CNM_OP_CUI,
     CNM_OP_CFP,
@@ -224,6 +222,7 @@ static bool cnm_cg_init(cnm_cg *cg, size_t valssize, uint8_t *code,
         .valssize = valssize,
         .len = codesize - sizeof(cnm_code),
         .efns = efns,
+        .nefns = nefns,
         .default_error = error,
     };
     codebuf->len = codebuf->len / alignof(cnm_ifn) * alignof(cnm_ifn);
@@ -257,6 +256,119 @@ static bool cnm_cg_init(cnm_cg *cg, size_t valssize, uint8_t *code,
     return true;
 }
 
+static inline size_t cnm_valsize(const cnm_val val) {
+    return val.type == CNM_TYPE_BUF ? val.val.bufsz + 1 : 1;
+}
+
+static bool cnm_vm_pop_arith(cnm_vm *vm, cnm_val *val) {
+    if (vm->scope.len == 0) {
+        if (vm->error) vm->error(vm->line, "vm stack buffer underflow");
+        return false;
+    }
+    cnm_val **scope = &vm->scope.buf[vm->scope.len - 1];
+    switch ((*scope)->type) {
+    case CNM_TYPE_INT: case CNM_TYPE_UINT: case CNM_TYPE_FP: break;
+    default:
+        if (vm->error) vm->error(vm->line, "can only do math on arithmetic types");
+        return false;
+    }
+
+    vm->scope.len--;
+    vm->vals.len--;
+
+    *val = **scope;
+    return true;
+}
+
+static bool cnm_vm_push(cnm_vm *vm, cnm_val val) {
+    if (vm->scope.len >= vm->scope.size) {
+        if (vm->error) vm->error(vm->line, "hit vm scope buffer limit");
+        return false;
+    }
+    if (vm->vals.len >= vm->vals.size) {
+        if (vm->error) vm->error(vm->line, "hit vm value buffer limit");
+        return false;
+    }
+    vm->scope.buf[vm->scope.len++] = vm->vals.buf + vm->vals.len;
+    vm->vals.buf[vm->vals.len++] = val;
+    return true;
+}
+
+static cnm_type cnm_vm_conv_to_commonty(cnm_val *left, cnm_val *right) {
+    if (left->type == right->type) {
+        return left->type;
+    } else if (left->type == CNM_TYPE_FP || right->type == CNM_TYPE_FP) {
+        switch (right->type) {
+        case CNM_TYPE_INT: right->val.fp = right->val.i; break;
+        case CNM_TYPE_UINT: right->val.fp = right->val.ui; break;
+        default: break;
+        }
+        switch (left->type) {
+        case CNM_TYPE_INT: left->val.fp = left->val.i; break;
+        case CNM_TYPE_UINT: left->val.fp = left->val.ui; break;
+        default: break;
+        }
+        return CNM_TYPE_FP;
+    } else if (left->type == CNM_TYPE_UINT && right->type == CNM_TYPE_INT) {
+        right->val.ui = right->val.i;
+        return CNM_TYPE_UINT;
+    } else if (right->type == CNM_TYPE_UINT && left->type == CNM_TYPE_INT) {
+        left->val.ui = left->val.i;
+        return CNM_TYPE_UINT;
+    } else {
+        return CNM_TYPE_INT;
+    }
+}
+
+static bool cnm_vm_run_instr(cnm_vm *vm, bool *running) {
+    switch (*vm->ip++) {
+    case CNM_OP_CI: {
+        cnm_int i = 0;
+        i |= (cnm_int)(*vm->ip++) << 0;
+        i |= (cnm_int)(*vm->ip++) << 8;
+        i |= (cnm_int)(*vm->ip++) << 16;
+        i |= (cnm_int)(*vm->ip++) << 24;
+        i |= (cnm_int)(*vm->ip++) << 32;
+        i |= (cnm_int)(*vm->ip++) << 40;
+        i |= (cnm_int)(*vm->ip++) << 48;
+        i |= (cnm_int)(*vm->ip++) << 56;
+        return cnm_vm_push(vm, (cnm_val){
+            .type = CNM_TYPE_INT,
+            .val.i = i,
+        });
+    }
+    case CNM_OP_ADD: {
+        cnm_val left, right;
+        if (!cnm_vm_pop_arith(vm, &right)) return false;
+        if (!cnm_vm_pop_arith(vm, &left)) return false;
+        switch (cnm_vm_conv_to_commonty(&left, &right)) {
+        case CNM_TYPE_FP:
+            return cnm_vm_push(vm, (cnm_val){
+                .type = CNM_TYPE_FP,
+                .val.fp = left.val.fp + right.val.fp,
+            });
+        case CNM_TYPE_UINT:
+            return cnm_vm_push(vm, (cnm_val){
+                .type = CNM_TYPE_UINT,
+                .val.ui = left.val.ui + right.val.ui,
+            });
+        case CNM_TYPE_INT:
+            return cnm_vm_push(vm, (cnm_val){
+                .type = CNM_TYPE_INT,
+                .val.i = left.val.i + right.val.i,
+            });
+        default: return false;
+        }
+    }
+    case CNM_OP_HALT:
+        *running = false;
+        return true;
+    default:
+        if (vm->error) vm->error(vm->line, "invalid vm instruction");
+        return false;
+    }
+}
+
 #define CNM_PREC_FULL 1
 static int cnm_eval_expr(cnm_cg *cg, int prec);
 
@@ -278,14 +390,42 @@ int cnm_fnid(const uint8_t *codebuf, const char *name) {
     return 0;
 }
 // Pass in NULL to use the error handler used in compilation
-bool cnm_run_ex(const uint8_t *codebuf, int fn, cnm_error error) {
+bool cnm_run_ex(const uint8_t *codebuf, int fn, cnm_error error,
+                cnm_val **args, size_t nargs) {
     const cnm_code *code = (const cnm_code *)codebuf;
 
     cnm_vm vm;
     cnm_val *vals = alloca(sizeof(*vals) * code->valssize);
     cnm_val **vars = alloca(sizeof(*vars) * code->scopesize);
+
+    if (!error) error = code->default_error;
+
+    if (nargs > code->scopesize) {
+        if (error) error(0, "too many arguments passed to vm");
+        return false;
+    }
+
     cnm_vm_init(&vm, vals, code->valssize, vars, code->scopesize,
                 code, error);
+
+    for (int i = 0; i < nargs; i++) {
+        const size_t valsz = cnm_valsize(*args[i]);
+        if (vm.vals.len + valsz > vm.vals.size) {
+            if (error) error(0, "arguments passed to vm overflowed");
+            return false;
+        }
+        vm.scope.buf[i] = vm.vals.buf + vm.vals.len;
+        memcpy(vm.scope.buf[i], args[i], valsz * sizeof(cnm_val));
+        vm.vals.len += valsz;
+    }
+
+    //if (fn >= 0 || fn < code->nifns) {
+    //    if (error) error(0, "vm started with invalid function id");
+    //    return false;
+    //}
+
+    bool running = true;
+    while (running) if (!cnm_vm_run_instr(&vm, &running)) return false;
 
     return true;
 }
@@ -299,6 +439,7 @@ bool cnm_compile_ex(uint8_t *codebuf, size_t buflen, cnm_error error,
                 (cnm_strview){ .str = src, .len = strlen(src) },
                 error);
     if (cnm_eval_expr(&cg, CNM_PREC_FULL) == -1) return false;
+    cg.code->nifns = cg.ifns.len;
 
     return true;
 }
@@ -331,7 +472,7 @@ static cnm_tok cnm_toknext(cnm_cg *cg) {
 
     cg->tok.src.str += cg->tok.src.len + (cg->tok.type == CNM_TOK_STR);
     cg->tok.src.len = 1;
-    const char *ptr = cnm_whitespace(cg, cg->tok.src.str);
+    const char *ptr = cg->tok.src.str = cnm_whitespace(cg, cg->tok.src.str);
 
     if (!ptr || ptr >= end) goto ret_eof;
 
@@ -466,7 +607,7 @@ static bool cnm_cg_emit(cnm_cg *cg, uint8_t byte) {
     return true;
 }
 
-static int cnm_eval_int(cnm_cg *const cg, const int prec) {
+static int cnm_eval_int(cnm_cg *const cg, int prec) {
     int scopeid;
     cnm_scope *scope = cnm_cg_allocscope(cg, &scopeid);
     scope->name = (cnm_strview){0};
@@ -484,6 +625,30 @@ static int cnm_eval_int(cnm_cg *const cg, const int prec) {
     if (!cnm_cg_emit(cg, (ui >> 48) & 0xff)) return -1;
     if (!cnm_cg_emit(cg, (ui >> 56) & 0xff)) return -1;
 
+    cnm_toknext(cg);
+
+    return scopeid;
+}
+
+static int cnm_eval_add(cnm_cg *const cg, int left, int prec) {
+    cnm_toknext(cg);
+
+    int right = cnm_eval_expr(cg, prec + 1);
+    if (right == -1) return -1;
+
+    if (cg->scope.len < 2) {
+        if (cg->error) cg->error(cg->line, "expected 2 parameters on the stack first");
+        return -1;
+    }
+    cg->scope.len -= 2;
+
+    int scopeid;
+    cnm_scope *scope = cnm_cg_allocscope(cg, &scopeid);
+    scope->name = (cnm_strview){0};
+    scope->inited = true;
+
+    cnm_cg_emit(cg, CNM_OP_ADD);
+
     return scopeid;
 }
 
@@ -500,6 +665,7 @@ typedef struct {
 
 static const cnm_expr_rule cnm_expr_rules[CNM_TOK_MAX] = {
     [CNM_TOK_INT] = { .prec_pre = 16, .pre = cnm_eval_int  },
+    [CNM_TOK_ADD] = { .prec_in = 12, .in = cnm_eval_add },
 };
 
 static int cnm_eval_expr(cnm_cg *cg, const int prec) {
