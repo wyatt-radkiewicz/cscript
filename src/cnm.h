@@ -111,7 +111,7 @@ typedef struct {
 } cnm_scope;
 
 typedef enum cnm_op {
-    CNM_OP_HALT,CNM_OP_LINE,
+    CNM_OP_HALT,CNM_OP_LN,  CNM_OP_SLN,
     CNM_OP_ADD, CNM_OP_SUB, CNM_OP_MUL, CNM_OP_DIV, CNM_OP_MOD,
     CNM_OP_NEG, CNM_OP_NOT, CNM_OP_AND, CNM_OP_OR,  CNM_OP_XOR,
     CNM_OP_SHL, CNM_OP_SHR,
@@ -196,7 +196,7 @@ static void cnm_vm_init(cnm_vm *vm, cnm_val *vals, size_t valssize,
         .ifns = (cnm_ifn *)(code->data + code->len),
         .efns = code->efns,
         .error = error,
-        .line = 0,
+        .line = 1,
         .ip = code->data,
     };
 }
@@ -408,6 +408,12 @@ static inline cnm_val *cnm_vm_top(const cnm_vm *const vm) {
 static bool cnm_vm_run_instr(cnm_vm *vm, bool *running) {
     uint8_t instr = *vm->ip++;
     switch (instr) {
+    case CNM_OP_SLN:
+        vm->line = *vm->ip++;
+        return true;
+    case CNM_OP_LN:
+        vm->line++;
+        return true;
     case CNM_OP_CI: {
         cnm_int i;
         cnm_take_ui(vm, (cnm_uint *)&i);
@@ -680,8 +686,7 @@ static const char *cnm_eatspaces(cnm_cg *cg, const char *str) {
     while (isspace(*str)) {
         if (*str == '\n') {
             cg->line++;
-            if (!cnm_cg_emit(cg, CNM_OP_LINE)) return NULL;
-            if (!cnm_cg_emit(cg, cg->line)) return NULL;
+            if (!cnm_cg_emit(cg, CNM_OP_LN)) return NULL;
         }
         ++str;
         if (str >= cg->src.str + cg->src.len) return NULL;
@@ -697,8 +702,7 @@ static const char *cnm_whitespace(cnm_cg *cg, const char *str) {
             if (str >= cg->src.str + cg->src.len) return NULL;
         }
         cg->line++;
-        if (!cnm_cg_emit(cg, CNM_OP_LINE)) return NULL;
-        if (!cnm_cg_emit(cg, cg->line)) return NULL;
+        if (!cnm_cg_emit(cg, CNM_OP_LN)) return NULL;
         if (!(str = cnm_eatspaces(cg, str))) return NULL;
     }
 
