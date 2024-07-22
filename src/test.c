@@ -23,7 +23,7 @@ int main(int argc, char **argv) {
     printf("cnm script tester\n");
 
     uint8_t buf[256] = {0};
-    if (!cnm_compile(buf, sizeof(buf), "{ i = 3; \n i = j = 4; }", NULL, 0)) {
+    if (!cnm_compile(buf, sizeof(buf), "{ i = 3; { j = 5; j = j + 6; i = j * 2; } return i + 1; }", NULL, 0)) {
         printf("compilation failed\n");
         return 1;
     }

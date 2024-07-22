@@ -118,7 +118,8 @@ typedef enum cnm_op {
     CNM_OP_CI,  CNM_OP_CUI, CNM_OP_CFP, CNM_OP_CSTR,CNM_OP_CPFN,
     CNM_OP_SEQ, CNM_OP_SNE, CNM_OP_SGT, CNM_OP_SLT, CNM_OP_SGE,
     CNM_OP_SLE, CNM_OP_BEQ, CNM_OP_BNE, CNM_OP_JMP, CNM_OP_SEQZ, CNM_OP_SNEZ,
-    CNM_OP_STV, CNM_OP_LDV, CNM_OP_CPV, CNM_OP_POP,
+    CNM_OP_STV, CNM_OP_LDV, CNM_OP_CPV,
+    CNM_OP_POP, CNM_OP_RET, CNM_OP_RETV,
 } cnm_op;
 
 typedef struct {
@@ -145,7 +146,7 @@ struct cnm_vm {
     const cnm_efn *efns;
     cnm_error error;
     int line;
-    const uint8_t *ip;
+    const uint8_t *ip, *code;
 };
 
 struct cnm_cg {
@@ -198,6 +199,7 @@ static void cnm_vm_init(cnm_vm *vm, cnm_val *vals, size_t valssize,
         .error = error,
         .line = 1,
         .ip = code->data,
+        .code = code->data,
     };
 }
 
@@ -258,18 +260,20 @@ static inline size_t cnm_valsize(const cnm_val val) {
 static bool cnm_vm_pop(cnm_vm *vm, cnm_val *val, size_t bufsz) {
     cnm_val *scope = *vm->scope.top++;
     const size_t size = cnm_valsize(*scope);
-    if (size > bufsz) {
-        if (vm->error) vm->error(vm->line, "value does not fit into buffer size\n"
-                                           "could be that you passed buffer into\n"
-                                           "arithmetic operation?\n");
-        return false;
+    if (val) {
+        if (size > bufsz) {
+            if (vm->error) vm->error(vm->line, "value does not fit into buffer size\n"
+                                               "could be that you passed buffer into\n"
+                                               "arithmetic operation?\n");
+            return false;
+        }
+        memcpy(val, scope, size * sizeof(cnm_val));
     }
-    memcpy(val, scope, size * sizeof(cnm_val));
     vm->vals.top += size;
     return true;
 }
 
-static bool cnm_vm_push(cnm_vm *vm, cnm_val *val) {
+static bool cnm_vm_push(cnm_vm *vm, const cnm_val *val) {
     const size_t size = cnm_valsize(*val);
     if (vm->scope.top <= vm->scope.buf) {
         if (vm->error) vm->error(vm->line, "hit vm scope buffer limit");
@@ -408,6 +412,21 @@ static inline cnm_val *cnm_vm_top(const cnm_vm *const vm) {
 static bool cnm_vm_run_instr(cnm_vm *vm, bool *running) {
     uint8_t instr = *vm->ip++;
     switch (instr) {
+    case CNM_OP_RETV: {
+        const int n = *vm->ip++;
+        vm->ip = vm->code + vm->scope.top[n]->val.i;
+        if (n) memcpy(vm->scope.top[n], *vm->scope.top, sizeof(**vm->scope.top) * cnm_valsize(**vm->scope.top));
+        for (int i = 0; i < n; i++) cnm_vm_pop(vm, NULL, 0);
+        if (vm->ip == vm->code - 1) *running = false;
+        return true;
+    }
+    case CNM_OP_RET: {
+        const int n = *vm->ip++;
+        vm->ip = vm->code + vm->scope.top[n]->val.i;
+        for (int i = 0; i <= n; i++) cnm_vm_pop(vm, NULL, 0);
+        if (vm->ip == vm->code - 1) *running = false;
+        return true;
+    }
     case CNM_OP_SLN:
         vm->line = *vm->ip++;
         return true;
@@ -583,7 +602,7 @@ static bool cnm_vm_run_instr(cnm_vm *vm, bool *running) {
 #define CNM_PREC_FULL 1
 static cnm_scope *cnm_eval_expr(cnm_cg *cg, int prec);
 
-static bool cnm_eval_stmtgrp(cnm_cg *cg);
+static bool cnm_eval_stmtgrp(cnm_cg *cg, bool toplvl);
 
 void cnm_error_default_printf(int line, const char *msg) {
     printf("cnm error [%d]: %s\n", line, msg);
@@ -618,21 +637,20 @@ const cnm_val *cnm_run_ex(const uint8_t *codebuf, int fn, cnm_error error,
 
     cnm_vm_init(&vm, vals, code->valssize, vars, code->scopesize,
                 code, error);
+    cnm_run_ex_retbuf[0] = (cnm_val){
+        .type = CNM_TYPE_INT,
+        .val.i = 0,
+    };
+
+    // Push dummy return address
+    if (!cnm_vm_push(&vm, &(cnm_val){
+        .type = CNM_TYPE_INT,
+        .val.i = -1,
+    })) return cnm_run_ex_retbuf;
 
     for (int i = 0, j = 0; i < argsz; i++) {
-        const size_t size = cnm_valsize(args[j]);
-        if (vm.scope.top <= vm.scope.buf) {
-            if (error) error(0, "ran out of scope space");
-            return NULL;
-        }
-        vm.vals.top -= size;
-        if (vm.vals.top - size < vm.vals.buf) {
-            if (error) error(0, "ran out of stack space");
-            return NULL;
-        }
-        memcpy(vm.vals.top, args + j, size * sizeof(cnm_val));
-        *--vm.scope.top = vm.vals.top;
-        j += size;
+        if (!cnm_vm_push(&vm, args + j)) return cnm_run_ex_retbuf;
+        j += cnm_valsize(args[j]);
     }
 
     //if (fn >= 0 || fn < code->nifns) {
@@ -643,14 +661,12 @@ const cnm_val *cnm_run_ex(const uint8_t *codebuf, int fn, cnm_error error,
     bool running = true;
     while (running) if (!cnm_vm_run_instr(&vm, &running)) return NULL;
 
+    if (vm.scope.top == vm.scope.buf + code->scopesize) return cnm_run_ex_retbuf;
+
     if (cnm_valsize(**vm.scope.top) > CNM_ARRSZ(cnm_run_ex_retbuf)) {
         if (error) error(0, "return value can not fit in return buffer");
         return NULL;
     }
-    cnm_run_ex_retbuf[0] = (cnm_val){
-        .type = CNM_TYPE_INT,
-        .val.i = 0,
-    };
     memcpy(cnm_run_ex_retbuf, *vm.scope.top,
            sizeof(**vm.scope.top) * cnm_valsize(**vm.scope.top));
 
@@ -666,7 +682,7 @@ bool cnm_compile_ex(uint8_t *codebuf, size_t buflen, cnm_error error,
                 (cnm_strview){ .str = src, .len = strlen(src) },
                 error);
     //if (!cnm_eval_expr(&cg, CNM_PREC_FULL)) return false;
-    if (!cnm_eval_stmtgrp(&cg)) return false;
+    if (!cnm_eval_stmtgrp(&cg, true)) return false;
     cg.code->nifns = cg.ifns.len;
 
     return true;
@@ -942,10 +958,21 @@ static cnm_scope *cnm_eval_grp(cnm_cg *const cg, int prec) {
     return scope;
 }
 
+static bool cnm_getval(cnm_cg *cg, cnm_scope *val) {
+    if (!val->name.str && cnm_scopeoffs(cg, val) == 0) return true;
+    if (!cnm_cg_emit(cg, CNM_OP_LDV)) return false;
+    if (!cnm_cg_emit(cg, cnm_scopeoffs(cg, val))) return false;
+    *--cg->scope.top = (cnm_scope){
+        .inited = true,
+    };
+    return true;
+}
+
 static cnm_scope *cnm_eval_assign(cnm_cg *const cg, cnm_scope *left, int prec) {
     cnm_toknext(cg);
     cnm_scope *right = cnm_eval_expr(cg, CNM_PREC_FULL);
     if (!right) return NULL;
+    if (!cnm_getval(cg, right)) return NULL;
     if (left->inited) {
         if (!cnm_cg_emit(cg, CNM_OP_STV)) return NULL;
         if (!cnm_cg_emit(cg, cnm_scopeoffs(cg, left))) return NULL;
@@ -975,14 +1002,6 @@ static cnm_scope *cnm_eval_ident(cnm_cg *const cg, int prec) {
     scope->name = name;
     scope->inited = false;
     return scope;
-}
-
-static bool cnm_getval(cnm_cg *cg, cnm_scope *val) {
-    if (!val->name.str && cnm_scopeoffs(cg, val) == 0) return true;
-    if (!cnm_cg_emit(cg, CNM_OP_LDV)) return false;
-    if (!cnm_cg_emit(cg, cnm_scopeoffs(cg, val))) return false;
-    *--cg->scope.top = *val;
-    return true;
 }
 
 static cnm_scope *cnm_eval_math(cnm_cg *const cg, cnm_scope *left, int prec) {
@@ -1085,38 +1104,81 @@ static cnm_scope *cnm_eval_expr(cnm_cg *cg, const int prec) {
     return scope;
 }
 
-static bool cnm_eval_stmtexpr(cnm_cg *cg) {
-    const cnm_scope *oldtop = cg->scope.top;
-    const int start = cnm_scopeloc(cg, cg->scope.top);
-    if (!cnm_eval_expr(cg, CNM_PREC_FULL)) return false;
-    const int end = cnm_scopeloc(cg, cg->scope.top);
+static bool cnm_pop_untill(cnm_cg *cg, const cnm_scope *untill) {
     int npop = 0;
-    for (cnm_scope *i = cg->scope.top; !i->name.str && i != oldtop; i++, npop++);
+    for (cnm_scope *i = cg->scope.top; i != untill; i++, npop++);
     if (npop) {
         if (!cnm_cg_emit(cg, CNM_OP_POP)) return false;
         if (!cnm_cg_emit(cg, npop)) return false;
         cg->scope.top += npop;
     }
+    return true;
+}
+
+static bool cnm_eval_stmtexpr(cnm_cg *cg) {
+    const cnm_scope *oldtop = cg->scope.top;
+    if (!cnm_eval_expr(cg, CNM_PREC_FULL)) return false;
     if (cg->tok.type != CNM_TOK_SEMICOL) {
         if (cg->error) cg->error(cg->line, "expected semicolon after statement");
+        return -1;
+    }
+    cnm_toknext(cg);
+    for (; oldtop > cg->scope.top && (oldtop - 1)->name.str; oldtop--);
+    return cnm_pop_untill(cg, oldtop);
+}
+
+static bool cnm_eval_stmtreturn(cnm_cg *cg) {
+    cnm_toknext(cg);
+    if (cg->tok.type == CNM_TOK_SEMICOL) {
+        if (!cnm_cg_emit(cg, CNM_OP_RET)) return 0;
+        if (!cnm_cg_emit(cg, cg->scope.start - cg->scope.top)) return false;
+    } else {
+        cnm_scope *oldtop = cg->scope.top;
+        cnm_scope *scope = cnm_eval_expr(cg, CNM_PREC_FULL);
+        if (!scope || !cnm_getval(cg, scope)) return false;
+        if (oldtop == cg->scope.top) {
+            if (cg->error) cg->error(cg->line, "expected expression with value");
+            return false;
+        }
+        if (!cnm_cg_emit(cg, CNM_OP_RETV)) return false;
+        if (!cnm_cg_emit(cg, cg->scope.start - cg->scope.top)) return false;
+        cg->scope.top = oldtop;
+    }
+    if (cg->tok.type != CNM_TOK_SEMICOL) {
+        if (cg->error) cg->error(cg->line, "expected semicolon after return statement");
         return -1;
     }
     cnm_toknext(cg);
     return true;
 }
 
-static bool cnm_eval_stmtgrp(cnm_cg *cg) {
+static bool cnm_eval_stmtgrp(cnm_cg *cg, bool toplvl) {
     if (cg->tok.type != CNM_TOK_LBRA) {
         if (cg->error) cg->error(cg->line, "expected left brace for statement group");
         return false;
     }
     cnm_toknext(cg);
 
+    const cnm_scope *oldtop = cg->scope.top;
+
     while (cg->tok.type != CNM_TOK_RBRA) {
-        if (!cnm_eval_stmtexpr(cg)) return false;
+        if (cg->tok.type == CNM_TOK_LBRA) {
+            if (!cnm_eval_stmtgrp(cg, false)) return false;
+        } else if (cnm_strview_eq(cg->tok.src, CNM_SV("return"))) {
+            if (!cnm_eval_stmtreturn(cg)) return false;
+        } else if (!cnm_eval_stmtexpr(cg)) {
+            return false;
+        }
     }
     cnm_toknext(cg);
-    return true;
+
+    if (toplvl) {
+        if (!cnm_cg_emit(cg, CNM_OP_RET)) return false;
+        if (!cnm_cg_emit(cg, cg->scope.start - cg->scope.top)) return false;
+        return true;
+    } else {
+        return cnm_pop_untill(cg, oldtop);
+    }
 }
 
 #endif
