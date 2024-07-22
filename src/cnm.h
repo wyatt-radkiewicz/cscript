@@ -52,7 +52,7 @@ void cnm_error_default_printf(int line, const char *msg);
 int cnm_fnid(const uint8_t *code, const char *name);
 // Pass in NULL to use the error handler used in compilation
 const cnm_val *cnm_run_ex(const uint8_t *code, int fn, cnm_error error,
-                    cnm_val *argbuf, size_t argsz);
+                    const cnm_val *argbuf, size_t argsz);
 bool cnm_compile_ex(uint8_t *buf, size_t buflen, cnm_error error,
                  const char *src, size_t nvals, size_t nvars,
                  const cnm_efn *fns, size_t nfns);
@@ -64,7 +64,7 @@ static inline bool cnm_compile(uint8_t *buf, size_t buflen, const char *src,
                           fns, nfns);
 }
 static inline const cnm_val *cnm_run(const uint8_t *codebuf, const char *name,
-                               cnm_val *argbuf, size_t argsz) {
+                               const cnm_val *argbuf, size_t argsz) {
     return cnm_run_ex(codebuf, cnm_fnid(codebuf, name), NULL, argbuf, argsz);
 }
 
@@ -85,7 +85,7 @@ typedef enum {
     CNM_TOK_BAND,   CNM_TOK_AND,    CNM_TOK_BOR,    CNM_TOK_OR,
     CNM_TOK_NOT,    CNM_TOK_BNOT,   CNM_TOK_SHL,    CNM_TOK_SHR,
     CNM_TOK_BXOR,
-    CNM_TOK_COMMA,  CNM_TOK_DOT,
+    CNM_TOK_COMMA,  CNM_TOK_DOT,    CNM_TOK_SEMICOL,
     CNM_TOK_EQ,     CNM_TOK_EQEQ,   CNM_TOK_NEQ,
     CNM_TOK_LT,     CNM_TOK_LE,     CNM_TOK_GT,     CNM_TOK_GE,
     CNM_TOK_LBRA,   CNM_TOK_RBRA,   CNM_TOK_LBRK,   CNM_TOK_RBRK,
@@ -110,14 +110,15 @@ typedef struct {
     bool inited;
 } cnm_scope;
 
-typedef enum {
+typedef enum cnm_op {
     CNM_OP_HALT,CNM_OP_LINE,
     CNM_OP_ADD, CNM_OP_SUB, CNM_OP_MUL, CNM_OP_DIV, CNM_OP_MOD,
     CNM_OP_NEG, CNM_OP_NOT, CNM_OP_AND, CNM_OP_OR,  CNM_OP_XOR,
     CNM_OP_SHL, CNM_OP_SHR,
     CNM_OP_CI,  CNM_OP_CUI, CNM_OP_CFP, CNM_OP_CSTR,CNM_OP_CPFN,
     CNM_OP_SEQ, CNM_OP_SNE, CNM_OP_SGT, CNM_OP_SLT, CNM_OP_SGE,
-    CNM_OP_SLE, CNM_OP_BEQ, CNM_OP_BNE, CNM_OP_JMP, CNM_OP_SEQZ, CNM_OP_SNEZ
+    CNM_OP_SLE, CNM_OP_BEQ, CNM_OP_BNE, CNM_OP_JMP, CNM_OP_SEQZ, CNM_OP_SNEZ,
+    CNM_OP_STV, CNM_OP_LDV, CNM_OP_CPV, CNM_OP_POP,
 } cnm_op;
 
 typedef struct {
@@ -149,8 +150,8 @@ struct cnm_vm {
 
 struct cnm_cg {
     struct {
-        cnm_scope *buf;
-        size_t len, size;
+        cnm_scope *buf, *start;
+        cnm_scope *top;
     } scope;
 
     cnm_strview src;
@@ -223,7 +224,8 @@ static bool cnm_cg_init(cnm_cg *cg, size_t valssize, uint8_t *code,
     *cg = (cnm_cg){
         .scope = {
             .buf = scope,
-            .size = scopesize,
+            .top = scope + scopesize,
+            .start = scope + scopesize,
         },
         .src = src,
         .tok = {
@@ -430,6 +432,19 @@ static bool cnm_vm_run_instr(cnm_vm *vm, bool *running) {
             .val.fp = fp,
         });
     }
+    case CNM_OP_POP: {
+        const uint8_t n = *vm->ip++;
+        for (int i = 0; i < n; i++) {
+            vm->vals.top += cnm_valsize(**vm->scope.top);
+            vm->scope.top++;
+        }
+        break;
+    }
+    case CNM_OP_STV:
+        memcpy(vm->scope.top[*vm->ip++], *vm->scope.top, sizeof(**vm->scope.top) * cnm_valsize(**vm->scope.top));
+        return true;
+    case CNM_OP_LDV:
+        return cnm_vm_push(vm, vm->scope.top[*vm->ip++]);
     case CNM_OP_SEQZ: case CNM_OP_SNEZ:
         instr = instr == CNM_OP_SNEZ ? CNM_OP_SNE : CNM_OP_SEQ;
         switch (cnm_vm_top(vm)->type) {
@@ -560,7 +575,9 @@ static bool cnm_vm_run_instr(cnm_vm *vm, bool *running) {
 }
 
 #define CNM_PREC_FULL 1
-static int cnm_eval_expr(cnm_cg *cg, int prec);
+static cnm_scope *cnm_eval_expr(cnm_cg *cg, int prec);
+
+static bool cnm_eval_stmtgrp(cnm_cg *cg);
 
 void cnm_error_default_printf(int line, const char *msg) {
     printf("cnm error [%d]: %s\n", line, msg);
@@ -584,7 +601,7 @@ static thread_local cnm_val cnm_run_ex_retbuf[32];
 
 // Pass in NULL to use the error handler used in compilation
 const cnm_val *cnm_run_ex(const uint8_t *codebuf, int fn, cnm_error error,
-                          cnm_val *args, size_t argsz) {
+                          const cnm_val *args, size_t argsz) {
     const cnm_code *code = (const cnm_code *)codebuf;
 
     cnm_vm vm;
@@ -620,7 +637,7 @@ const cnm_val *cnm_run_ex(const uint8_t *codebuf, int fn, cnm_error error,
     bool running = true;
     while (running) if (!cnm_vm_run_instr(&vm, &running)) return NULL;
 
-    if (cnm_valsize(vm.vals.top[0]) > CNM_ARRSZ(cnm_run_ex_retbuf)) {
+    if (cnm_valsize(**vm.scope.top) > CNM_ARRSZ(cnm_run_ex_retbuf)) {
         if (error) error(0, "return value can not fit in return buffer");
         return NULL;
     }
@@ -628,8 +645,8 @@ const cnm_val *cnm_run_ex(const uint8_t *codebuf, int fn, cnm_error error,
         .type = CNM_TYPE_INT,
         .val.i = 0,
     };
-    memcpy(cnm_run_ex_retbuf, vm.vals.top,
-           sizeof(*vm.vals.top) * cnm_valsize(vm.vals.top[0]));
+    memcpy(cnm_run_ex_retbuf, *vm.scope.top,
+           sizeof(**vm.scope.top) * cnm_valsize(**vm.scope.top));
 
     return cnm_run_ex_retbuf;
 }
@@ -642,15 +659,30 @@ bool cnm_compile_ex(uint8_t *codebuf, size_t buflen, cnm_error error,
                 scope, nvars, fns, nfns,
                 (cnm_strview){ .str = src, .len = strlen(src) },
                 error);
-    if (cnm_eval_expr(&cg, CNM_PREC_FULL) == -1) return false;
+    //if (!cnm_eval_expr(&cg, CNM_PREC_FULL)) return false;
+    if (!cnm_eval_stmtgrp(&cg)) return false;
     cg.code->nifns = cg.ifns.len;
 
     return true;
 }
 
+static bool cnm_cg_emit(cnm_cg *cg, uint8_t byte) {
+    if (cg->ip >= (uint8_t *)(cg->ifns.buf - cg->ifns.len)) {
+        if (cg->error) cg->error(cg->line, "ran out of code space");
+        return false;
+    }
+
+    *cg->ip++ = byte;
+    return true;
+}
+
 static const char *cnm_eatspaces(cnm_cg *cg, const char *str) {
     while (isspace(*str)) {
-        cg->line += *str == '\n';
+        if (*str == '\n') {
+            cg->line++;
+            if (!cnm_cg_emit(cg, CNM_OP_LINE)) return NULL;
+            if (!cnm_cg_emit(cg, cg->line)) return NULL;
+        }
         ++str;
         if (str >= cg->src.str + cg->src.len) return NULL;
     }
@@ -664,6 +696,9 @@ static const char *cnm_whitespace(cnm_cg *cg, const char *str) {
             ++str;
             if (str >= cg->src.str + cg->src.len) return NULL;
         }
+        cg->line++;
+        if (!cnm_cg_emit(cg, CNM_OP_LINE)) return NULL;
+        if (!cnm_cg_emit(cg, cg->line)) return NULL;
         if (!(str = cnm_eatspaces(cg, str))) return NULL;
     }
 
@@ -777,6 +812,7 @@ static cnm_tok cnm_toknext(cnm_cg *cg) {
     case '~': cg->tok.type = CNM_TOK_BNOT; break;
     case ',': cg->tok.type = CNM_TOK_COMMA; break;
     case '.': cg->tok.type = CNM_TOK_DOT; break;
+    case ';': cg->tok.type = CNM_TOK_SEMICOL; break;
     case '{': cg->tok.type = CNM_TOK_LBRA; break;
     case '}': cg->tok.type = CNM_TOK_RBRA; break;
     case '[': cg->tok.type = CNM_TOK_LBRK; break;
@@ -792,24 +828,21 @@ ret_eof:
     return cg->tok;
 }
 
-static cnm_scope *cnm_cg_allocscope(cnm_cg *cg, int *scope) {
-    if (cg->scope.len >= cg->scope.size) {
+static cnm_scope *cnm_cg_allocscope(cnm_cg *cg) {
+    if (cg->scope.top <= cg->scope.buf) {
         if (cg->error) cg->error(cg->line, "ran out of scope entries");
         return NULL;
     }
 
-    if (*scope) *scope = cg->scope.len;
-    return cg->scope.buf + cg->scope.len++;
+    return --cg->scope.top;
 }
-
-static bool cnm_cg_emit(cnm_cg *cg, uint8_t byte) {
-    if (cg->ip >= (uint8_t *)(cg->ifns.buf - cg->ifns.len)) {
-        if (cg->error) cg->error(cg->line, "ran out of code space");
-        return false;
-    }
-
-    *cg->ip++ = byte;
-    return true;
+static inline int cnm_scopeoffs(cnm_cg *cg, cnm_scope *scope) {
+    int offs = 0;
+    for (cnm_scope *i = cg->scope.top; i != scope; i++) offs += i->inited;
+    return offs;
+}
+static inline int cnm_scopeloc(cnm_cg *cg, cnm_scope *scope) {
+    return cnm_scopeoffs(cg, scope) + (cg->scope.top - cg->scope.buf);
 }
 
 static bool cnm_emit_ui(cnm_cg *cg, cnm_uint ui) {
@@ -824,53 +857,53 @@ static bool cnm_emit_ui(cnm_cg *cg, cnm_uint ui) {
     return true;
 }
 
-static int _cnm_eval_int(cnm_cg *cg, int prec, bool neg) {
-    int scopeid;
-    cnm_scope *scope = cnm_cg_allocscope(cg, &scopeid);
+static cnm_scope *_cnm_eval_int(cnm_cg *cg, int prec, bool neg) {
+    cnm_scope *scope = cnm_cg_allocscope(cg);
+    if (!scope) return NULL;
     scope->name = (cnm_strview){0};
     scope->inited = true;
 
     errno = 0;
     cnm_uint ui = strtoull(cg->tok.src.str, NULL, 0);
     if (!cnm_cg_emit(cg, ui <= (uint64_t)INT64_MAX+1 || neg ? CNM_OP_CI : CNM_OP_CUI)) {
-        return -1;
+        return NULL;
     }
     if (neg) {
         const cnm_int i = -(cnm_int)ui;
         ui = *(cnm_uint *)&i;
     }
-    if (!cnm_emit_ui(cg, ui)) return -1;
+    if (!cnm_emit_ui(cg, ui)) return NULL;
 
     cnm_toknext(cg);
 
-    return scopeid;
+    return scope;
 }
-static int _cnm_eval_fp(cnm_cg *cg, int prec, bool neg) {
-    int scopeid;
-    cnm_scope *scope = cnm_cg_allocscope(cg, &scopeid);
+static cnm_scope *_cnm_eval_fp(cnm_cg *cg, int prec, bool neg) {
+    cnm_scope *scope = cnm_cg_allocscope(cg);
+    if (!scope) return NULL;
     scope->name = (cnm_strview){0};
     scope->inited = true;
 
     errno = 0;
     double fp = strtod(cg->tok.src.str, NULL);
     if (neg) fp = -fp;
-    if (!cnm_cg_emit(cg, CNM_OP_CFP)) return -1;
-    if (!cnm_emit_ui(cg, *(cnm_uint *)&fp)) return -1;
+    if (!cnm_cg_emit(cg, CNM_OP_CFP)) return NULL;
+    if (!cnm_emit_ui(cg, *(cnm_uint *)&fp)) return NULL;
 
     cnm_toknext(cg);
 
-    return scopeid;
+    return scope;
 }
 
-static int cnm_eval_int(cnm_cg *const cg, int prec) {
+static cnm_scope *cnm_eval_int(cnm_cg *const cg, int prec) {
     return _cnm_eval_int(cg, prec, false);
 }
 
-static int cnm_eval_fp(cnm_cg *const cg, int prec) {
+static cnm_scope *cnm_eval_fp(cnm_cg *const cg, int prec) {
     return _cnm_eval_fp(cg, prec, false);
 }
 
-static int cnm_eval_pre(cnm_cg *const cg, int prec) {
+static cnm_scope *cnm_eval_pre(cnm_cg *const cg, int prec) {
     int op;
     switch (cg->tok.type) {
     case CNM_TOK_NOT:
@@ -887,25 +920,68 @@ static int cnm_eval_pre(cnm_cg *const cg, int prec) {
         if (cg->tok.type == CNM_TOK_INT) return _cnm_eval_int(cg, 15, true);
         else if (cg->tok.type == CNM_TOK_FP) return _cnm_eval_fp(cg, 15, true);
         break;
-    default: return -1;
+    default: return NULL;
     }
-    int right = cnm_eval_expr(cg, prec);
-    if (!cnm_cg_emit(cg, op)) return -1;
+    cnm_scope *right = cnm_eval_expr(cg, prec);
+    if (!cnm_cg_emit(cg, op)) return NULL;
     return right;
 }
 
-static int cnm_eval_grp(cnm_cg *const cg, int prec) {
+static cnm_scope *cnm_eval_grp(cnm_cg *const cg, int prec) {
     cnm_toknext(cg);
-    int scopeid = cnm_eval_expr(cg, CNM_PREC_FULL);
+    cnm_scope *scope = cnm_eval_expr(cg, CNM_PREC_FULL);
     if (cg->tok.type != CNM_TOK_RPAR) {
         if (cg->error) cg->error(cg->line, "expected parenthesis");
-        return -1;
+        return NULL;
     }
     cnm_toknext(cg);
-    return scopeid;
+    return scope;
 }
 
-static int cnm_eval_math(cnm_cg *const cg, int left, int prec) {
+static cnm_scope *cnm_eval_assign(cnm_cg *const cg, cnm_scope *left, int prec) {
+    cnm_toknext(cg);
+    cnm_scope *right = cnm_eval_expr(cg, CNM_PREC_FULL);
+    if (!right) return NULL;
+    if (left->inited) {
+        if (!cnm_cg_emit(cg, CNM_OP_STV)) return NULL;
+        if (!cnm_cg_emit(cg, cnm_scopeoffs(cg, left))) return NULL;
+    } else {
+        cg->scope.top++;
+        left->inited = true;
+    }
+    return left;
+}
+
+static cnm_scope *cnm_eval_ident(cnm_cg *const cg, int prec) {
+    const cnm_strview name = cg->tok.src;
+    cnm_toknext(cg);
+
+    for (cnm_scope *i = cg->scope.top; i != cg->scope.start; i++) {
+        if (!cnm_strview_eq(name, i->name) || !i->inited) continue;
+        return i;
+    }
+
+    if (cg->tok.type != CNM_TOK_EQ) {
+        if (cg->error) cg->error(cg->line, "identifier not in scope");
+        return NULL;
+    }
+
+    cnm_scope *scope = cnm_cg_allocscope(cg);
+    if (!scope) return NULL;
+    scope->name = name;
+    scope->inited = false;
+    return scope;
+}
+
+static bool cnm_getval(cnm_cg *cg, cnm_scope *val) {
+    if (!val->name.str && cnm_scopeoffs(cg, val) == 0) return true;
+    if (!cnm_cg_emit(cg, CNM_OP_LDV)) return false;
+    if (!cnm_cg_emit(cg, cnm_scopeoffs(cg, val))) return false;
+    *--cg->scope.top = *val;
+    return true;
+}
+
+static cnm_scope *cnm_eval_math(cnm_cg *const cg, cnm_scope *left, int prec) {
     int op;
     switch (cg->tok.type) {
     case CNM_TOK_ADD: op = CNM_OP_ADD; break;
@@ -924,31 +1000,33 @@ static int cnm_eval_math(cnm_cg *const cg, int left, int prec) {
     case CNM_TOK_LT: op = CNM_OP_SLT; break;
     case CNM_TOK_GE: op = CNM_OP_SGE; break;
     case CNM_TOK_LE: op = CNM_OP_SLE; break;
-    default: return -1;
+    default: return NULL;
     }
     cnm_toknext(cg);
 
-    int right = cnm_eval_expr(cg, prec + 1);
-    if (right == -1) return -1;
+    if (!cnm_getval(cg, left)) return NULL;
+    cnm_scope *right = cnm_eval_expr(cg, prec + 1);
+    if (!right) return NULL;
+    if (!cnm_getval(cg, right)) return NULL;
 
-    if (cg->scope.len < 2) {
+    if (cg->scope.start - cg->scope.top < 2) {
         if (cg->error) cg->error(cg->line, "expected 2 parameters on the stack first");
-        return -1;
+        return NULL;
     }
-    cg->scope.len -= 2;
+    cg->scope.top += 2;
 
     int scopeid;
-    cnm_scope *scope = cnm_cg_allocscope(cg, &scopeid);
+    cnm_scope *scope = cnm_cg_allocscope(cg);
     scope->name = (cnm_strview){0};
     scope->inited = true;
 
-    cnm_cg_emit(cg, op);
+    if (!cnm_cg_emit(cg, op)) return scope;
 
-    return scopeid;
+    return scope;
 }
 
-typedef int(*cnm_eval_expr_pre)(cnm_cg *cg, int prec);
-typedef int(*cnm_eval_expr_in)(cnm_cg *cg, int scope, int prec);
+typedef cnm_scope *(*cnm_eval_expr_pre)(cnm_cg *cg, int prec);
+typedef cnm_scope *(*cnm_eval_expr_in)(cnm_cg *cg, cnm_scope *scope, int prec);
 
 typedef struct {
     int prec_pre;
@@ -974,31 +1052,67 @@ static const cnm_expr_rule cnm_expr_rules[CNM_TOK_MAX] = {
     [CNM_TOK_BOR] = { .prec_in = 6, .in = cnm_eval_math },
     [CNM_TOK_NOT] = { .prec_pre = 14, .pre = cnm_eval_pre },
     [CNM_TOK_BNOT] = { .prec_pre = 14, .pre = cnm_eval_pre },
+    [CNM_TOK_EQ] = { .prec_in = 2, .in = cnm_eval_assign },
     [CNM_TOK_EQEQ] = { .prec_in = 9, .in = cnm_eval_math },
     [CNM_TOK_NEQ] = { .prec_in = 9, .in = cnm_eval_math },
     [CNM_TOK_GT] = { .prec_in = 10, .in = cnm_eval_math },
     [CNM_TOK_LT] = { .prec_in = 10, .in = cnm_eval_math },
     [CNM_TOK_GE] = { .prec_in = 10, .in = cnm_eval_math },
     [CNM_TOK_LE] = { .prec_in = 10, .in = cnm_eval_math },
+    [CNM_TOK_IDENT] = { .prec_pre = 16, .pre = cnm_eval_ident },
 };
 
-static int cnm_eval_expr(cnm_cg *cg, const int prec) {
+static cnm_scope *cnm_eval_expr(cnm_cg *cg, const int prec) {
     const cnm_expr_rule *rule = cnm_expr_rules + cg->tok.type;
     if (!rule->pre || prec > rule->prec_pre) {
         if (cg->error) cg->error(cg->line, "expected expression");
-        return -1;
+        return NULL;
     }
-    int scope = rule->pre(cg, rule->prec_pre);
-    if (scope == -1) return -1;
+    cnm_scope *scope = rule->pre(cg, rule->prec_pre);
+    if (!scope) return NULL;
 
     rule = cnm_expr_rules + cg->tok.type;
     while (rule->in && prec <= rule->prec_in) {
         scope = rule->in(cg, scope, rule->prec_pre);
-        if (scope == -1) return -1;
+        if (!scope) return NULL;
         rule = cnm_expr_rules + cg->tok.type;
     }
 
     return scope;
+}
+
+static bool cnm_eval_stmtexpr(cnm_cg *cg) {
+    const cnm_scope *oldtop = cg->scope.top;
+    const int start = cnm_scopeloc(cg, cg->scope.top);
+    if (!cnm_eval_expr(cg, CNM_PREC_FULL)) return false;
+    const int end = cnm_scopeloc(cg, cg->scope.top);
+    int npop = 0;
+    for (cnm_scope *i = cg->scope.top; !i->name.str && i != oldtop; i++, npop++);
+    if (npop) {
+        if (!cnm_cg_emit(cg, CNM_OP_POP)) return false;
+        if (!cnm_cg_emit(cg, npop)) return false;
+        cg->scope.top += npop;
+    }
+    if (cg->tok.type != CNM_TOK_SEMICOL) {
+        if (cg->error) cg->error(cg->line, "expected semicolon after statement");
+        return -1;
+    }
+    cnm_toknext(cg);
+    return true;
+}
+
+static bool cnm_eval_stmtgrp(cnm_cg *cg) {
+    if (cg->tok.type != CNM_TOK_LBRA) {
+        if (cg->error) cg->error(cg->line, "expected left brace for statement group");
+        return false;
+    }
+    cnm_toknext(cg);
+
+    while (cg->tok.type != CNM_TOK_RBRA) {
+        if (!cnm_eval_stmtexpr(cg)) return false;
+    }
+    cnm_toknext(cg);
+    return true;
 }
 
 #endif

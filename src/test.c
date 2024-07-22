@@ -23,7 +23,11 @@ int main(int argc, char **argv) {
     printf("cnm script tester\n");
 
     uint8_t buf[256] = {0};
-    cnm_compile(buf, sizeof(buf), "0.0 < 0.1", NULL, 0);
+    if (!cnm_compile(buf, sizeof(buf), "{ i = 3; i = j = 4; }", NULL, 0)) {
+        printf("compilation failed\n");
+        return 1;
+    }
+    //cnm_compile(buf, sizeof(buf), "4 + 5", NULL, 0);
     const cnm_val *ret = cnm_run_ex(buf, 0, NULL, NULL, 0);
     print_val(ret);
 
