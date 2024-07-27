@@ -1,0 +1,23 @@
+
+//
+// Create a new module
+//
+struct cnm_module *cnm_module_create(const char *name);
+
+//
+// Get a module by module name
+//
+struct cnm_module *cnm_module_get(const char *name);
+
+//
+// Destroy a module
+//
+void cnm_module_destroy(struct cnm_module *self);
+
+//
+// Add code to a module
+//
+bool cnm_module_parse(struct cnm_module *self, const char *src);
+
+typedef 
+
