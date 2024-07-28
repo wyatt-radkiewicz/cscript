@@ -1,4 +1,6 @@
+#include <errno.h>
 #include <ctype.h>
+#include <inttypes.h>
 
 #include "common.h"
 
@@ -113,6 +115,30 @@ case c1: \
 #undef SINGLE_TOK
 #undef DOUBLE_TOK
 #undef TRIPLE_TOK
+	}
+}
+
+uintmax_t tnum(cnm_t *cnm, const tok_t *num) {
+	errno = 0;
+	uintmax_t n = strtoumax(num->src.str, NULL, 0);
+	if (errno == ERANGE) {
+		doerr(cnm, 5, "while lexing integer size is outsize of target machine's max word size",
+			true, &(errinf_t){
+			.area = num->src,
+			.comment = "here",
+			.critical = true,
+		}, 1);
+		return 0;
+	} else if (errno) {
+		doerr(cnm, 6, "error while parsing integer",
+			true, &(errinf_t){
+			.area = num->src,
+			.comment = "invalid integer token",
+			.critical = true,
+		}, 1);
+		return 0;
+	} else {
+		return n;
 	}
 }
 

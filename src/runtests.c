@@ -27,8 +27,20 @@ const char *tokname(tokty_t t) {
 	}
 }
 
+const char *tyname(tycls_t ty) {
+	switch (ty) {
+#define TY(e) case TY_##e: return #e;
+TYCLS_T
+#undef TY
+	}
+}
+
+void print_ty(const ty_t *ty) {
+	printf("TY_%s %s", tyname(ty->cls), ty->mut ? "mut" : "const");
+}
+
 int main(int argc, char **argv) {
-	const char *const src = "const char *a = \"hell";
+	const char *const src = "&[] u8";
 
 	cnm_t cnm = {
 		.src = src,
@@ -42,9 +54,18 @@ int main(int argc, char **argv) {
 		.filename = "test.cnm",
 	};
 
-	do {
-		printf("%s\n", tokname(tnext(&cnm)->ty));
-	} while (cnm.tok.ty != TOK_EOF && cnm.err.nerrs == 0);
+	//do {
+	//	printf("%s\n", tokname(tnext(&cnm)->ty));
+	//} while (cnm.tok.ty != TOK_EOF && cnm.err.nerrs == 0);
+	
+	tnext(&cnm);
+	ty_t buf[4];
+	size_t n = parsety(&cnm, buf, 4);
+	printf("%zu\n", n);
+	for (int i = 0; i < n; i++) {
+		print_ty(buf + i);
+		printf("\n");
+	}
 
 	return 0;
 }

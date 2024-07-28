@@ -3,6 +3,7 @@
 
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdint.h>
 #include <string.h>
 
 #include "cnm.h"
@@ -54,6 +55,43 @@ typedef struct {
 
 const tok_t *tnext(cnm_t *cnm);
 
+#define TYCLS_T \
+	TY(VOID) \
+	TY(BOOL) \
+	TY(I8)  TY(U8) \
+	TY(I16) TY(U16) \
+	TY(I32) TY(U32) \
+	TY(I64) TY(U64) \
+	TY(F32) TY(F64) \
+	TY(ARR) TY(REF) \
+	TY(PTR) TY(SLICE) \
+	TY(USER)
+
+
+
+typedef enum {
+#define TY(e) TY_##e,
+TYCLS_T
+#undef TY
+} tycls_t;
+
+uintmax_t tnum(cnm_t *cnm, const tok_t *num);
+
+typedef struct {
+	uint32_t cls : 5;
+	uint32_t mut : 1;
+
+	// Based on the type class this could mean:
+	// Int types: bit-width
+	// Array type: array length
+	// User type: struct/enum id
+	uint32_t id : 24;
+} ty_t;
+
+// Returns how many elements this type occupied. If it can not fit within the
+// buffer, it will return 0 and throw an error.
+size_t parsety(cnm_t *cnm, ty_t *buf, size_t buflen);
+
 // Main CNM state
 // This 'should' be seperate structs, but making it one big one helps code
 // readability and makes things easier for me (except for when it doesn't)
@@ -69,6 +107,7 @@ struct cnm_s {
 		cnm_errcb_t cb;
 		char pbuf[1024];
 		int nerrs;
+		bool diderr;
 	} err;
 };
 

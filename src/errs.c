@@ -23,9 +23,7 @@ static void getsrcloc(cnm_t *cnm, const char *pt, int *line, int *col,
 
 void doerr(cnm_t *cnm, int code, const char *desc,
 		bool iserr, errinf_t *infs, int ninfs) {
-	// Set description and increase error count if this is an error
-	// and not a warning.
-
+	cnm->err.diderr |= iserr;
 	cnm->err.nerrs += iserr;
 	if (!cnm->err.cb) return;
 	
