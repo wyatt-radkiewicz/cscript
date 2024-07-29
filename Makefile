@@ -9,7 +9,7 @@ TESTER :=$(BUILD)/cnms_tester
 OBJS :=$(patsubst %.c,$(BUILD)/%.o,$(SRCS))
 
 # Environment variables
-CFLAGS :=$(CFLAGS) -O0 -g
+CFLAGS :=$(CFLAGS) -O0 -g -std=c99
 LDFLAGS :=$(LDFLAGS) -lm
 
 # Run the test suite
