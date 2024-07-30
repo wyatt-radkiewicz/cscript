@@ -107,7 +107,7 @@ typedef struct field_s {
     typeref_t type;
 } field_t;
 
-typedef struct struct_s {
+typedef struct cnm_struct_s {
     strview_t name;
 
     // Type ID assocciated with this struct
@@ -121,7 +121,7 @@ typedef struct struct_s {
     size_t nfields;
 
     // Next allocated struct
-    struct struct_s *next;
+    struct cnm_struct_s *next;
 } struct_t;
 
 // Unions in cnm script are essentially unfunctional because unions without
@@ -136,6 +136,9 @@ typedef struct union_s {
 
     // Cached size and alignment
     size_t size, align;
+
+    // Next allocated union
+    struct union_s *next;
 } union_t;
 
 typedef struct variant_s {
@@ -145,7 +148,7 @@ typedef struct variant_s {
     int id;
 } variant_t;
 
-typedef struct enum_s {
+typedef struct cnm_enum_s {
     strview_t name;
 
     // Type ID assocciated with this type
@@ -156,7 +159,7 @@ typedef struct enum_s {
     size_t nvariants;
 
     // Next enum in the enum list
-    struct enum_s *next;
+    struct cnm_enum_s *next;
 } enum_t;
 
 // Typedefs don't have type IDs assocciated with them since typedefs are
@@ -164,6 +167,9 @@ typedef struct enum_s {
 typedef struct typedef_s {
     strview_t name;
     typeref_t type;
+
+    // Next typedef in the typedef list
+    struct typedef_s *next;
 } typedef_t;
 
 struct cnm_s {

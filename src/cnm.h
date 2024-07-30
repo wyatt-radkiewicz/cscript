@@ -75,6 +75,10 @@ typedef struct cnmanyref_s {
 // of running the code, you can actually free the memory used by the CNM state.
 typedef struct cnm_s cnm_t;
 
+// Pointers to user defined types
+typedef struct cnm_struct_s cnm_struct_t;
+typedef struct cnm_enum_s cnm_enum_t;
+
 // Called when an error occurred in cnm
 typedef void(*__cdecl cnm_err_cb_t)(int line, const char *verbose, const char *simple);
 
@@ -141,16 +145,26 @@ bool cnm_parse(cnm_t *cnm, const char *src, const char *fname, const int *bpts, 
 
 // Can return NULL if the function at id is just declared or if id is out of
 // bounds.
-void *cnm_fn_addr(cnm_t *code, int id);
+void *cnm_fn_addr(cnm_t *cnm, int id);
 
 // Returns -1 if the function in question does not exist.
-int cnm_fn_idx(cnm_t *code, const char *fn);
+int cnm_fn_idx(cnm_t *cnm, const char *fn);
 
-// Returns the id of a type. It will return -1 if the type doesn't exist.
-int cnm_type_idx(cnm_t *code, const char *id);
+// These functions return a struct or enum if there is one by that name
+// Id will return the type identifier of the struct
+const cnm_struct_t *cnm_get_struct(cnm_t *cnm, const char *name);
+cnm_enum_t *cnm_get_enum(cnm_t *cnm, const char *name);
+int cnm_struct_get_id(const cnm_struct_t *s);
+size_t cnm_struct_get_size(const cnm_struct_t *s);
+int cnm_enum_get_id(const cnm_enum_t *e);
+size_t cnm_enum_get_size(const cnm_enum_t *e);
+
+// type can be char, uchar, bool, short, ushort, int, uint, long, ulong,
+// llong, ullong, float, or double
+int cnm_get_pod_id(const char *type);
 
 // Returns the address of a global variable
-void *cnm_get_global(cnm_t *code, const char *name);
+void *cnm_get_global(cnm_t *cnm, const char *name);
 
 #endif
 
