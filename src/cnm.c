@@ -1,7 +1,9 @@
 #include <ctype.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+#include <inttypes.h>
 
 #include "cnm.h"
 
@@ -38,8 +40,8 @@ typedef enum token_type_s {
 #define T0(n1) n1,
 #define T1(c1, n1) n1,
 #define T2(c1, n1, c2, n2) n1, n2,
-#define T3(c1, n1, c2, n2, c3, n3) n1, n2, n3
-#define T3_2(c1, n1, c2, n2, c3, n3, c4, n4) n1, n2, n3, n4
+#define T3(c1, n1, c2, n2, c3, n3) n1, n2, n3,
+#define T3_2(c1, n1, c2, n2, c3, n3, c4, n4) n1, n2, n3, n4,
 TOKENS
 #undef T3_2
 #undef T3
@@ -61,7 +63,7 @@ typedef struct token_s {
     // Data associated with token type
     union {
         char *s; // TOKEN_STRING
-        char c; // TOKEN_CHAR
+        uint32_t c; // TOKEN_CHAR
         uintmax_t i; // TOKEN_INT
         double f; // TOKEN_DOUBLE
     };
@@ -172,11 +174,20 @@ typedef struct typedef_s {
     struct typedef_s *next;
 } typedef_t;
 
+// String entries are refrences to strings stored in the code segement
+typedef struct strent_s {
+    char *str;
+    struct strent_s *next;
+} strent_t;
+
 struct cnm_s {
     // Where to store our executable code
     struct {
         uint8_t *buf;
         size_t len;
+
+        uint8_t *global_ptr;
+        uint8_t *code_ptr;
     } code;
 
     struct {
@@ -210,6 +221,9 @@ struct cnm_s {
 
     // Where the next allocation will be served
     uint8_t *next_alloc;
+
+    // String entries
+    strent_t *strs;
 
     // The actual buffer we use to allocate from
     size_t buflen;
@@ -266,12 +280,259 @@ overflow:
     return;
 }
 
+static token_t *token_ident(cnm_t *cnm) {
+    while (isalnum(cnm->s.tok.src.str[cnm->s.tok.src.len])
+           || cnm->s.tok.src.str[cnm->s.tok.src.len] == '_') {
+        ++cnm->s.tok.src.len;
+    }
+    return &cnm->s.tok;
+}
+
+// Returns how big the character is in bytes
+static size_t lex_char(const uint8_t **str, uint8_t out[4]) {
+    if (**str != '\\') {
+        if ((**str & 0x80) == 0x00) {
+            out[0] = *(*str)++;
+            return 1;
+        } else if ((**str & 0xE0) == 0xC0) {
+            out[0] = *(*str)++;
+            out[1] = *(*str)++;
+            return 2;
+        } else if ((**str & 0xF0) == 0xE0) {
+            out[0] = *(*str)++;
+            out[1] = *(*str)++;
+            out[2] = *(*str)++;
+            return 3;
+        } else if ((**str & 0xF8) == 0xF0) {
+            out[0] = *(*str)++;
+            out[1] = *(*str)++;
+            out[2] = *(*str)++;
+            out[3] = *(*str)++;
+            return 4;
+        }
+    }
+
+    // This is an escape sequence
+    int base, nchrs;
+    bool multi_byte;
+    switch (*(*str)++) {
+    case 'a': out[0] = '\a'; return 1;
+    case 'b': out[0] = '\b'; return 1;
+    case 'f': out[0] = '\f'; return 1;
+    case 'n': out[0] = '\n'; return 1;
+    case 'r': out[0] = '\r'; return 1;
+    case 't': out[0] = '\t'; return 1;
+    case 'v': out[0] = '\v'; return 1;
+    case '\\': out[0] = '\\'; return 1;
+    case '\'': out[0] = '\''; return 1;
+    case '\"': out[0] = '\"'; return 1;
+    case '\?': out[0] = '\?'; return 1;
+    case '0': case '1': case '2': case '3': case '4':
+    case '5': case '6': case '7': case '8': case '9':
+        base = 8;
+        nchrs = 3;
+        multi_byte = false;
+        break;
+    case 'x':
+        base = 16;
+        nchrs = -1;
+        multi_byte = false;
+        break;
+    case 'u':
+        base = 16;
+        nchrs = 4;
+        multi_byte = true;
+        break;
+    case 'U':
+        base = 16;
+        nchrs = 8;
+        multi_byte = true;
+        break;
+    }
+
+    uint32_t result = 0, pow = 1;
+    for (; nchrs != 0; nchrs--) {
+        const char c = tolower(*(*str)++);
+        uint32_t digit = c - '0';
+        if ((c >= 'a' || c <= 'f') && base == 16) digit = c - 'a' + 10;
+        else if (!isdigit(c)) break;
+        result += pow * digit;
+        pow *= base;
+    }
+
+    if (multi_byte) {
+        if (result < 0x80) {
+            out[0] = result;
+            return 1;
+        } else if (result < 0x800) {
+            out[0] = 0xC0 | (result >> 6 & 0x1F);
+            out[1] = 0x80 | (result & 0x3F);
+            return 2;
+        } else if (result < 0x10000) {
+            out[0] = 0xE0 | (result >> 12 & 0x0F);
+            out[1] = 0x80 | (result >> 6 & 0x3F);
+            out[2] = 0x80 | (result & 0x3F);
+            return 3;
+        } else {
+            out[0] = 0xF0 | (result >> 18 & 0x07);
+            out[1] = 0x80 | (result >> 12 & 0x3F);
+            out[2] = 0x80 | (result >> 6 & 0x3F);
+            out[4] = 0x80 | (result & 0x3F);
+            return 4;
+        }
+    } else {
+        out[0] = result;
+        return 1;
+    }
+}
+
+static token_t *token_string(cnm_t *cnm) {
+    // TODO: Do token strings
+    return &cnm->s.tok;
+}
+
+static token_t *token_char(cnm_t *cnm) {
+    uint8_t buf[4];
+    const uint8_t *c = (const uint8_t *)cnm->s.tok.src.str + 1;
+    lex_char(&c, buf);
+
+    cnm->s.tok.type = TOKEN_CHAR;
+    cnm->s.tok.src.len = (uintptr_t)c - (uintptr_t)cnm->s.tok.src.str;
+    if (cnm->s.tok.src.str[cnm->s.tok.src.len] != '\'') {
+        cnm_doerr(cnm, true, "expected ending \' after character", "here");
+        cnm->s.tok.type = TOKEN_EOF;
+        return &cnm->s.tok;
+    }
+    cnm->s.tok.src.len++;
+
+    cnm->s.tok.c = 0;
+    if ((buf[0] & 0x80) == 0x00) {
+        cnm->s.tok.c = buf[0];
+    } else if ((buf[0] & 0xE0) == 0xC0) {
+        cnm->s.tok.c |= (buf[0] & 0x1F) << 6;
+        cnm->s.tok.c |= buf[1] & 0x3F;
+    } else if ((buf[0] & 0xF0) == 0xE0) {
+        cnm->s.tok.c |= (buf[0] & 0x0F) << 12;
+        cnm->s.tok.c |= (buf[1] & 0x3F) << 6;
+        cnm->s.tok.c |= buf[2] & 0x3F;
+    } else if ((buf[0] & 0xF8) == 0xF0) {
+        cnm->s.tok.c |= (buf[0] & 0x07) << 18;
+        cnm->s.tok.c |= (buf[1] & 0x3F) << 12;
+        cnm->s.tok.c |= (buf[2] & 0x3F) << 6;
+        cnm->s.tok.c |= buf[3] & 0x3F;
+    }
+
+    return &cnm->s.tok;
+}
+
+static token_t *token_number(cnm_t *cnm) {
+    // Look for dot that signifies double
+    cnm->s.tok.type = TOKEN_INT;
+    while (isalnum(cnm->s.tok.src.str[cnm->s.tok.src.len])
+           || cnm->s.tok.src.str[cnm->s.tok.src.len] == '.') {
+        if (cnm->s.tok.src.str[cnm->s.tok.src.len] == '.') {
+            cnm->s.tok.type = TOKEN_DOUBLE;
+        }
+        ++cnm->s.tok.src.len;
+    }
+
+    if (cnm->s.tok.type == TOKEN_INT) {
+        cnm->s.tok.i = strtoumax(cnm->s.tok.src.str, NULL, 0);
+    } else {
+        cnm->s.tok.f = strtod(cnm->s.tok.src.str, NULL);
+    }
+
+    return &cnm->s.tok;
+}
+
+static token_t *token_next(cnm_t *cnm) {
+    if (cnm->s.tok.type == TOKEN_EOF) return &cnm->s.tok;
+
+    // Skip whitespace
+    cnm->s.tok.src.str += cnm->s.tok.src.len;
+    cnm->s.tok.col += cnm->s.tok.src.len;
+    for (; isspace(*cnm->s.tok.src.str); ++cnm->s.tok.src.str) {
+        ++cnm->s.tok.col;
+        if (*cnm->s.tok.src.str == '\n') {
+            cnm->s.tok.col = 1;
+            ++cnm->s.tok.row;
+        }
+    }
+    cnm->s.tok.src.len = 1;
+    
+    switch (cnm->s.tok.src.str[0]) {
+    case '0': case '1': case '2': case '3': case '4':
+    case '5': case '6': case '7': case '8': case '9':
+        return token_number(cnm);
+    case '\"':
+        return token_string(cnm);
+    case '\'':
+        return token_char(cnm);
+    default:
+        if (!isalpha(cnm->s.tok.src.str[0]) && cnm->s.tok.src.str[0] != '_') {
+            cnm_doerr(cnm, true, "unknown character while lexing", "here");
+            cnm->s.tok.type = TOKEN_EOF;
+            return &cnm->s.tok;
+        }
+        return token_ident(cnm);
+#define T0(n1)
+#define T1(c1, n1) \
+    case c1: \
+        cnm->s.tok.type = n1; \
+        break;
+#define T2(c1, n1, c2, n2) \
+    case c1: \
+        cnm->s.tok.type = n1; \
+        if (cnm->s.tok.src.str[1] == c2) { \
+            cnm->s.tok.type = n2; \
+            cnm->s.tok.src.len = 2; \
+        } \
+        break;
+#define T3(c1, n1, c2, n2, c3, n3) \
+    case c1: \
+        cnm->s.tok.type = n1; \
+        if (cnm->s.tok.src.str[1] == c2) { \
+            cnm->s.tok.type = n2; \
+            cnm->s.tok.src.len = 2; \
+        } else if (cnm->s.tok.src.str[1] == c3) { \
+            cnm->s.tok.type = n3; \
+            cnm->s.tok.src.len = 2; \
+        } \
+        break;
+#define T3_2(c1, n1, c2, n2, c3, n3, c4, n4) \
+    case c1: \
+        cnm->s.tok.type = n1; \
+        if (cnm->s.tok.src.str[1] == c2) { \
+            cnm->s.tok.type = n2; \
+            cnm->s.tok.src.len = 2; \
+        } else if (cnm->s.tok.src.str[1] == c3) { \
+            cnm->s.tok.type = n3; \
+            cnm->s.tok.src.len = 2; \
+            if (cnm->s.tok.src.str[1] == c4) { \
+                cnm->s.tok.type = n4; \
+                cnm->s.tok.src.len = 3; \
+            } \
+        } \
+        break;
+TOKENS
+#undef T3_2
+#undef T3
+#undef T2
+#undef T1
+#undef T0
+    }
+
+    return &cnm->s.tok;
+}
+
 cnm_t *cnm_init(void *region, size_t regionsz, void *code, size_t codesz) {
     if (regionsz < sizeof(cnm_t)) return NULL;
     
     cnm_t *cnm = region;
     cnm->code.buf = code;
     cnm->code.len = codesz;
+    cnm->code.global_ptr = cnm->code.buf + cnm->code.len;
+    cnm->code.code_ptr = cnm->code.buf;
     cnm->buflen = regionsz - sizeof(cnm_t);
     cnm->next_alloc = cnm->buf;
 
