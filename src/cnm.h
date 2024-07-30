@@ -1,101 +1,156 @@
+//
+// CNM Script by __ e k l 1 p 3 d __
+//
+// CNM script is a subset of C with refrences/slices added. Some features
+// removed from C (to help keep the language safe) include:
+// - no pointer arithmetic
+// - can not assign pointer to another pointer
+// - can not cast pointers
+// - can set pointers through external C functions and structs retruned from
+//   them
+// - union members can not be accessed
+// On the other hand here are language additions:
+// - refrences with built in length (so they double up as slices)
+// - void refrences that also have built in type information
+//
+// Even though this might seem like a lot was removed from C this was done in
+// the name of simplicity and safety. The only things that can break a C
+// program that embeds CNM script are the functions exposed to CNM script
+// itself. Most C functions should be straight ports, but due to this extra
+// layer of safety unfortunatly some hooks/wrapper functions may have to be
+// created for full effectiveness of cnm script.
+//
 #ifndef _cnm_h_
 #define _cnm_h_
 
 #include <stdbool.h>
 #include <stddef.h>
 
-struct cnm;
-struct cnm_type;
+// Used by the cnm macro
+#define cnmstr(x) #x
+#define cnmxstr(x) cnmstr(x)
 
-typedef void(*cnm_error_cb)(const char *msg);
+// Use this to refrence the source string of declarations you wrapped in cnm()
+#define cnmsymb(symbol_name) cnm_csrc_##symbol_name
 
-typedef bool(*cnm_op_binary)(void *lhs, const struct cnm_type *lty,
-                             void *rhs, const struct cnm_type *rty);
-typedef bool(*cnm_op_unary)(struct cnm *vm, const struct cnm_type *ty);
+// With the cnm macro you can automatically create the stringized version of
+// the source code that you can parse for cscript. Note that cscript is a
+// set of C where most but not all features overlap, so not all C
+// functionality might work.
+#define cnm(symbol_name, ...) \
+    __VA_ARGS__ \
+    const char *const cnmsymb(symbol_name) = cnmxstr(__VA_ARGS__);
 
-// Push type onto vm stack
-typedef bool(*cnm_getter)(struct cnm *vm, const void *from,
-                          const struct cnm_type *ty, int member);
-// Pop type off the stack and store it into to
-typedef bool(*cnm_setter)(struct cnm *vm, void *to,
-                          const struct cnm_type *ty, int member);
+// Internal cnm refrence structure. Since this can't hold info on its inner
+// type, it can not be used in conjunction with the cnm macro by itself but it
+// can be used in the cnm macro if you use a typedef or struct with same
+// layout with appended information in this format:
+//
+// if returning a refrence to an int you would change:
+// > cnmref_t get_int_array(void);
+// to something like:
+// > cnmref_int_t get_int_array(void);
+// or any other type you want:
+// > cnmref_struct_hash_entry_t get_hash_entry(int x);
+//
+// It can only handle 1 level of inderection. Anything above that will have to
+// be a normal cnmref_t and then also have seperate script written instead of
+// using the cnm macro.
+typedef struct cnmref_s {
+    void *ptr;
+    size_t len;
+} cnmref_t;
 
-enum cnm_op_class {
-    CNM_OP_ASSIGN,
-    CNM_OP_EQEQ,
-    CNM_OP_GT,
-    CNM_OP_ADD,
-    CNM_OP_SUB,
-    CNM_OP_MUL,
-    CNM_OP_DIV,
-    CNM_OP_MOD,
-    CNM_OP_BITAND,
-    CNM_OP_BITOR,
-    CNM_OP_BITXOR,
-    CNM_OP_BITNOT,
-    CNM_OP_CLASS_MAX,
-};
+// Since you can not use arithmetic on pointers or cast them in cscript, you
+// have to use any refrences to acheive type generic code. Any refrences can
+// only point to concrete types like structs or POD data. You can get type ids
+// from the main cnm state info.
+typedef struct cnmanyref_s {
+    cnmref_t ref;
+    int type;
+} cnmanyref_t;
 
-// Even though you could just use the index operator overload as a way to add
-// members to your types, it can be slow. Accessors will be compiled into
-// indexes into the accessor array which can help performance.
-struct cnm_accessor {
-    const char *name;
+// Main CNM state information. This must be present as long as you want to be
+// able to get rtti or use debug features. If you don't need those at the time
+// of running the code, you can actually free the memory used by the CNM state.
+typedef struct cnm_s cnm_t;
 
-    // You're accessor can also be simply compiled into a get X at X address
-    // also. This also helps with performance.
-    bool isfield;
-    union {
-        struct {
-            int offset;
-            const struct cnm_type *type;
-            size_t arrlen;
-        } field;
-        struct {
-            cnm_getter get;
-            cnm_setter set;
-        } ;
-    };
-};
+// Called when an error occurred in cnm
+typedef void(*__cdecl cnm_err_cb_t)(int line, const char *verbose, const char *simple);
 
-struct cnm_type {
-    int id;
-    const char *name;
-    cnm_op_binary ops[CNM_OP_CLASS_MAX];
-    cnm_op_unary cast, call, index, ctor; // ctor is a static unary func
+// Called when a breakpoint is hit or you stepped
+typedef void(*__cdecl cnm_dbg_cb_t)(cnm_t *cnm, int line);
 
-    size_t size, align;
-    struct cnm_accessor *accs;
-    size_t naccs;
-};
+// Called when an external function is parsed. If NULL is returned, the state
+// will error out.
+typedef void *(*cnm_fnaddr_cb_t)(cnm_t *cnm, const char *fn);
 
-struct cnm_val {
-    const struct cnm_type *ty;
+// Initiailze CNM state
+cnm_t *cnm_init(void *region, size_t regionsz, void *code, size_t codesz);
 
-    // If it is a refrence, data points to a pointer to the data
-    bool ref;
+// Will copy type definitions and function declarations from one instance to
+// another (already initialized but with no compiled code) cnm state. Returns
+// false if there is not enough space or the to state has already started
+// compiling code. It will also override any already existing types in the to
+// cnm state object.
+bool cnm_copy(cnm_t *to, const cnm_t *from);
 
-    // Is this value mutable?
-    bool mut;
+// Adds typedefs from stdint.h into the cnm state
+bool cnm_add_stdint_h(cnm_t *cnm);
 
-    // If this is an array, the array size. If it is also a refrence, it is
-    // a fat pointer style length parameter.
-    size_t arrlen;
-    void *data;
-};
+// Adds select functions from string.h into the cnm state
+bool cnm_add_string_h(cnm_t *cnm);
 
-void cnm_set_error_cb(cnm_error_cb cb);
-bool cnm_set_global_type_buffer(struct cnm_type *buf, size_t size);
+// Adds declarations from stddef.h into the cnm state
+bool cnm_add_stddef_h(cnm_t *cnm);
 
-struct cnm_type *cnm_new_type(const char *name);
-struct cnm_type *cnm_get_type(struct cnm *cnm, const char *name);
-struct cnm_type *cnm_get_typeid(struct cnm *cnm, int id);
+// Adds functions from ctype.h to the cnm state
+bool cnm_add_ctype_h(cnm_t *cnm);
 
-struct cnm *cnm_init(void *region, size_t regionsz);
-bool cnm_parse(struct cnm *cnm, const char *src);
-bool cnm_push(struct cnm *cnm, const struct cnm_val *val);
-struct cnm_val cnm_pop(struct cnm *cnm);
-const struct cnm_val *cnm_get(struct cnm *cnm, int stack_idx);
+// Sets callback so user can receive errors
+void cnm_set_errcb(cnm_t *cnm, cnm_err_cb_t errcb);
+
+// Sets callback for when breakpoints are hit or hit the next line of code.
+void cnm_set_dbgcb(cnm_t *cnm, cnm_dbg_cb_t errcb);
+
+// Sets callback for when an external function is parsed in cnm script
+void cnm_set_fnaddrcb(cnm_t *cnm, cnm_fnaddr_cb_t fnaddrcb);
+
+// Returns false if debug mode is changed after the first part of compiled code.
+bool cnm_set_debug(cnm_t *cnm, bool debug_mode);
+
+// Returns false if debug mode was not enabled before compilation.
+// If set to true, it will insert calls to the debug callback after every line
+// in the source code.
+bool cnm_set_stepmode(cnm_t *cnm, bool step_mode);
+
+// Returns false if it was changed after compilation began.
+// If set to true, it will insert detailed error messages when NULL is
+// derefrenced or slices are accessed out of bounds.
+// Detailed error messages include the line and 'file' where the
+// error occurred.
+bool cnm_set_rterr_detail(cnm_t *cnm, bool detailed);
+
+// If the new type id can not be set because there is already a type occupying
+// that id or if the new id is out of bounds, it will return false. If it
+// succeeded it will return true.
+bool cnm_set_structid(cnm_t *cnm, int old_type_id, int new_type_id);
+
+// Returns false when compilation or parsing failed
+bool cnm_parse(cnm_t *cnm, const char *src, const char *fname, const int *bpts, int nbpts);
+
+// Can return NULL if the function at id is just declared or if id is out of
+// bounds.
+void *cnm_fn_addr(cnm_t *code, int id);
+
+// Returns -1 if the function in question does not exist.
+int cnm_fn_idx(cnm_t *code, const char *fn);
+
+// Returns the id of a type. It will return -1 if the type doesn't exist.
+int cnm_type_idx(cnm_t *code, const char *id);
+
+// Returns the address of a global variable
+void *cnm_get_global(cnm_t *code, const char *name);
 
 #endif
 
