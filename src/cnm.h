@@ -160,7 +160,7 @@ int cnm_enum_get_id(const cnm_enum_t *e);
 size_t cnm_enum_get_size(const cnm_enum_t *e);
 
 // type can be char, uchar, bool, short, ushort, int, uint, long, ulong,
-// llong, ullong, float, or double
+// llong, ullong, float, or double 
 int cnm_get_pod_id(const char *type);
 
 // Returns the address of a global variable
