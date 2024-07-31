@@ -16,7 +16,8 @@ typedef struct strview_s {
 #define SV(s) ((strview_t){ .str = s, .len = sizeof(s) - 1 })
 
 #define TOKENS \
-    T0(TOKEN_IDENT) T0(TOKEN_STRING) T0(TOKEN_CHAR) T0(TOKEN_INT) T0(TOKEN_DOUBLE) \
+    T0(TOKEN_IDENT) T0(TOKEN_STRING) T0(TOKEN_CHAR) T0(TOKEN_INT) \
+    T0(TOKEN_UNINITIALIZED) T0(TOKEN_DOUBLE) \
     T1('\0', TOKEN_EOF) T1('.', TOKEN_DOT) T1(',', TOKEN_COMMA) \
     T1('?', TOKEN_COND) T1(':', TOKEN_COLON) T1(';', TOKEN_SEMICOLON) \
     T1('(', TOKEN_PAREN_L) T1(')', TOKEN_PAREN_R) \
@@ -58,14 +59,27 @@ typedef struct token_s {
     strview_t src; // TOKEN_IDENT
 
     // Position where the token starts
-    int row, col;
+    struct {
+        int row, col;
+    } start;
+
+    // Position after the token ends
+    struct {
+        int row, col;
+    } end;
 
     // Data associated with token type
     union {
         char *s; // TOKEN_STRING
         uint32_t c; // TOKEN_CHAR
-        uintmax_t i; // TOKEN_INT
-        double f; // TOKEN_DOUBLE
+        struct {
+            char suffix[4];
+            uintmax_t n;
+        } i; // TOKEN_INT
+        struct {
+            char suffix[4];
+            double n;
+        } f; // TOKEN_DOUBLE
     };
 } token_t;
 
@@ -230,13 +244,55 @@ struct cnm_s {
     uint8_t buf[];
 };
 
-static bool strview_eq(const strview_t lhs, const strview_t rhs) {
+static inline bool strview_eq(const strview_t lhs, const strview_t rhs) {
     if (lhs.len != rhs.len) return false;
     return memcmp(lhs.str, rhs.str, lhs.len) == 0;
 }
 
+// Print out error to the error callback in the cnm state
+static void cnm_doerr(cnm_t *cnm, bool critical, const char *desc, const char *caption) {
+    static char buf[512];
+
+    // Only increase error count if critical
+    cnm->nerrs += critical;
+    if (!cnm->cb.err) return;
+
+    // Print header
+    int len = snprintf(buf, sizeof(buf), "error: %s\n"
+                                         "  --> %s:%d:%d\n"
+                                         "   |\n"
+                                         "%-3d|  ",
+                                         desc, cnm->s.fname,
+                                         cnm->s.tok.start.row, cnm->s.tok.start.col,
+                                         cnm->s.tok.start.row);
+    // Get the source code line
+    {
+        const char *l = cnm->s.src;
+        for (int line = 1; line != cnm->s.tok.start.row; line += *l++ == '\n');
+        for (; *l != '\n' && *l != '\0' && len < sizeof(buf); buf[len++] = *l++);
+        if (len == sizeof(buf)) goto overflow;
+    }
+
+    // Print source code and next line with caption
+    len += snprintf(buf + len, sizeof(buf) - len, "\n   |  ");
+    if (len + cnm->s.tok.start.col + cnm->s.tok.src.len >= sizeof(buf)) goto overflow;
+    memset(buf + len, ' ', cnm->s.tok.start.col); // spaces before caption
+    len += cnm->s.tok.start.col;
+    memset(buf + len, critical ? '~' : '-', cnm->s.tok.src.len); // underline
+    len += cnm->s.tok.src.len;
+    len += snprintf(buf + len, sizeof(buf) - len, " %s\n   |\n", caption); // caption
+
+    cnm->cb.err(cnm->s.tok.start.row, buf, desc);
+    return;
+overflow:
+    cnm->cb.err(cnm->s.tok.start.row, desc, desc);
+    return;
+}
+
+// Allocate memory in the cnm state region
 static void *cnm_alloc(cnm_t *cnm, size_t size) {
     if (cnm->next_alloc + size > cnm->buf + cnm->buflen) {
+        cnm_doerr(cnm, true, "ran out of region memory", "at this point in parsing");
         return NULL;
     }
     void *const ptr = cnm->next_alloc;
@@ -244,78 +300,67 @@ static void *cnm_alloc(cnm_t *cnm, size_t size) {
     return ptr;
 }
 
-static void cnm_doerr(cnm_t *cnm, bool critical, const char *desc, const char *caption) {
-    static char buf[512];
-
-    cnm->nerrs += critical;
-    if (!cnm->cb.err) return;
-
-    int len = snprintf(buf, sizeof(buf), "error: %s\n"
-                                         "  --> %s:%d:%d\n"
-                                         "   |\n"
-                                         "%-3d|  ",
-                                         desc, cnm->s.fname,
-                                         cnm->s.tok.row, cnm->s.tok.col,
-                                         cnm->s.tok.row);
-    // Get the source code line
-    {
-        const char *l = cnm->s.src;
-        for (int line = 1; line != cnm->s.tok.row; line += *l++ == '\n');
-        for (; *l != '\n' && *l != '\0' && len < sizeof(buf); buf[len++] = *l++);
-        if (len == sizeof(buf)) goto overflow;
+// Allocate memory at the end of the code region for a constant/global
+static void *cnm_alloc_global(cnm_t *cnm, size_t size) {
+    if (cnm->code.global_ptr - size < cnm->code.code_ptr) {
+        cnm_doerr(cnm, true, "ran out of code space", "at this point in parsing");
+        return NULL;
     }
-
-    len += snprintf(buf + len, sizeof(buf) - len, "\n   |  ");
-    if (len + cnm->s.tok.col + cnm->s.tok.src.len >= sizeof(buf)) goto overflow;
-    memset(buf + len, ' ', cnm->s.tok.col);
-    len += cnm->s.tok.col;
-    memset(buf + len, critical ? '~' : '-', cnm->s.tok.src.len);
-    len += cnm->s.tok.src.len;
-    len += snprintf(buf + len, sizeof(buf) - len, " %s\n   |\n", caption);
-
-    cnm->cb.err(cnm->s.tok.row, buf, desc);
-    return;
-overflow:
-    cnm->cb.err(cnm->s.tok.row, desc, desc);
-    return;
+    cnm->code.global_ptr -= size;
+    return cnm->code.global_ptr;
 }
 
+// Lex a identifier
 static token_t *token_ident(cnm_t *cnm) {
+    cnm->s.tok.type = TOKEN_IDENT;
+
+    // Consume alphanumeric and _
     while (isalnum(cnm->s.tok.src.str[cnm->s.tok.src.len])
            || cnm->s.tok.src.str[cnm->s.tok.src.len] == '_') {
         ++cnm->s.tok.src.len;
     }
+
+    // Set end of token
+    cnm->s.tok.end.col += cnm->s.tok.src.len;
     return &cnm->s.tok;
 }
 
+// Lex a single character/escape code
 // Returns how big the character is in bytes
-static size_t lex_char(const uint8_t **str, uint8_t out[4]) {
+// Will advance the string pointer to the next character
+static size_t lex_char(cnm_t *cnm, const uint8_t **str, uint8_t out[4]) {
+    // Lex normal character (no escape sequence)
     if (**str != '\\') {
+        // UTF-8 formatting (straight copying bytes)
         if ((**str & 0x80) == 0x00) {
-            out[0] = *(*str)++;
+            if (!(out[0] = *(*str)++)) goto eof_error;
             return 1;
         } else if ((**str & 0xE0) == 0xC0) {
-            out[0] = *(*str)++;
-            out[1] = *(*str)++;
+            if (!(out[0] = *(*str)++)) goto eof_error;
+            if (!(out[1] = *(*str)++)) goto eof_error;
             return 2;
         } else if ((**str & 0xF0) == 0xE0) {
-            out[0] = *(*str)++;
-            out[1] = *(*str)++;
-            out[2] = *(*str)++;
+            if (!(out[0] = *(*str)++)) goto eof_error;
+            if (!(out[1] = *(*str)++)) goto eof_error;
+            if (!(out[2] = *(*str)++)) goto eof_error;
             return 3;
         } else if ((**str & 0xF8) == 0xF0) {
-            out[0] = *(*str)++;
-            out[1] = *(*str)++;
-            out[2] = *(*str)++;
-            out[3] = *(*str)++;
+            if (!(out[0] = *(*str)++)) goto eof_error;
+            if (!(out[1] = *(*str)++)) goto eof_error;
+            if (!(out[2] = *(*str)++)) goto eof_error;
+            if (!(out[3] = *(*str)++)) goto eof_error;
             return 4;
         }
     }
 
     // This is an escape sequence
-    int base, nchrs;
-    bool multi_byte;
-    switch (*(*str)++) {
+    int base, nchrs;    // base of code point, and number of chars in code point number
+    bool multi_byte;    // if this is a multi-byte (utf8) codepoint
+    switch (*++(*str)) {
+    // Check for eof
+    case '\0': goto eof_error;
+
+    // Normal escape sequences
     case 'a': out[0] = '\a'; return 1;
     case 'b': out[0] = '\b'; return 1;
     case 'f': out[0] = '\f'; return 1;
@@ -327,22 +372,35 @@ static size_t lex_char(const uint8_t **str, uint8_t out[4]) {
     case '\'': out[0] = '\''; return 1;
     case '\"': out[0] = '\"'; return 1;
     case '\?': out[0] = '\?'; return 1;
+
+    // Codepoint sequences
+    // Octal
     case '0': case '1': case '2': case '3': case '4':
     case '5': case '6': case '7': case '8': case '9':
         base = 8;
         nchrs = 3;
         multi_byte = false;
         break;
+    // Hex
     case 'x':
         base = 16;
-        nchrs = -1;
+        nchrs = 1;
+        for (; (tolower((*str)[nchrs]) >= 'a' && tolower((*str)[nchrs]) <= 'f')
+               || ((*str)[nchrs] >= '0' && (*str)[nchrs] <= '9'); nchrs++);
+        nchrs--;
+        if (!nchrs) {
+            cnm_doerr(cnm, true, "\\x used with no following hex digits", "");
+            goto error;
+        }
         multi_byte = false;
         break;
+    // UTF8 (all codepoints before 0x10000)
     case 'u':
         base = 16;
         nchrs = 4;
         multi_byte = true;
         break;
+    // UTF8 (all codepoints)
     case 'U':
         base = 16;
         nchrs = 8;
@@ -350,17 +408,29 @@ static size_t lex_char(const uint8_t **str, uint8_t out[4]) {
         break;
     }
 
+    // Read in the number into result
+    // nchrs represents the number of characters left to read
+    // if nchrs is 0, it will read until it finds a source char that doesn't
+    // fit the base
+    ++(*str);
     uint32_t result = 0, pow = 1;
-    for (; nchrs != 0; nchrs--) {
-        const char c = tolower(*(*str)++);
+    for (int i = nchrs - 1; i >= 0; i--) {
+        const char c = tolower((*str)[i]);
         uint32_t digit = c - '0';
-        if ((c >= 'a' || c <= 'f') && base == 16) digit = c - 'a' + 10;
-        else if (!isdigit(c)) break;
+        if (c >= 'a' && c <= 'f' && base == 16) {
+            digit = c - 'a' + 10;
+        } else if (!isdigit(c)) {
+            cnm_doerr(cnm, true, "malformed character literal", "number format invalid");
+            goto error;
+        }
         result += pow * digit;
         pow *= base;
     }
+    *str += nchrs;
 
+    // UTF8 codepoints
     if (multi_byte) {
+        // UTF8 format (from u32 to bytes)
         if (result < 0x80) {
             out[0] = result;
             return 1;
@@ -381,30 +451,149 @@ static size_t lex_char(const uint8_t **str, uint8_t out[4]) {
             return 4;
         }
     } else {
+        // normal ASCII char
         out[0] = result;
         return 1;
     }
+
+eof_error:
+    cnm_doerr(cnm, true, "unexpected eof when parsing character literal", "here");
+error:
+    cnm->s.tok.type = TOKEN_EOF;
+    return 0;
 }
 
+// Lexes a single string so only the hello" part of "hello""world" 
+// The src pointer should point to the start of the contents of the string
+// Returns the length of the source of the string (including final " char)
+// Puts the length of the string buffer into outlen (if its not NULL)
+static size_t lex_single_string(cnm_t *cnm, const uint8_t *src, char *buf, size_t *outlen) {
+    const uint8_t *const src_start = src;
+    uint8_t char_buf[4];
+    size_t len = 0;
+
+    // Consume all characters
+    while (*src != '\"') {
+        if (*src == '\0') {
+            cnm_doerr(cnm, true, "unexpected eof while parsing string", "here");
+            goto error_out;
+        } else if (*src == '\n') {
+            cnm_doerr(cnm, true, "unexpected new line while parsing string", "here");
+            goto error_out;
+        }
+
+        size_t char_len = lex_char(cnm, &src, char_buf);
+        if (!char_len) goto error_out;
+        if (buf) memcpy(buf + len, char_buf, char_len);
+        len += char_len;
+    }
+    src++;
+
+    if (outlen) *outlen = len;
+    return src - src_start;
+
+error_out:
+    cnm->s.tok.type = TOKEN_EOF;
+    return 0;
+}
+
+// Parses a string token and automatically concatinates them
+// this implies that the resultant token might span over multiple lines
 static token_t *token_string(cnm_t *cnm) {
-    // TODO: Do token strings
+    size_t buflen = 0;
+    const uint8_t *const start = (const uint8_t *)cnm->s.tok.src.str;
+    const uint8_t *curr = start;
+
+    // Get the length of the string token and the length of the stored string
+    cnm->s.tok.type = TOKEN_STRING;
+    cnm->s.tok.src.len = 0;
+    do {
+        curr++;
+        cnm->s.tok.end.col++;
+        cnm->s.tok.src.len++;
+
+        size_t _buflen, _srclen = lex_single_string(cnm, curr, NULL, &_buflen);
+        if (!_srclen) goto error_scenario;
+
+        cnm->s.tok.src.len += _srclen, curr += _srclen, buflen += _buflen;
+        cnm->s.tok.end.col += _srclen;
+
+        // Skip whitespace until we find the next string to concatinate (if there is one)
+        while (isspace(*curr)) {
+            cnm->s.tok.src.len++;
+            cnm->s.tok.end.col++;
+            if (*curr == '\n') {
+                cnm->s.tok.end.row++;
+                cnm->s.tok.end.col = 1;
+            }
+            ++curr;
+        }
+    } while (*curr == '\"');
+
+    // Allocate space for the null terminator
+    ++buflen;
+
+    // Allocate space for the string
+    char *buf = cnm_alloc_global(cnm, buflen);
+    if (!buf) goto error_scenario;
+    size_t bufloc = 0;
+
+    // Fill out the new string buffer string by string
+    curr = start;
+    do {
+        curr++;
+
+        size_t len;
+        curr += lex_single_string(cnm, curr, buf + bufloc, &len);
+        bufloc += len;
+        while (isspace(*curr)) ++curr;
+    } while (*curr == '\"');
+    buf[bufloc] = '\0';
+    
+    // Test to see if there is already a string with these contents
+    for (const strent_t *ent = cnm->strs; ent; ent = ent->next) {
+        if (strcmp(ent->str, buf)) continue;
+
+        // We found exact copy of the string, so use that string instead
+        cnm->code.global_ptr += buflen;
+        cnm->s.tok.s = ent->str;
+        return &cnm->s.tok;
+    }
+
+    // String has not been found so add it to the string entries list
+    strent_t *ent = cnm_alloc(cnm, sizeof(*ent));
+    if (!ent) goto error_scenario;
+    ent->str = buf;
+    ent->next = cnm->strs;
+    cnm->strs = ent;
+    return &cnm->s.tok;
+
+error_scenario:
+    cnm->s.tok.type = TOKEN_EOF;
     return &cnm->s.tok;
 }
 
+// Parse a single character token
 static token_t *token_char(cnm_t *cnm) {
     uint8_t buf[4];
     const uint8_t *c = (const uint8_t *)cnm->s.tok.src.str + 1;
-    lex_char(&c, buf);
+    if (!lex_char(cnm, &c, buf)) goto error;
 
+    // Set new token info
     cnm->s.tok.type = TOKEN_CHAR;
     cnm->s.tok.src.len = (uintptr_t)c - (uintptr_t)cnm->s.tok.src.str;
+
+    // Error out
     if (cnm->s.tok.src.str[cnm->s.tok.src.len] != '\'') {
         cnm_doerr(cnm, true, "expected ending \' after character", "here");
         cnm->s.tok.type = TOKEN_EOF;
         return &cnm->s.tok;
     }
     cnm->s.tok.src.len++;
+    cnm->s.tok.end.col += cnm->s.tok.src.len;
 
+    // Set the token's string value (which is a uint32_t)
+    // Convert from UTF8 to codepoint
     cnm->s.tok.c = 0;
     if ((buf[0] & 0x80) == 0x00) {
         cnm->s.tok.c = buf[0];
@@ -422,11 +611,13 @@ static token_t *token_char(cnm_t *cnm) {
         cnm->s.tok.c |= buf[3] & 0x3F;
     }
 
+error:
     return &cnm->s.tok;
 }
 
+// Parse a TOKEN_INT or TOKEN_DOUBLE
 static token_t *token_number(cnm_t *cnm) {
-    // Look for dot that signifies double
+    // Look for dot that signifies double and consume token length
     cnm->s.tok.type = TOKEN_INT;
     while (isalnum(cnm->s.tok.src.str[cnm->s.tok.src.len])
            || cnm->s.tok.src.str[cnm->s.tok.src.len] == '.') {
@@ -436,31 +627,75 @@ static token_t *token_number(cnm_t *cnm) {
         ++cnm->s.tok.src.len;
     }
 
+    // Get the the actual contents and parse suffix
+    char *end;
     if (cnm->s.tok.type == TOKEN_INT) {
-        cnm->s.tok.i = strtoumax(cnm->s.tok.src.str, NULL, 0);
+        size_t suffix_len = 0;
+        cnm->s.tok.i.suffix[suffix_len] = '\0';
+        cnm->s.tok.i.n = strtoumax(cnm->s.tok.src.str, &end, 0);
+
+        // Look for optional 'u'
+        if (tolower(*end) == 'u') {
+            cnm->s.tok.i.suffix[suffix_len++] = 'u';
+            cnm->s.tok.i.suffix[suffix_len] = '\0';
+            end++;
+        }
+        
+        // Look for optional 2 l's
+        for (int i = 0; i < 2; i++) {
+            if (tolower(*end) == 'l') {
+                cnm->s.tok.i.suffix[suffix_len++] = 'l';
+                cnm->s.tok.i.suffix[suffix_len] = '\0';
+                end++;
+            }
+        }
     } else {
-        cnm->s.tok.f = strtod(cnm->s.tok.src.str, NULL);
+        cnm->s.tok.f.n = strtod(cnm->s.tok.src.str, &end);
+
+        // Look for optional 'f'
+        if (tolower(*end) == 'f') {
+            cnm->s.tok.i.suffix[0] = 'f';
+            cnm->s.tok.f.suffix[1] = '\0';
+            end++;
+        } else {
+            cnm->s.tok.f.suffix[0] = '\0';
+        }
     }
 
+    // Check for other characters after the suffix/numbers and error if so
+    if (end != cnm->s.tok.src.str + cnm->s.tok.src.len) {
+        cnm_doerr(cnm, true, "invalid number literal format.",
+                             "extra chars after digits");
+        cnm->s.tok.type = TOKEN_EOF;
+        return &cnm->s.tok;
+    }
+
+    cnm->s.tok.end.col += cnm->s.tok.src.len;
     return &cnm->s.tok;
 }
 
+// Move the cnm token to the next token
+// If the current token is TOKEN_EOF, it will be repeated
 static token_t *token_next(cnm_t *cnm) {
     if (cnm->s.tok.type == TOKEN_EOF) return &cnm->s.tok;
 
     // Skip whitespace
     cnm->s.tok.src.str += cnm->s.tok.src.len;
-    cnm->s.tok.col += cnm->s.tok.src.len;
+    cnm->s.tok.start.row = cnm->s.tok.end.row;
+    cnm->s.tok.start.col = cnm->s.tok.end.col;
     for (; isspace(*cnm->s.tok.src.str); ++cnm->s.tok.src.str) {
-        ++cnm->s.tok.col;
+        ++cnm->s.tok.start.col;
         if (*cnm->s.tok.src.str == '\n') {
-            cnm->s.tok.col = 1;
-            ++cnm->s.tok.row;
+            cnm->s.tok.start.col = 1;
+            ++cnm->s.tok.start.row;
         }
     }
     cnm->s.tok.src.len = 1;
+    cnm->s.tok.end.row = cnm->s.tok.start.row;
+    cnm->s.tok.end.col = cnm->s.tok.start.col;
     
     switch (cnm->s.tok.src.str[0]) {
+    // Special tokens
     case '0': case '1': case '2': case '3': case '4':
     case '5': case '6': case '7': case '8': case '9':
         return token_number(cnm);
@@ -475,6 +710,7 @@ static token_t *token_next(cnm_t *cnm) {
             return &cnm->s.tok;
         }
         return token_ident(cnm);
+    // Simple tokens
 #define T0(n1)
 #define T1(c1, n1) \
     case c1: \
@@ -522,9 +758,11 @@ TOKENS
 #undef T0
     }
 
+    cnm->s.tok.end.col += cnm->s.tok.src.len;
     return &cnm->s.tok;
 }
 
+// Initialize a cnm state object to compile code in the space provided by the code argument
 cnm_t *cnm_init(void *region, size_t regionsz, void *code, size_t codesz) {
     if (regionsz < sizeof(cnm_t)) return NULL;
     
@@ -537,5 +775,18 @@ cnm_t *cnm_init(void *region, size_t regionsz, void *code, size_t codesz) {
     cnm->next_alloc = cnm->buf;
 
     return cnm;
+}
+
+bool cnm_parse(cnm_t *cnm, const char *src, const char *fname, const int *bpts, int nbpts) {
+    cnm->s.src = src;
+    cnm->s.fname = fname;
+    cnm->s.tok = (token_t){
+        .src = { .str = src, .len = 0 },
+        .start = { .row = 1, .col = 1 },
+        .end = { .row = 1, .col = 1 },
+        .type = TOKEN_UNINITIALIZED,
+    };
+
+    return true;
 }
 

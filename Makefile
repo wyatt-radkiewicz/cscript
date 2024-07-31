@@ -3,18 +3,14 @@
 #
 
 # Variables
-SRCS :=$(shell find src -name "*.c")
+SRCS :=$(shell find src/test/ -name "*.c")
 BUILD :=build
-TESTER :=$(BUILD)/cnms_tester
+TESTER :=$(BUILD)/test
 OBJS :=$(patsubst %.c,$(BUILD)/%.o,$(SRCS))
 
 # Environment variables
 CFLAGS :=$(CFLAGS) -O0 -g -std=c99
 LDFLAGS :=$(LDFLAGS) -lm
-
-# Run the test suite
-test: $(TESTER)
-	$<
 
 # Build the main executable
 $(TESTER): $(OBJS)

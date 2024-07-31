@@ -23,6 +23,7 @@
 #ifndef _cnm_h_
 #define _cnm_h_
 
+#include <limits.h>
 #include <stdbool.h>
 #include <stddef.h>
 
@@ -40,6 +41,13 @@
 #define cnm(symbol_name, ...) \
     __VA_ARGS__ \
     const char *const cnmsymb(symbol_name) = cnmxstr(__VA_ARGS__);
+
+// TODO: Add branches for other cpus
+#if ULONG_MAX == 4294967295
+#define cnmcall __attribute__((cdecl))
+#else
+#define cnmcall
+#endif
 
 // Internal cnm refrence structure. Since this can't hold info on its inner
 // type, it can not be used in conjunction with the cnm macro by itself but it
@@ -81,10 +89,10 @@ typedef struct cnm_enum_s cnm_enum_t;
 typedef struct cnm_fn_s cnm_fn_t;
 
 // Called when an error occurred in cnm
-typedef void(*__cdecl cnm_err_cb_t)(int line, const char *verbose, const char *simple);
+typedef void(cnmcall *cnm_err_cb_t)(int line, const char *verbose, const char *simple);
 
 // Called when a breakpoint is hit or you stepped
-typedef void(*__cdecl cnm_dbg_cb_t)(cnm_t *cnm, int line);
+typedef void(cnmcall *cnm_dbg_cb_t)(cnm_t *cnm, int line);
 
 // Called when an external function is parsed. If NULL is returned, the state
 // will error out.
