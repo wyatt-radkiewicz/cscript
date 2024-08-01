@@ -15,10 +15,12 @@ typedef struct strview_s {
 // Create a string view from a string literal
 #define SV(s) ((strview_t){ .str = s, .len = sizeof(s) - 1 })
 
+#define arrlen(a) (sizeof(a) / sizeof((a)[0]))
+
 #define TOKENS \
     T0(TOKEN_IDENT) T0(TOKEN_STRING) T0(TOKEN_CHAR) T0(TOKEN_INT) \
-    T0(TOKEN_UNINITIALIZED) T0(TOKEN_DOUBLE) \
-    T1('\0', TOKEN_EOF) T1('.', TOKEN_DOT) T1(',', TOKEN_COMMA) \
+    T0(TOKEN_UNINITIALIZED) T0(TOKEN_DOUBLE) T0(TOKEN_EOF) \
+    T1('.', TOKEN_DOT) T1(',', TOKEN_COMMA) \
     T1('?', TOKEN_COND) T1(':', TOKEN_COLON) T1(';', TOKEN_SEMICOLON) \
     T1('(', TOKEN_PAREN_L) T1(')', TOKEN_PAREN_R) \
     T1('[', TOKEN_BRACK_L) T1(']', TOKEN_BRACK_R) \
@@ -33,9 +35,9 @@ typedef struct strview_s {
     T2('!', TOKEN_NOT, '=', TOKEN_NOT_EQ) \
     T2('=', TOKEN_ASSIGN, '=', TOKEN_EQ_EQ) \
     T3('&', TOKEN_BIT_AND, '=', TOKEN_AND_EQ, '&', TOKEN_AND) \
-    T3('|', TOKEN_BIT_OR, '=', TOKEN_OR_EQ, '&', TOKEN_OR) \
+    T3('|', TOKEN_BIT_OR, '=', TOKEN_OR_EQ, '|', TOKEN_OR) \
     T3_2('<', TOKEN_LESS, '=', TOKEN_LESS_EQ, '<', TOKEN_SHIFT_L, '=', TOKEN_SHIFT_L_EQ) \
-    T3_2('>', TOKEN_GREATER, '=', TOKEN_GREATER_EQ, '<', TOKEN_SHIFT_R, '=', TOKEN_SHIFT_R_EQ)
+    T3_2('>', TOKEN_GREATER, '=', TOKEN_GREATER_EQ, '>', TOKEN_SHIFT_R, '=', TOKEN_SHIFT_R_EQ)
 
 typedef enum token_type_s {
 #define T0(n1) n1,
@@ -49,6 +51,7 @@ TOKENS
 #undef T2
 #undef T1
 #undef T0
+    TOKEN_MAX,
 } token_type_t;
 
 typedef struct token_s {
@@ -328,9 +331,13 @@ static token_t *token_ident(cnm_t *cnm) {
 // Lex a single character/escape code
 // Returns how big the character is in bytes
 // Will advance the string pointer to the next character
-static size_t lex_char(cnm_t *cnm, const uint8_t **str, uint8_t out[4]) {
+// nsrc_cols is the number of columns that the character takes up so A 
+// ☺ is 1 column, while \u263A is 6 columns
+static size_t lex_char(cnm_t *cnm, const uint8_t **str, uint8_t out[4], size_t *nsrc_cols) {
     // Lex normal character (no escape sequence)
     if (**str != '\\') {
+        if (nsrc_cols) *nsrc_cols = 1;
+
         // UTF-8 formatting (straight copying bytes)
         if ((**str & 0x80) == 0x00) {
             if (!(out[0] = *(*str)++)) goto eof_error;
@@ -356,22 +363,24 @@ static size_t lex_char(cnm_t *cnm, const uint8_t **str, uint8_t out[4]) {
     // This is an escape sequence
     int base, nchrs;    // base of code point, and number of chars in code point number
     bool multi_byte;    // if this is a multi-byte (utf8) codepoint
+
+    if (nsrc_cols) *nsrc_cols = 2;
     switch (*++(*str)) {
     // Check for eof
     case '\0': goto eof_error;
 
     // Normal escape sequences
-    case 'a': out[0] = '\a'; return 1;
-    case 'b': out[0] = '\b'; return 1;
-    case 'f': out[0] = '\f'; return 1;
-    case 'n': out[0] = '\n'; return 1;
-    case 'r': out[0] = '\r'; return 1;
-    case 't': out[0] = '\t'; return 1;
-    case 'v': out[0] = '\v'; return 1;
-    case '\\': out[0] = '\\'; return 1;
-    case '\'': out[0] = '\''; return 1;
-    case '\"': out[0] = '\"'; return 1;
-    case '\?': out[0] = '\?'; return 1;
+    case 'a': out[0] = '\a'; ++(*str); return 1;
+    case 'b': out[0] = '\b'; ++(*str); return 1;
+    case 'f': out[0] = '\f'; ++(*str); return 1;
+    case 'n': out[0] = '\n'; ++(*str); return 1;
+    case 'r': out[0] = '\r'; ++(*str); return 1;
+    case 't': out[0] = '\t'; ++(*str); return 1;
+    case 'v': out[0] = '\v'; ++(*str); return 1;
+    case '\\': out[0] = '\\'; ++(*str); return 1;
+    case '\'': out[0] = '\''; ++(*str); return 1;
+    case '\"': out[0] = '\"'; ++(*str); return 1;
+    case '\?': out[0] = '\?'; ++(*str); return 1;
 
     // Codepoint sequences
     // Octal
@@ -427,6 +436,7 @@ static size_t lex_char(cnm_t *cnm, const uint8_t **str, uint8_t out[4]) {
         pow *= base;
     }
     *str += nchrs;
+    if (nsrc_cols) *nsrc_cols += nchrs;
 
     // UTF8 codepoints
     if (multi_byte) {
@@ -467,12 +477,14 @@ error:
 // The src pointer should point to the start of the contents of the string
 // Returns the length of the source of the string (including final " char)
 // Puts the length of the string buffer into outlen (if its not NULL)
-static size_t lex_single_string(cnm_t *cnm, const uint8_t *src, char *buf, size_t *outlen) {
+static size_t lex_single_string(cnm_t *cnm, const uint8_t *src, char *buf,
+                                size_t *outlen, size_t *outncols) {
     const uint8_t *const src_start = src;
     uint8_t char_buf[4];
     size_t len = 0;
 
     // Consume all characters
+    if (outncols) *outncols = 0;
     while (*src != '\"') {
         if (*src == '\0') {
             cnm_doerr(cnm, true, "unexpected eof while parsing string", "here");
@@ -482,7 +494,8 @@ static size_t lex_single_string(cnm_t *cnm, const uint8_t *src, char *buf, size_
             goto error_out;
         }
 
-        size_t char_len = lex_char(cnm, &src, char_buf);
+        size_t ncols, char_len = lex_char(cnm, &src, char_buf, &ncols);
+        if (outncols) *outncols += ncols;
         if (!char_len) goto error_out;
         if (buf) memcpy(buf + len, char_buf, char_len);
         len += char_len;
@@ -490,6 +503,7 @@ static size_t lex_single_string(cnm_t *cnm, const uint8_t *src, char *buf, size_
     src++;
 
     if (outlen) *outlen = len;
+    if (outncols) ++*outncols;
     return src - src_start;
 
 error_out:
@@ -504,6 +518,10 @@ static token_t *token_string(cnm_t *cnm) {
     const uint8_t *const start = (const uint8_t *)cnm->s.tok.src.str;
     const uint8_t *curr = start;
 
+    // To revert the end spot and length if there wasn't another string to concatinate
+    int row_backup, col_backup;
+    size_t len_backup;
+
     // Get the length of the string token and the length of the stored string
     cnm->s.tok.type = TOKEN_STRING;
     cnm->s.tok.src.len = 0;
@@ -512,13 +530,16 @@ static token_t *token_string(cnm_t *cnm) {
         cnm->s.tok.end.col++;
         cnm->s.tok.src.len++;
 
-        size_t _buflen, _srclen = lex_single_string(cnm, curr, NULL, &_buflen);
+        size_t _buflen, _ncols, _srclen = lex_single_string(cnm, curr, NULL,
+                                                            &_buflen, &_ncols);
         if (!_srclen) goto error_scenario;
 
         cnm->s.tok.src.len += _srclen, curr += _srclen, buflen += _buflen;
-        cnm->s.tok.end.col += _srclen;
+        cnm->s.tok.end.col += _ncols;
 
         // Skip whitespace until we find the next string to concatinate (if there is one)
+        row_backup = cnm->s.tok.end.row, col_backup = cnm->s.tok.end.col;
+        len_backup = cnm->s.tok.src.len;
         while (isspace(*curr)) {
             cnm->s.tok.src.len++;
             cnm->s.tok.end.col++;
@@ -529,6 +550,8 @@ static token_t *token_string(cnm_t *cnm) {
             ++curr;
         }
     } while (*curr == '\"');
+    cnm->s.tok.end.row = row_backup, cnm->s.tok.end.col = col_backup;
+    cnm->s.tok.src.len = len_backup;
 
     // Allocate space for the null terminator
     ++buflen;
@@ -544,7 +567,7 @@ static token_t *token_string(cnm_t *cnm) {
         curr++;
 
         size_t len;
-        curr += lex_single_string(cnm, curr, buf + bufloc, &len);
+        curr += lex_single_string(cnm, curr, buf + bufloc, &len, NULL);
         bufloc += len;
         while (isspace(*curr)) ++curr;
     } while (*curr == '\"');
@@ -566,6 +589,7 @@ static token_t *token_string(cnm_t *cnm) {
     ent->str = buf;
     ent->next = cnm->strs;
     cnm->strs = ent;
+    cnm->s.tok.s = ent->str;
     return &cnm->s.tok;
 
 error_scenario:
@@ -577,7 +601,8 @@ error_scenario:
 static token_t *token_char(cnm_t *cnm) {
     uint8_t buf[4];
     const uint8_t *c = (const uint8_t *)cnm->s.tok.src.str + 1;
-    if (!lex_char(cnm, &c, buf)) goto error;
+    size_t ncols;
+    if (!lex_char(cnm, &c, buf, &ncols)) goto error;
 
     // Set new token info
     cnm->s.tok.type = TOKEN_CHAR;
@@ -590,7 +615,7 @@ static token_t *token_char(cnm_t *cnm) {
         return &cnm->s.tok;
     }
     cnm->s.tok.src.len++;
-    cnm->s.tok.end.col += cnm->s.tok.src.len;
+    cnm->s.tok.end.col += ncols + 2;
 
     // Set the token's string value (which is a uint32_t)
     // Convert from UTF8 to codepoint
@@ -703,6 +728,10 @@ static token_t *token_next(cnm_t *cnm) {
         return token_string(cnm);
     case '\'':
         return token_char(cnm);
+    case '\0':
+        cnm->s.tok.type = TOKEN_EOF;
+        cnm->s.tok.src.len = 0;
+        break;
     default:
         if (!isalpha(cnm->s.tok.src.str[0]) && cnm->s.tok.src.str[0] != '_') {
             cnm_doerr(cnm, true, "unknown character while lexing", "here");
@@ -710,6 +739,7 @@ static token_t *token_next(cnm_t *cnm) {
             return &cnm->s.tok;
         }
         return token_ident(cnm);
+
     // Simple tokens
 #define T0(n1)
 #define T1(c1, n1) \
@@ -744,7 +774,7 @@ static token_t *token_next(cnm_t *cnm) {
         } else if (cnm->s.tok.src.str[1] == c3) { \
             cnm->s.tok.type = n3; \
             cnm->s.tok.src.len = 2; \
-            if (cnm->s.tok.src.str[1] == c4) { \
+            if (cnm->s.tok.src.str[2] == c4) { \
                 cnm->s.tok.type = n4; \
                 cnm->s.tok.src.len = 3; \
             } \
@@ -767,14 +797,20 @@ cnm_t *cnm_init(void *region, size_t regionsz, void *code, size_t codesz) {
     if (regionsz < sizeof(cnm_t)) return NULL;
     
     cnm_t *cnm = region;
+    memset(cnm, 0, sizeof(*cnm));
     cnm->code.buf = code;
     cnm->code.len = codesz;
     cnm->code.global_ptr = cnm->code.buf + cnm->code.len;
     cnm->code.code_ptr = cnm->code.buf;
     cnm->buflen = regionsz - sizeof(cnm_t);
     cnm->next_alloc = cnm->buf;
+    cnm->strs = NULL;
 
     return cnm;
+}
+
+void cnm_set_errcb(cnm_t *cnm, cnm_err_cb_t errcb) {
+    cnm->cb.err = errcb;
 }
 
 bool cnm_parse(cnm_t *cnm, const char *src, const char *fname, const int *bpts, int nbpts) {
