@@ -502,6 +502,10 @@ static bool test_lexer_token_location(void) {
     if (cnm->s.tok.type != TOKEN_DOUBLE || cnm->s.tok.start.row != 5
         || cnm->s.tok.start.col != 25  || cnm->s.tok.end.row != 5
         || cnm->s.tok.end.col != 29    || cnm->s.tok.src.len != 4) return false;
+    token_next(cnm);
+    if (cnm->s.tok.type != TOKEN_EOF || cnm->s.tok.start.row != 5
+        || cnm->s.tok.start.col != 29  || cnm->s.tok.end.row != 5
+        || cnm->s.tok.end.col != 29    || cnm->s.tok.src.len != 0) return false;
 
     return true;
 }
