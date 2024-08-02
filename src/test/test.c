@@ -20,7 +20,7 @@ static void default_print(int line, const char *verbose, const char *simple) {
 static bool test_lexer_uninitialized(void) {
     cnm_t *cnm = cnm_init(scratch_buf, sizeof(scratch_buf), code_area, code_size);
     cnm_set_errcb(cnm, default_print);
-    cnm_parse(cnm, "", "test_lexer_ident.cnm", NULL, 0);
+    cnm_set_src(cnm, "", "test_lexer_ident.cnm");
     if (cnm->s.tok.type != TOKEN_UNINITIALIZED) return false;
     if (cnm->s.tok.start.row != 1) return false;
     if (cnm->s.tok.start.col != 1) return false;
@@ -32,7 +32,7 @@ static bool test_lexer_uninitialized(void) {
 static bool test_lexer_ident(void) {
     cnm_t *cnm = cnm_init(scratch_buf, sizeof(scratch_buf), code_area, code_size);
     cnm_set_errcb(cnm, default_print);
-    cnm_parse(cnm, " _foo123_ ", "test_lexer_ident.cnm", NULL, 0);
+    cnm_set_src(cnm, " _foo123_ ", "test_lexer_ident.cnm");
     token_next(cnm);
     if (cnm->s.tok.type != TOKEN_IDENT) return false;
     if (cnm->s.tok.start.row != 1) return false;
@@ -45,7 +45,7 @@ static bool test_lexer_ident(void) {
 static bool test_lexer_string1(void) {
     cnm_t *cnm = cnm_init(scratch_buf, sizeof(scratch_buf), code_area, code_size);
     cnm_set_errcb(cnm, default_print);
-    cnm_parse(cnm, "\"hello \"", "test_lexer_string1.cnm", NULL, 0);
+    cnm_set_src(cnm, "\"hello \"", "test_lexer_string1.cnm");
     token_next(cnm);
     if (cnm->s.tok.type != TOKEN_STRING) return false;
     if (cnm->s.tok.start.row != 1) return false;
@@ -59,7 +59,7 @@ static bool test_lexer_string1(void) {
 static bool test_lexer_string2(void) {
     cnm_t *cnm = cnm_init(scratch_buf, sizeof(scratch_buf), code_area, code_size);
     cnm_set_errcb(cnm, default_print);
-    cnm_parse(cnm, "\"hello \"  \"world\"", "test_lexer_string2.cnm", NULL, 0);
+    cnm_set_src(cnm, "\"hello \"  \"world\"", "test_lexer_string2.cnm");
     token_next(cnm);
     if (cnm->s.tok.type != TOKEN_STRING) return false;
     if (cnm->s.tok.start.row != 1) return false;
@@ -73,8 +73,8 @@ static bool test_lexer_string2(void) {
 static bool test_lexer_string3(void) {
     cnm_t *cnm = cnm_init(scratch_buf, sizeof(scratch_buf), code_area, code_size);
     cnm_set_errcb(cnm, default_print);
-    cnm_parse(cnm, "\"hello \"\n"
-                   "  \"world\"", "test_lexer_string3.cnm", NULL, 0);
+    cnm_set_src(cnm, "\"hello \"\n"
+                   "  \"world\"", "test_lexer_string3.cnm");
     token_next(cnm);
     if (cnm->s.tok.type != TOKEN_STRING) return false;
     if (cnm->s.tok.start.row != 1) return false;
@@ -88,7 +88,7 @@ static bool test_lexer_string3(void) {
 static bool test_lexer_string4(void) {
     cnm_t *cnm = cnm_init(scratch_buf, sizeof(scratch_buf), code_area, code_size);
     cnm_set_errcb(cnm, default_print);
-    cnm_parse(cnm, "\"hello \\\"world\"", "test_lexer_string4.cnm", NULL, 0);
+    cnm_set_src(cnm, "\"hello \\\"world\"", "test_lexer_string4.cnm");
     token_next(cnm);
     if (cnm->s.tok.type != TOKEN_STRING) return false;
     if (cnm->s.tok.start.row != 1) return false;
@@ -102,7 +102,7 @@ static bool test_lexer_string4(void) {
 static bool test_lexer_string5(void) {
     cnm_t *cnm = cnm_init(scratch_buf, sizeof(scratch_buf), code_area, code_size);
     cnm_set_errcb(cnm, default_print);
-    cnm_parse(cnm, "\"hello \\u263A world\"", "test_lexer_string5.cnm", NULL, 0);
+    cnm_set_src(cnm, "\"hello \\u263A world\"", "test_lexer_string5.cnm");
     token_next(cnm);
     if (cnm->s.tok.type != TOKEN_STRING) return false;
     if (cnm->s.tok.start.row != 1) return false;
@@ -116,7 +116,7 @@ static bool test_lexer_string5(void) {
 static bool test_lexer_string6(void) {
     cnm_t *cnm = cnm_init(scratch_buf, sizeof(scratch_buf), code_area, code_size);
     cnm_set_errcb(cnm, default_print);
-    cnm_parse(cnm, "\"hello ☺ world\"", "test_lexer_string6.cnm", NULL, 0);
+    cnm_set_src(cnm, "\"hello ☺ world\"", "test_lexer_string6.cnm");
     token_next(cnm);
     if (cnm->s.tok.type != TOKEN_STRING) return false;
     if (cnm->s.tok.start.row != 1) return false;
@@ -130,7 +130,7 @@ static bool test_lexer_string6(void) {
 static bool test_lexer_char1(void) {
     cnm_t *cnm = cnm_init(scratch_buf, sizeof(scratch_buf), code_area, code_size);
     cnm_set_errcb(cnm, default_print);
-    cnm_parse(cnm, "'h'", "test_lexer_char1.cnm", NULL, 0);
+    cnm_set_src(cnm, "'h'", "test_lexer_char1.cnm");
     token_next(cnm);
     if (cnm->s.tok.type != TOKEN_CHAR) return false;
     if (cnm->s.tok.start.row != 1) return false;
@@ -144,7 +144,7 @@ static bool test_lexer_char1(void) {
 static bool test_lexer_char2(void) {
     cnm_t *cnm = cnm_init(scratch_buf, sizeof(scratch_buf), code_area, code_size);
     cnm_set_errcb(cnm, default_print);
-    cnm_parse(cnm, "'\\x41'", "test_lexer_char2.cnm", NULL, 0);
+    cnm_set_src(cnm, "'\\x41'", "test_lexer_char2.cnm");
     token_next(cnm);
     if (cnm->s.tok.type != TOKEN_CHAR) return false;
     if (cnm->s.tok.start.row != 1) return false;
@@ -158,7 +158,7 @@ static bool test_lexer_char2(void) {
 static bool test_lexer_char3(void) {
     cnm_t *cnm = cnm_init(scratch_buf, sizeof(scratch_buf), code_area, code_size);
     cnm_set_errcb(cnm, default_print);
-    cnm_parse(cnm, "'☺'", "test_lexer_char3.cnm", NULL, 0);
+    cnm_set_src(cnm, "'☺'", "test_lexer_char3.cnm");
     token_next(cnm);
     if (cnm->s.tok.type != TOKEN_CHAR) return false;
     if (cnm->s.tok.start.row != 1) return false;
@@ -171,7 +171,7 @@ static bool test_lexer_char3(void) {
 }
 static bool test_lexer_char4(void) {
     cnm_t *cnm = cnm_init(scratch_buf, sizeof(scratch_buf), code_area, code_size);
-    cnm_parse(cnm, "'h '", "test_lexer_char4.cnm", NULL, 0);
+    cnm_set_src(cnm, "'h '", "test_lexer_char4.cnm");
     token_next(cnm);
     if (cnm->nerrs == 0) return false;
     return true;
@@ -179,7 +179,7 @@ static bool test_lexer_char4(void) {
 static bool test_lexer_int1(void) {
     cnm_t *cnm = cnm_init(scratch_buf, sizeof(scratch_buf), code_area, code_size);
     cnm_set_errcb(cnm, default_print);
-    cnm_parse(cnm, "120", "test_lexer_int1.cnm", NULL, 0);
+    cnm_set_src(cnm, "120", "test_lexer_int1.cnm");
     token_next(cnm);
     if (cnm->s.tok.type != TOKEN_INT) return false;
     if (cnm->s.tok.start.row != 1) return false;
@@ -187,6 +187,7 @@ static bool test_lexer_int1(void) {
     if (cnm->s.tok.end.row != 1) return false;
     if (cnm->s.tok.end.col != 4) return false;
     if (!strview_eq(cnm->s.tok.src, SV("120"))) return false;
+    if (cnm->s.tok.i.base != 10) return false;
     if (cnm->s.tok.i.n != 120) return false;
     if (strcmp(cnm->s.tok.i.suffix, "") != 0) return false;
     return true;
@@ -194,7 +195,7 @@ static bool test_lexer_int1(void) {
 static bool test_lexer_int2(void) {
     cnm_t *cnm = cnm_init(scratch_buf, sizeof(scratch_buf), code_area, code_size);
     cnm_set_errcb(cnm, default_print);
-    cnm_parse(cnm, "69U", "test_lexer_int2.cnm", NULL, 0);
+    cnm_set_src(cnm, "69U", "test_lexer_int2.cnm");
     token_next(cnm);
     if (cnm->s.tok.type != TOKEN_INT) return false;
     if (cnm->s.tok.start.row != 1) return false;
@@ -202,6 +203,7 @@ static bool test_lexer_int2(void) {
     if (cnm->s.tok.end.row != 1) return false;
     if (cnm->s.tok.end.col != 4) return false;
     if (!strview_eq(cnm->s.tok.src, SV("69U"))) return false;
+    if (cnm->s.tok.i.base != 10) return false;
     if (cnm->s.tok.i.n != 69) return false;
     if (strcmp(cnm->s.tok.i.suffix, "u") != 0) return false;
     return true;
@@ -209,7 +211,7 @@ static bool test_lexer_int2(void) {
 static bool test_lexer_int3(void) {
     cnm_t *cnm = cnm_init(scratch_buf, sizeof(scratch_buf), code_area, code_size);
     cnm_set_errcb(cnm, default_print);
-    cnm_parse(cnm, "420ulL", "test_lexer_int3.cnm", NULL, 0);
+    cnm_set_src(cnm, "420ulL", "test_lexer_int3.cnm");
     token_next(cnm);
     if (cnm->s.tok.type != TOKEN_INT) return false;
     if (cnm->s.tok.start.row != 1) return false;
@@ -217,6 +219,7 @@ static bool test_lexer_int3(void) {
     if (cnm->s.tok.end.row != 1) return false;
     if (cnm->s.tok.end.col != 7) return false;
     if (!strview_eq(cnm->s.tok.src, SV("420ulL"))) return false;
+    if (cnm->s.tok.i.base != 10) return false;
     if (cnm->s.tok.i.n != 420) return false;
     if (strcmp(cnm->s.tok.i.suffix, "ull") != 0) return false;
     return true;
@@ -224,7 +227,7 @@ static bool test_lexer_int3(void) {
 static bool test_lexer_int4(void) {
     cnm_t *cnm = cnm_init(scratch_buf, sizeof(scratch_buf), code_area, code_size);
     cnm_set_errcb(cnm, default_print);
-    cnm_parse(cnm, "0xFF", "test_lexer_int4.cnm", NULL, 0);
+    cnm_set_src(cnm, "0xFF", "test_lexer_int4.cnm");
     token_next(cnm);
     if (cnm->s.tok.type != TOKEN_INT) return false;
     if (cnm->s.tok.start.row != 1) return false;
@@ -232,28 +235,45 @@ static bool test_lexer_int4(void) {
     if (cnm->s.tok.end.row != 1) return false;
     if (cnm->s.tok.end.col != 5) return false;
     if (!strview_eq(cnm->s.tok.src, SV("0xFF"))) return false;
+    if (cnm->s.tok.i.base != 16) return false;
     if (cnm->s.tok.i.n != 255) return false;
     if (strcmp(cnm->s.tok.i.suffix, "") != 0) return false;
     return true;
 }
 static bool test_lexer_int5(void) {
     cnm_t *cnm = cnm_init(scratch_buf, sizeof(scratch_buf), code_area, code_size);
-    cnm_parse(cnm, "0xxF", "test_lexer_int5.cnm", NULL, 0);
+    cnm_set_src(cnm, "0xxF", "test_lexer_int5.cnm");
     token_next(cnm);
     if (cnm->nerrs == 0) return false;
     return true;
 }
 static bool test_lexer_int6(void) {
     cnm_t *cnm = cnm_init(scratch_buf, sizeof(scratch_buf), code_area, code_size);
-    cnm_parse(cnm, "420f", "test_lexer_int6.cnm", NULL, 0);
+    cnm_set_src(cnm, "420f", "test_lexer_int6.cnm");
     token_next(cnm);
     if (cnm->nerrs == 0) return false;
+    return true;
+}
+static bool test_lexer_int7(void) {
+    cnm_t *cnm = cnm_init(scratch_buf, sizeof(scratch_buf), code_area, code_size);
+    cnm_set_errcb(cnm, default_print);
+    cnm_set_src(cnm, "0b1101", "test_lexer_int7.cnm");
+    token_next(cnm);
+    if (cnm->s.tok.type != TOKEN_INT) return false;
+    if (cnm->s.tok.start.row != 1) return false;
+    if (cnm->s.tok.start.col != 1) return false;
+    if (cnm->s.tok.end.row != 1) return false;
+    if (cnm->s.tok.end.col != 7) return false;
+    if (!strview_eq(cnm->s.tok.src, SV("0b1101"))) return false;
+    if (cnm->s.tok.i.base != 2) return false;
+    if (cnm->s.tok.i.n != 13) return false;
+    if (strcmp(cnm->s.tok.i.suffix, "") != 0) return false;
     return true;
 }
 static bool test_lexer_double1(void) {
     cnm_t *cnm = cnm_init(scratch_buf, sizeof(scratch_buf), code_area, code_size);
     cnm_set_errcb(cnm, default_print);
-    cnm_parse(cnm, "0.0", "test_lexer_double1.cnm", NULL, 0);
+    cnm_set_src(cnm, "0.0", "test_lexer_double1.cnm");
     token_next(cnm);
     if (cnm->s.tok.type != TOKEN_DOUBLE) return false;
     if (cnm->s.tok.start.row != 1) return false;
@@ -268,7 +288,7 @@ static bool test_lexer_double1(void) {
 static bool test_lexer_double2(void) {
     cnm_t *cnm = cnm_init(scratch_buf, sizeof(scratch_buf), code_area, code_size);
     cnm_set_errcb(cnm, default_print);
-    cnm_parse(cnm, "0.5", "test_lexer_double2.cnm", NULL, 0);
+    cnm_set_src(cnm, "0.5", "test_lexer_double2.cnm");
     token_next(cnm);
     if (cnm->s.tok.type != TOKEN_DOUBLE) return false;
     if (cnm->s.tok.start.row != 1) return false;
@@ -283,7 +303,7 @@ static bool test_lexer_double2(void) {
 static bool test_lexer_double3(void) {
     cnm_t *cnm = cnm_init(scratch_buf, sizeof(scratch_buf), code_area, code_size);
     cnm_set_errcb(cnm, default_print);
-    cnm_parse(cnm, "420.69", "test_lexer_double3.cnm", NULL, 0);
+    cnm_set_src(cnm, "420.69", "test_lexer_double3.cnm");
     token_next(cnm);
     if (cnm->s.tok.type != TOKEN_DOUBLE) return false;
     if (cnm->s.tok.start.row != 1) return false;
@@ -298,7 +318,7 @@ static bool test_lexer_double3(void) {
 static bool test_lexer_double4(void) {
     cnm_t *cnm = cnm_init(scratch_buf, sizeof(scratch_buf), code_area, code_size);
     cnm_set_errcb(cnm, default_print);
-    cnm_parse(cnm, "420.69f", "test_lexer_double4.cnm", NULL, 0);
+    cnm_set_src(cnm, "420.69f", "test_lexer_double4.cnm");
     token_next(cnm);
     if (cnm->s.tok.type != TOKEN_DOUBLE) return false;
     if (cnm->s.tok.start.row != 1) return false;
@@ -313,7 +333,7 @@ static bool test_lexer_double4(void) {
 static bool test_lexer_double5(void) {
     cnm_t *cnm = cnm_init(scratch_buf, sizeof(scratch_buf), code_area, code_size);
     cnm_set_errcb(cnm, default_print);
-    cnm_parse(cnm, "42.", "test_lexer_double5.cnm", NULL, 0);
+    cnm_set_src(cnm, "42.", "test_lexer_double5.cnm");
     token_next(cnm);
     if (cnm->s.tok.type != TOKEN_DOUBLE) return false;
     if (cnm->s.tok.start.row != 1) return false;
@@ -328,7 +348,7 @@ static bool test_lexer_double5(void) {
 static bool test_lexer_double6(void) {
     cnm_t *cnm = cnm_init(scratch_buf, sizeof(scratch_buf), code_area, code_size);
     cnm_set_errcb(cnm, default_print);
-    cnm_parse(cnm, "42.f", "test_lexer_double6.cnm", NULL, 0);
+    cnm_set_src(cnm, "42.f", "test_lexer_double6.cnm");
     token_next(cnm);
     if (cnm->s.tok.type != TOKEN_DOUBLE) return false;
     if (cnm->s.tok.start.row != 1) return false;
@@ -342,7 +362,7 @@ static bool test_lexer_double6(void) {
 }
 static bool test_lexer_double7(void) {
     cnm_t *cnm = cnm_init(scratch_buf, sizeof(scratch_buf), code_area, code_size);
-    cnm_parse(cnm, "0.0asdf", "test_lexer_double7.cnm", NULL, 0);
+    cnm_set_src(cnm, "0.0asdf", "test_lexer_double7.cnm");
     token_next(cnm);
     if (cnm->nerrs == 0) return false;
     return true;
@@ -352,7 +372,7 @@ static bool test_lexer_double7(void) {
     static bool test_lexer_##name_end(void) { \
         cnm_t *cnm = cnm_init(scratch_buf, sizeof(scratch_buf), code_area, code_size); \
         cnm_set_errcb(cnm, default_print); \
-        cnm_parse(cnm, string, "test_lexer_"#name_end".cnm", NULL, 0); \
+        cnm_set_src(cnm, string, "test_lexer_"#name_end".cnm"); \
         token_next(cnm); \
         if (cnm->s.tok.type != token_type) return false; \
         if (cnm->s.tok.start.row != 1) return false; \
@@ -412,12 +432,12 @@ TEST_LEXER_TOKEN(shift_r_eq, ">>=", TOKEN_SHIFT_R_EQ)
 static bool test_lexer_token_location(void) {
     cnm_t *cnm = cnm_init(scratch_buf, sizeof(scratch_buf), code_area, code_size);
     cnm_set_errcb(cnm, default_print);
-    cnm_parse(cnm, ".,?:;()[]{}+ +=++\n"
+    cnm_set_src(cnm, ".,?:;()[]{}+ +=++\n"
                    "- -=--**=//=%%=^^=\n"
                    "~~=!!== ==& &=&&\n"
                    "| |=||< <=<<<<=> >=>>>>=\n"
                    "foo \"str\" \"ing\" 'A' 34u 0.0f",
-                   "test_lexer_tokens.cnm", NULL, 0);
+                   "test_lexer_tokens.cnm");
     static const struct {
         int row, start_col, end_col;
         size_t len;
@@ -510,14 +530,217 @@ static bool test_lexer_token_location(void) {
     return true;
 }
 
+///////////////////////////////////////////////////////////////////////////////
+//
+// AST Constant Folding Testing
+//
+///////////////////////////////////////////////////////////////////////////////
+static bool test_ast_constant_folding1(void) {
+    cnm_t *cnm = cnm_init(scratch_buf, sizeof(scratch_buf), code_area, code_size);
+    cnm_set_errcb(cnm, default_print);
+    cnm_set_src(cnm, "5",
+              "test_ast_constant_folding1.cnm");
+    token_next(cnm);
+    ast_t *ast = ast_generate(cnm, PREC_FULL);
+    if (ast->class != AST_NUM_LITERAL) return false;
+    if (ast->type.type[0].class != TYPE_INT) return false;
+    if (ast->type.size != 1) return false;
+    if (ast->num_literal.i != 5) return false;
+    return true;
+}
+
+static bool test_ast_constant_folding2(void) {
+    cnm_t *cnm = cnm_init(scratch_buf, sizeof(scratch_buf), code_area, code_size);
+    cnm_set_errcb(cnm, default_print);
+    cnm_set_src(cnm, "5.0",
+              "test_ast_constant_folding2.cnm");
+    token_next(cnm);
+    ast_t *ast = ast_generate(cnm, PREC_FULL);
+    if (ast->class != AST_NUM_LITERAL) return false;
+    if (ast->type.type[0].class != TYPE_DOUBLE) return false;
+    if (ast->num_literal.f != 5.0) return false;
+    return true;
+}
+static bool test_ast_constant_folding3(void) {
+    cnm_t *cnm = cnm_init(scratch_buf, sizeof(scratch_buf), code_area, code_size);
+    cnm_set_errcb(cnm, default_print);
+    cnm_set_src(cnm, "5000000000",
+              "test_ast_constant_folding3.cnm");
+    token_next(cnm);
+    ast_t *ast = ast_generate(cnm, PREC_FULL);
+    if (ast->class != AST_NUM_LITERAL) return false;
+    if (ast->type.type[0].class != TYPE_LONG) return false;
+    if (ast->num_literal.i != 5000000000) return false;
+    return true;
+}
+static bool test_ast_constant_folding4(void) {
+    cnm_t *cnm = cnm_init(scratch_buf, sizeof(scratch_buf), code_area, code_size);
+    cnm_set_errcb(cnm, default_print);
+    cnm_set_src(cnm, "5u",
+              "test_ast_constant_folding4.cnm");
+    token_next(cnm);
+    ast_t *ast = ast_generate(cnm, PREC_FULL);
+    if (ast->class != AST_NUM_LITERAL) return false;
+    if (ast->type.type[0].class != TYPE_UINT) return false;
+    if (ast->num_literal.u != 5) return false;
+    return true;
+}
+static bool test_ast_constant_folding5(void) {
+    cnm_t *cnm = cnm_init(scratch_buf, sizeof(scratch_buf), code_area, code_size);
+    cnm_set_errcb(cnm, default_print);
+    cnm_set_src(cnm, "9223372036854775809ull",
+              "test_ast_constant_folding5.cnm");
+    token_next(cnm);
+    ast_t *ast = ast_generate(cnm, PREC_FULL);
+    if (ast->class != AST_NUM_LITERAL) return false;
+    if (ast->type.type[0].class != TYPE_ULLONG) return false;
+    if (ast->num_literal.u != 9223372036854775809ull) return false;
+    return true;
+}
+static bool test_ast_constant_folding6_passed = false;
+static void test_ast_constant_folding6_errcb(int line, const char *v, const char *s) {
+    test_ast_constant_folding6_passed = true;
+}
+static bool test_ast_constant_folding6(void) {
+    cnm_t *cnm = cnm_init(scratch_buf, sizeof(scratch_buf), code_area, code_size);
+    test_ast_constant_folding6_passed = false;
+    cnm_set_errcb(cnm, test_ast_constant_folding6_errcb);
+    cnm_set_src(cnm, "9223372036854775809",
+              "test_ast_constant_folding6.cnm");
+    token_next(cnm);
+    ast_t *ast = ast_generate(cnm, PREC_FULL);
+    return test_ast_constant_folding6_passed;
+}
+static bool test_ast_constant_folding7(void) {
+    cnm_t *cnm = cnm_init(scratch_buf, sizeof(scratch_buf), code_area, code_size);
+    cnm_set_errcb(cnm, default_print);
+    cnm_set_src(cnm, "92ull",
+              "test_ast_constant_folding7.cnm");
+    token_next(cnm);
+    ast_t *ast = ast_generate(cnm, PREC_FULL);
+    if (ast->class != AST_NUM_LITERAL) return false;
+    if (ast->type.type[0].class != TYPE_ULLONG) return false;
+    if (ast->num_literal.u != 92ull) return false;
+    return true;
+}
+static bool test_ast_constant_folding8(void) {
+    cnm_t *cnm = cnm_init(scratch_buf, sizeof(scratch_buf), code_area, code_size);
+    cnm_set_errcb(cnm, default_print);
+    cnm_set_src(cnm, "5 + 5",
+              "test_ast_constant_folding8.cnm");
+    token_next(cnm);
+    ast_t *ast = ast_generate(cnm, PREC_FULL);
+    if (ast->class != AST_NUM_LITERAL) return false;
+    if (ast->type.type[0].class != TYPE_INT) return false;
+    if (ast->num_literal.i != 10) return false;
+    return true;
+}
+static bool test_ast_constant_folding9(void) {
+    cnm_t *cnm = cnm_init(scratch_buf, sizeof(scratch_buf), code_area, code_size);
+    cnm_set_errcb(cnm, default_print);
+    cnm_set_src(cnm, "5 * 5 + 3",
+              "test_ast_constant_folding9.cnm");
+    token_next(cnm);
+    ast_t *ast = ast_generate(cnm, PREC_FULL);
+    if (ast->class != AST_NUM_LITERAL) return false;
+    if (ast->type.type[0].class != TYPE_INT) return false;
+    if (ast->num_literal.i != 28) return false;
+    return true;
+}
+static bool test_ast_constant_folding10(void) {
+    cnm_t *cnm = cnm_init(scratch_buf, sizeof(scratch_buf), code_area, code_size);
+    cnm_set_errcb(cnm, default_print);
+    cnm_set_src(cnm, "5 + 5 * 3",
+              "test_ast_constant_folding10.cnm");
+    token_next(cnm);
+    ast_t *ast = ast_generate(cnm, PREC_FULL);
+    if (ast->class != AST_NUM_LITERAL) return false;
+    if (ast->type.type[0].class != TYPE_INT) return false;
+    if (ast->num_literal.i != 20) return false;
+    return true;
+}
+static bool test_ast_constant_folding11(void) {
+    cnm_t *cnm = cnm_init(scratch_buf, sizeof(scratch_buf), code_area, code_size);
+    cnm_set_errcb(cnm, default_print);
+    cnm_set_src(cnm, "5ul + 30.0",
+              "test_ast_constant_folding11.cnm");
+    token_next(cnm);
+    ast_t *ast = ast_generate(cnm, PREC_FULL);
+    if (ast->class != AST_NUM_LITERAL) return false;
+    if (ast->type.type[0].class != TYPE_DOUBLE) return false;
+    if (ast->num_literal.f != 35) return false;
+    return true;
+}
+static bool test_ast_constant_folding12(void) {
+    cnm_t *cnm = cnm_init(scratch_buf, sizeof(scratch_buf), code_area, code_size);
+    cnm_set_errcb(cnm, default_print);
+    cnm_set_src(cnm, "10 / 3.0",
+              "test_ast_constant_folding12.cnm");
+    token_next(cnm);
+    ast_t *ast = ast_generate(cnm, PREC_FULL);
+    if (ast->class != AST_NUM_LITERAL) return false;
+    if (ast->type.type[0].class != TYPE_DOUBLE) return false;
+    if (ast->num_literal.f != 10.0 / 3.0) return false;
+    return true;
+}
+static bool test_ast_constant_folding13(void) {
+    cnm_t *cnm = cnm_init(scratch_buf, sizeof(scratch_buf), code_area, code_size);
+    cnm_set_errcb(cnm, default_print);
+    cnm_set_src(cnm, "10 / 3",
+              "test_ast_constant_folding13.cnm");
+    token_next(cnm);
+    ast_t *ast = ast_generate(cnm, PREC_FULL);
+    if (ast->class != AST_NUM_LITERAL) return false;
+    if (ast->type.type[0].class != TYPE_INT) return false;
+    if (ast->num_literal.i != 10 / 3) return false;
+    return true;
+}
+static bool test_ast_constant_folding14(void) {
+    cnm_t *cnm = cnm_init(scratch_buf, sizeof(scratch_buf), code_area, code_size);
+    cnm_set_errcb(cnm, default_print);
+    cnm_set_src(cnm, "10ul * 12",
+              "test_ast_constant_folding14.cnm");
+    token_next(cnm);
+    ast_t *ast = ast_generate(cnm, PREC_FULL);
+    if (ast->class != AST_NUM_LITERAL) return false;
+    if (ast->type.type[0].class != TYPE_ULONG) return false;
+    if (ast->num_literal.u != 120) return false;
+    return true;
+}
+static bool test_ast_constant_folding15(void) {
+    cnm_t *cnm = cnm_init(scratch_buf, sizeof(scratch_buf), code_area, code_size);
+    cnm_set_errcb(cnm, default_print);
+    cnm_set_src(cnm, "3 - 9 * 2l",
+              "test_ast_constant_folding15.cnm");
+    token_next(cnm);
+    ast_t *ast = ast_generate(cnm, PREC_FULL);
+    if (ast->class != AST_NUM_LITERAL) return false;
+    if (ast->type.type[0].class != TYPE_LONG) return false;
+    if (ast->num_literal.i != -15) return false;
+    return true;
+}
+
+///////////////////////////////////////////////////////////////////////////////
+//
+// Tester
+//
+///////////////////////////////////////////////////////////////////////////////
+
 typedef bool (*test_pfn_t)(void);
 typedef struct test_s {
     test_pfn_t pfn;
     const char *name;
 } test_t;
 
+// Helper macro for adding tests
 #define TEST(func_name) ((test_t){ .pfn = func_name, .name = #func_name })
+
+// Adds padding into the test output
+#define TEST_PADDING ((test_t){ .pfn = NULL, .name = NULL })
+
+// List of tester functions
 static test_t tests[] = {
+    // Lexer Tests
     TEST(test_lexer_uninitialized),
     TEST(test_lexer_ident),
     TEST(test_lexer_string1),
@@ -536,6 +759,7 @@ static test_t tests[] = {
     TEST(test_lexer_int4),
     TEST(test_lexer_int5),
     TEST(test_lexer_int6),
+    TEST(test_lexer_int7),
     TEST(test_lexer_double1),
     TEST(test_lexer_double2),
     TEST(test_lexer_double3),
@@ -590,6 +814,24 @@ static test_t tests[] = {
     TEST(test_lexer_shift_r),
     TEST(test_lexer_shift_r_eq),
     TEST(test_lexer_token_location),
+
+    // AST Generation Tests
+    TEST_PADDING,
+    TEST(test_ast_constant_folding1),
+    TEST(test_ast_constant_folding2),
+    TEST(test_ast_constant_folding3),
+    TEST(test_ast_constant_folding4),
+    TEST(test_ast_constant_folding5),
+    TEST(test_ast_constant_folding6),
+    TEST(test_ast_constant_folding7),
+    TEST(test_ast_constant_folding8),
+    TEST(test_ast_constant_folding9),
+    TEST(test_ast_constant_folding10),
+    TEST(test_ast_constant_folding11),
+    TEST(test_ast_constant_folding12),
+    TEST(test_ast_constant_folding13),
+    TEST(test_ast_constant_folding14),
+    TEST(test_ast_constant_folding15),
 };
 
 int main(int argc, char **argv) {
@@ -599,8 +841,14 @@ int main(int argc, char **argv) {
     code_area = mmap(NULL, code_size, PROT_EXEC | PROT_READ | PROT_WRITE,
                      MAP_PRIVATE | MAP_ANON, -1, 0);
 
-    int passed = 0;
+    int passed = 0, ntests = 0;
     for (int i = 0; i < arrlen(tests); i++) {
+        if (!tests[i].name && !tests[i].pfn) {
+            printf("\n");
+            continue;
+        }
+
+        ntests++;
         printf("%-32s ", tests[i].name);
         if (tests[i].pfn()) {
             printf(" PASS \n");
@@ -610,7 +858,7 @@ int main(int argc, char **argv) {
         }
     }
 
-    printf("%d/%zu tests passing\n", passed, arrlen(tests));
+    printf("\n%d/%d tests passing\n", passed, ntests);
 
     munmap(code_area, code_size);
 
