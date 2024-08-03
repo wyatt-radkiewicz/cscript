@@ -99,7 +99,11 @@ typedef void(cnmcall *cnm_dbg_cb_t)(cnm_t *cnm, int line);
 typedef void *(*cnm_fnaddr_cb_t)(cnm_t *cnm, const char *fn);
 
 // Initiailze CNM state
-cnm_t *cnm_init(void *region, size_t regionsz, void *code, size_t codesz);
+// region can be free'd after the code is compiled. The outputted code is found
+// in the code buffer and its globals are found in the global buffer.
+cnm_t *cnm_init(void *region, size_t regionsz,
+                void *code, size_t codesz,
+                void *globals, size_t globalsz);
 
 // Will copy type definitions and function declarations from one instance to
 // another (already initialized but with no compiled code) cnm state. Returns
@@ -132,6 +136,11 @@ void cnm_set_fnaddrcb(cnm_t *cnm, cnm_fnaddr_cb_t fnaddrcb);
 // Returns false if debug mode is changed after the first part of compiled code.
 bool cnm_set_debug(cnm_t *cnm, bool debug_mode);
 
+// If the code buffer that was provided is merely a copy, this makes all
+// pointers to the code buffer when compiling be offset to point to this
+// address instead. Will return false if compiling already started.
+bool cnm_set_real_code_addr(cnm_t *cnm, void *addr);
+
 // Returns false if debug mode was not enabled before compilation.
 // If set to true, it will insert calls to the debug callback after every line
 // in the source code.
@@ -143,6 +152,9 @@ bool cnm_set_stepmode(cnm_t *cnm, bool step_mode);
 // Detailed error messages include the line and 'file' where the
 // error occurred.
 bool cnm_set_rterr_detail(cnm_t *cnm, bool detailed);
+
+// Returns how many bytes are being used in the global buffer for the code
+size_t cnm_get_global_size(const cnm_t *cnm);
 
 // If the new type id can not be set because there is already a type occupying
 // that id or if the new id is out of bounds, it will return false. If it
@@ -157,12 +169,12 @@ bool cnm_parse(cnm_t *cnm, const char *src, const char *fname, const int *bpts, 
 void *cnm_fn_addr(const cnm_fn_t *fn);
 
 // Returns NULL if the function in question does not exist.
-const cnm_fn_t *cnm_get_fn(cnm_t *cnm, const char *fn);
+const cnm_fn_t *cnm_get_fn(const cnm_t *cnm, const char *fn);
 
 // These functions return a struct or enum if there is one by that name
 // Id will return the type identifier of the struct
-const cnm_struct_t *cnm_get_struct(cnm_t *cnm, const char *name);
-cnm_enum_t *cnm_get_enum(cnm_t *cnm, const char *name);
+const cnm_struct_t *cnm_get_struct(const cnm_t *cnm, const char *name);
+const cnm_enum_t *cnm_get_enum(const cnm_t *cnm, const char *name);
 int cnm_struct_get_id(const cnm_struct_t *s);
 size_t cnm_struct_get_size(const cnm_struct_t *s);
 int cnm_enum_get_id(const cnm_enum_t *e);

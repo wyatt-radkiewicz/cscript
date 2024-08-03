@@ -4,11 +4,12 @@
 
 #include "../cnm.c"
 
-static uint8_t scratch_buf[2048];
-static void *code_area;
-static size_t code_size;
+static uint8_t test_region[2048];
+static uint8_t test_globals[2048];
+static void *test_code_area;
+static size_t test_code_size;
 
-static void default_print(int line, const char *verbose, const char *simple) {
+static void test_errcb(int line, const char *verbose, const char *simple) {
     printf("%s", verbose);
 }
 static bool test_expect_err = false;
@@ -22,8 +23,10 @@ static void test_expect_errcb(int line, const char *v, const char *s) {
 //
 ///////////////////////////////////////////////////////////////////////////////
 static bool test_lexer_uninitialized(void) {
-    cnm_t *cnm = cnm_init(scratch_buf, sizeof(scratch_buf), code_area, code_size);
-    cnm_set_errcb(cnm, default_print);
+    cnm_t *cnm = cnm_init(test_region, sizeof(test_region),
+                          test_code_area, test_code_size,
+                          test_globals, sizeof(test_globals));
+    cnm_set_errcb(cnm, test_errcb);
     cnm_set_src(cnm, "", "test_lexer_ident.cnm");
     if (cnm->s.tok.type != TOKEN_UNINITIALIZED) return false;
     if (cnm->s.tok.start.row != 1) return false;
@@ -34,8 +37,10 @@ static bool test_lexer_uninitialized(void) {
     return true;
 }
 static bool test_lexer_ident(void) {
-    cnm_t *cnm = cnm_init(scratch_buf, sizeof(scratch_buf), code_area, code_size);
-    cnm_set_errcb(cnm, default_print);
+    cnm_t *cnm = cnm_init(test_region, sizeof(test_region),
+                          test_code_area, test_code_size,
+                          test_globals, sizeof(test_globals));
+    cnm_set_errcb(cnm, test_errcb);
     cnm_set_src(cnm, " _foo123_ ", "test_lexer_ident.cnm");
     token_next(cnm);
     if (cnm->s.tok.type != TOKEN_IDENT) return false;
@@ -47,8 +52,10 @@ static bool test_lexer_ident(void) {
     return true;
 }
 static bool test_lexer_string1(void) {
-    cnm_t *cnm = cnm_init(scratch_buf, sizeof(scratch_buf), code_area, code_size);
-    cnm_set_errcb(cnm, default_print);
+    cnm_t *cnm = cnm_init(test_region, sizeof(test_region),
+                          test_code_area, test_code_size,
+                          test_globals, sizeof(test_globals));
+    cnm_set_errcb(cnm, test_errcb);
     cnm_set_src(cnm, "\"hello \"", "test_lexer_string1.cnm");
     token_next(cnm);
     if (cnm->s.tok.type != TOKEN_STRING) return false;
@@ -61,8 +68,10 @@ static bool test_lexer_string1(void) {
     return true;
 }
 static bool test_lexer_string2(void) {
-    cnm_t *cnm = cnm_init(scratch_buf, sizeof(scratch_buf), code_area, code_size);
-    cnm_set_errcb(cnm, default_print);
+    cnm_t *cnm = cnm_init(test_region, sizeof(test_region),
+                          test_code_area, test_code_size,
+                          test_globals, sizeof(test_globals));
+    cnm_set_errcb(cnm, test_errcb);
     cnm_set_src(cnm, "\"hello \"  \"world\"", "test_lexer_string2.cnm");
     token_next(cnm);
     if (cnm->s.tok.type != TOKEN_STRING) return false;
@@ -75,8 +84,10 @@ static bool test_lexer_string2(void) {
     return true;
 }
 static bool test_lexer_string3(void) {
-    cnm_t *cnm = cnm_init(scratch_buf, sizeof(scratch_buf), code_area, code_size);
-    cnm_set_errcb(cnm, default_print);
+    cnm_t *cnm = cnm_init(test_region, sizeof(test_region),
+                          test_code_area, test_code_size,
+                          test_globals, sizeof(test_globals));
+    cnm_set_errcb(cnm, test_errcb);
     cnm_set_src(cnm, "\"hello \"\n"
                    "  \"world\"", "test_lexer_string3.cnm");
     token_next(cnm);
@@ -90,8 +101,10 @@ static bool test_lexer_string3(void) {
     return true;
 }
 static bool test_lexer_string4(void) {
-    cnm_t *cnm = cnm_init(scratch_buf, sizeof(scratch_buf), code_area, code_size);
-    cnm_set_errcb(cnm, default_print);
+    cnm_t *cnm = cnm_init(test_region, sizeof(test_region),
+                          test_code_area, test_code_size,
+                          test_globals, sizeof(test_globals));
+    cnm_set_errcb(cnm, test_errcb);
     cnm_set_src(cnm, "\"hello \\\"world\"", "test_lexer_string4.cnm");
     token_next(cnm);
     if (cnm->s.tok.type != TOKEN_STRING) return false;
@@ -104,8 +117,10 @@ static bool test_lexer_string4(void) {
     return true;
 }
 static bool test_lexer_string5(void) {
-    cnm_t *cnm = cnm_init(scratch_buf, sizeof(scratch_buf), code_area, code_size);
-    cnm_set_errcb(cnm, default_print);
+    cnm_t *cnm = cnm_init(test_region, sizeof(test_region),
+                          test_code_area, test_code_size,
+                          test_globals, sizeof(test_globals));
+    cnm_set_errcb(cnm, test_errcb);
     cnm_set_src(cnm, "\"hello \\u263A world\"", "test_lexer_string5.cnm");
     token_next(cnm);
     if (cnm->s.tok.type != TOKEN_STRING) return false;
@@ -118,8 +133,10 @@ static bool test_lexer_string5(void) {
     return true;
 }
 static bool test_lexer_string6(void) {
-    cnm_t *cnm = cnm_init(scratch_buf, sizeof(scratch_buf), code_area, code_size);
-    cnm_set_errcb(cnm, default_print);
+    cnm_t *cnm = cnm_init(test_region, sizeof(test_region),
+                          test_code_area, test_code_size,
+                          test_globals, sizeof(test_globals));
+    cnm_set_errcb(cnm, test_errcb);
     cnm_set_src(cnm, "\"hello ☺ world\"", "test_lexer_string6.cnm");
     token_next(cnm);
     if (cnm->s.tok.type != TOKEN_STRING) return false;
@@ -132,8 +149,10 @@ static bool test_lexer_string6(void) {
     return true;
 }
 static bool test_lexer_char1(void) {
-    cnm_t *cnm = cnm_init(scratch_buf, sizeof(scratch_buf), code_area, code_size);
-    cnm_set_errcb(cnm, default_print);
+    cnm_t *cnm = cnm_init(test_region, sizeof(test_region),
+                          test_code_area, test_code_size,
+                          test_globals, sizeof(test_globals));
+    cnm_set_errcb(cnm, test_errcb);
     cnm_set_src(cnm, "'h'", "test_lexer_char1.cnm");
     token_next(cnm);
     if (cnm->s.tok.type != TOKEN_CHAR) return false;
@@ -146,8 +165,10 @@ static bool test_lexer_char1(void) {
     return true;
 }
 static bool test_lexer_char2(void) {
-    cnm_t *cnm = cnm_init(scratch_buf, sizeof(scratch_buf), code_area, code_size);
-    cnm_set_errcb(cnm, default_print);
+    cnm_t *cnm = cnm_init(test_region, sizeof(test_region),
+                          test_code_area, test_code_size,
+                          test_globals, sizeof(test_globals));
+    cnm_set_errcb(cnm, test_errcb);
     cnm_set_src(cnm, "'\\x41'", "test_lexer_char2.cnm");
     token_next(cnm);
     if (cnm->s.tok.type != TOKEN_CHAR) return false;
@@ -160,8 +181,10 @@ static bool test_lexer_char2(void) {
     return true;
 }
 static bool test_lexer_char3(void) {
-    cnm_t *cnm = cnm_init(scratch_buf, sizeof(scratch_buf), code_area, code_size);
-    cnm_set_errcb(cnm, default_print);
+    cnm_t *cnm = cnm_init(test_region, sizeof(test_region),
+                          test_code_area, test_code_size,
+                          test_globals, sizeof(test_globals));
+    cnm_set_errcb(cnm, test_errcb);
     cnm_set_src(cnm, "'☺'", "test_lexer_char3.cnm");
     token_next(cnm);
     if (cnm->s.tok.type != TOKEN_CHAR) return false;
@@ -174,15 +197,19 @@ static bool test_lexer_char3(void) {
     return true;
 }
 static bool test_lexer_char4(void) {
-    cnm_t *cnm = cnm_init(scratch_buf, sizeof(scratch_buf), code_area, code_size);
+    cnm_t *cnm = cnm_init(test_region, sizeof(test_region),
+                          test_code_area, test_code_size,
+                          test_globals, sizeof(test_globals));
     cnm_set_src(cnm, "'h '", "test_lexer_char4.cnm");
     token_next(cnm);
     if (cnm->nerrs == 0) return false;
     return true;
 }
 static bool test_lexer_int1(void) {
-    cnm_t *cnm = cnm_init(scratch_buf, sizeof(scratch_buf), code_area, code_size);
-    cnm_set_errcb(cnm, default_print);
+    cnm_t *cnm = cnm_init(test_region, sizeof(test_region),
+                          test_code_area, test_code_size,
+                          test_globals, sizeof(test_globals));
+    cnm_set_errcb(cnm, test_errcb);
     cnm_set_src(cnm, "120", "test_lexer_int1.cnm");
     token_next(cnm);
     if (cnm->s.tok.type != TOKEN_INT) return false;
@@ -197,8 +224,10 @@ static bool test_lexer_int1(void) {
     return true;
 }
 static bool test_lexer_int2(void) {
-    cnm_t *cnm = cnm_init(scratch_buf, sizeof(scratch_buf), code_area, code_size);
-    cnm_set_errcb(cnm, default_print);
+    cnm_t *cnm = cnm_init(test_region, sizeof(test_region),
+                          test_code_area, test_code_size,
+                          test_globals, sizeof(test_globals));
+    cnm_set_errcb(cnm, test_errcb);
     cnm_set_src(cnm, "69U", "test_lexer_int2.cnm");
     token_next(cnm);
     if (cnm->s.tok.type != TOKEN_INT) return false;
@@ -213,8 +242,10 @@ static bool test_lexer_int2(void) {
     return true;
 }
 static bool test_lexer_int3(void) {
-    cnm_t *cnm = cnm_init(scratch_buf, sizeof(scratch_buf), code_area, code_size);
-    cnm_set_errcb(cnm, default_print);
+    cnm_t *cnm = cnm_init(test_region, sizeof(test_region),
+                          test_code_area, test_code_size,
+                          test_globals, sizeof(test_globals));
+    cnm_set_errcb(cnm, test_errcb);
     cnm_set_src(cnm, "420ulL", "test_lexer_int3.cnm");
     token_next(cnm);
     if (cnm->s.tok.type != TOKEN_INT) return false;
@@ -229,8 +260,10 @@ static bool test_lexer_int3(void) {
     return true;
 }
 static bool test_lexer_int4(void) {
-    cnm_t *cnm = cnm_init(scratch_buf, sizeof(scratch_buf), code_area, code_size);
-    cnm_set_errcb(cnm, default_print);
+    cnm_t *cnm = cnm_init(test_region, sizeof(test_region),
+                          test_code_area, test_code_size,
+                          test_globals, sizeof(test_globals));
+    cnm_set_errcb(cnm, test_errcb);
     cnm_set_src(cnm, "0xFF", "test_lexer_int4.cnm");
     token_next(cnm);
     if (cnm->s.tok.type != TOKEN_INT) return false;
@@ -245,22 +278,28 @@ static bool test_lexer_int4(void) {
     return true;
 }
 static bool test_lexer_int5(void) {
-    cnm_t *cnm = cnm_init(scratch_buf, sizeof(scratch_buf), code_area, code_size);
+    cnm_t *cnm = cnm_init(test_region, sizeof(test_region),
+                          test_code_area, test_code_size,
+                          test_globals, sizeof(test_globals));
     cnm_set_src(cnm, "0xxF", "test_lexer_int5.cnm");
     token_next(cnm);
     if (cnm->nerrs == 0) return false;
     return true;
 }
 static bool test_lexer_int6(void) {
-    cnm_t *cnm = cnm_init(scratch_buf, sizeof(scratch_buf), code_area, code_size);
+    cnm_t *cnm = cnm_init(test_region, sizeof(test_region),
+                          test_code_area, test_code_size,
+                          test_globals, sizeof(test_globals));
     cnm_set_src(cnm, "420f", "test_lexer_int6.cnm");
     token_next(cnm);
     if (cnm->nerrs == 0) return false;
     return true;
 }
 static bool test_lexer_int7(void) {
-    cnm_t *cnm = cnm_init(scratch_buf, sizeof(scratch_buf), code_area, code_size);
-    cnm_set_errcb(cnm, default_print);
+    cnm_t *cnm = cnm_init(test_region, sizeof(test_region),
+                          test_code_area, test_code_size,
+                          test_globals, sizeof(test_globals));
+    cnm_set_errcb(cnm, test_errcb);
     cnm_set_src(cnm, "0b1101", "test_lexer_int7.cnm");
     token_next(cnm);
     if (cnm->s.tok.type != TOKEN_INT) return false;
@@ -275,8 +314,10 @@ static bool test_lexer_int7(void) {
     return true;
 }
 static bool test_lexer_double1(void) {
-    cnm_t *cnm = cnm_init(scratch_buf, sizeof(scratch_buf), code_area, code_size);
-    cnm_set_errcb(cnm, default_print);
+    cnm_t *cnm = cnm_init(test_region, sizeof(test_region),
+                          test_code_area, test_code_size,
+                          test_globals, sizeof(test_globals));
+    cnm_set_errcb(cnm, test_errcb);
     cnm_set_src(cnm, "0.0", "test_lexer_double1.cnm");
     token_next(cnm);
     if (cnm->s.tok.type != TOKEN_DOUBLE) return false;
@@ -290,8 +331,10 @@ static bool test_lexer_double1(void) {
     return true;
 }
 static bool test_lexer_double2(void) {
-    cnm_t *cnm = cnm_init(scratch_buf, sizeof(scratch_buf), code_area, code_size);
-    cnm_set_errcb(cnm, default_print);
+    cnm_t *cnm = cnm_init(test_region, sizeof(test_region),
+                          test_code_area, test_code_size,
+                          test_globals, sizeof(test_globals));
+    cnm_set_errcb(cnm, test_errcb);
     cnm_set_src(cnm, "0.5", "test_lexer_double2.cnm");
     token_next(cnm);
     if (cnm->s.tok.type != TOKEN_DOUBLE) return false;
@@ -305,8 +348,10 @@ static bool test_lexer_double2(void) {
     return true;
 }
 static bool test_lexer_double3(void) {
-    cnm_t *cnm = cnm_init(scratch_buf, sizeof(scratch_buf), code_area, code_size);
-    cnm_set_errcb(cnm, default_print);
+    cnm_t *cnm = cnm_init(test_region, sizeof(test_region),
+                          test_code_area, test_code_size,
+                          test_globals, sizeof(test_globals));
+    cnm_set_errcb(cnm, test_errcb);
     cnm_set_src(cnm, "420.69", "test_lexer_double3.cnm");
     token_next(cnm);
     if (cnm->s.tok.type != TOKEN_DOUBLE) return false;
@@ -320,8 +365,10 @@ static bool test_lexer_double3(void) {
     return true;
 }
 static bool test_lexer_double4(void) {
-    cnm_t *cnm = cnm_init(scratch_buf, sizeof(scratch_buf), code_area, code_size);
-    cnm_set_errcb(cnm, default_print);
+    cnm_t *cnm = cnm_init(test_region, sizeof(test_region),
+                          test_code_area, test_code_size,
+                          test_globals, sizeof(test_globals));
+    cnm_set_errcb(cnm, test_errcb);
     cnm_set_src(cnm, "420.69f", "test_lexer_double4.cnm");
     token_next(cnm);
     if (cnm->s.tok.type != TOKEN_DOUBLE) return false;
@@ -335,8 +382,10 @@ static bool test_lexer_double4(void) {
     return true;
 }
 static bool test_lexer_double5(void) {
-    cnm_t *cnm = cnm_init(scratch_buf, sizeof(scratch_buf), code_area, code_size);
-    cnm_set_errcb(cnm, default_print);
+    cnm_t *cnm = cnm_init(test_region, sizeof(test_region),
+                          test_code_area, test_code_size,
+                          test_globals, sizeof(test_globals));
+    cnm_set_errcb(cnm, test_errcb);
     cnm_set_src(cnm, "42.", "test_lexer_double5.cnm");
     token_next(cnm);
     if (cnm->s.tok.type != TOKEN_DOUBLE) return false;
@@ -350,8 +399,10 @@ static bool test_lexer_double5(void) {
     return true;
 }
 static bool test_lexer_double6(void) {
-    cnm_t *cnm = cnm_init(scratch_buf, sizeof(scratch_buf), code_area, code_size);
-    cnm_set_errcb(cnm, default_print);
+    cnm_t *cnm = cnm_init(test_region, sizeof(test_region),
+                          test_code_area, test_code_size,
+                          test_globals, sizeof(test_globals));
+    cnm_set_errcb(cnm, test_errcb);
     cnm_set_src(cnm, "42.f", "test_lexer_double6.cnm");
     token_next(cnm);
     if (cnm->s.tok.type != TOKEN_DOUBLE) return false;
@@ -365,7 +416,9 @@ static bool test_lexer_double6(void) {
     return true;
 }
 static bool test_lexer_double7(void) {
-    cnm_t *cnm = cnm_init(scratch_buf, sizeof(scratch_buf), code_area, code_size);
+    cnm_t *cnm = cnm_init(test_region, sizeof(test_region),
+                          test_code_area, test_code_size,
+                          test_globals, sizeof(test_globals));
     cnm_set_src(cnm, "0.0asdf", "test_lexer_double7.cnm");
     token_next(cnm);
     if (cnm->nerrs == 0) return false;
@@ -374,8 +427,10 @@ static bool test_lexer_double7(void) {
 
 #define TEST_LEXER_TOKEN(name_end, string, token_type) \
     static bool test_lexer_##name_end(void) { \
-        cnm_t *cnm = cnm_init(scratch_buf, sizeof(scratch_buf), code_area, code_size); \
-        cnm_set_errcb(cnm, default_print); \
+        cnm_t *cnm = cnm_init(test_region, sizeof(test_region), \
+                              test_code_area, test_code_size, \
+                              test_globals, sizeof(test_globals)); \
+        cnm_set_errcb(cnm, test_errcb); \
         cnm_set_src(cnm, string, "test_lexer_"#name_end".cnm"); \
         token_next(cnm); \
         if (cnm->s.tok.type != token_type) return false; \
@@ -434,8 +489,10 @@ TEST_LEXER_TOKEN(shift_r, ">>", TOKEN_SHIFT_R)
 TEST_LEXER_TOKEN(shift_r_eq, ">>=", TOKEN_SHIFT_R_EQ)
 
 static bool test_lexer_token_location(void) {
-    cnm_t *cnm = cnm_init(scratch_buf, sizeof(scratch_buf), code_area, code_size);
-    cnm_set_errcb(cnm, default_print);
+    cnm_t *cnm = cnm_init(test_region, sizeof(test_region),
+                          test_code_area, test_code_size,
+                          test_globals, sizeof(test_globals));
+    cnm_set_errcb(cnm, test_errcb);
     cnm_set_src(cnm, ".,?:;()[]{}+ +=++\n"
                    "- -=--**=//=%%=^^=\n"
                    "~~=!!== ==& &=&&\n"
@@ -540,8 +597,10 @@ static bool test_lexer_token_location(void) {
 //
 ///////////////////////////////////////////////////////////////////////////////
 static bool test_ast_constant_folding1(void) {
-    cnm_t *cnm = cnm_init(scratch_buf, sizeof(scratch_buf), code_area, code_size);
-    cnm_set_errcb(cnm, default_print);
+    cnm_t *cnm = cnm_init(test_region, sizeof(test_region),
+                          test_code_area, test_code_size,
+                          test_globals, sizeof(test_globals));
+    cnm_set_errcb(cnm, test_errcb);
     cnm_set_src(cnm, "5",
               "test_ast_constant_folding1.cnm");
     token_next(cnm);
@@ -554,8 +613,10 @@ static bool test_ast_constant_folding1(void) {
 }
 
 static bool test_ast_constant_folding2(void) {
-    cnm_t *cnm = cnm_init(scratch_buf, sizeof(scratch_buf), code_area, code_size);
-    cnm_set_errcb(cnm, default_print);
+    cnm_t *cnm = cnm_init(test_region, sizeof(test_region),
+                          test_code_area, test_code_size,
+                          test_globals, sizeof(test_globals));
+    cnm_set_errcb(cnm, test_errcb);
     cnm_set_src(cnm, "5.0",
               "test_ast_constant_folding2.cnm");
     token_next(cnm);
@@ -566,8 +627,10 @@ static bool test_ast_constant_folding2(void) {
     return true;
 }
 static bool test_ast_constant_folding3(void) {
-    cnm_t *cnm = cnm_init(scratch_buf, sizeof(scratch_buf), code_area, code_size);
-    cnm_set_errcb(cnm, default_print);
+    cnm_t *cnm = cnm_init(test_region, sizeof(test_region),
+                          test_code_area, test_code_size,
+                          test_globals, sizeof(test_globals));
+    cnm_set_errcb(cnm, test_errcb);
     cnm_set_src(cnm, "5000000000",
               "test_ast_constant_folding3.cnm");
     token_next(cnm);
@@ -578,8 +641,10 @@ static bool test_ast_constant_folding3(void) {
     return true;
 }
 static bool test_ast_constant_folding4(void) {
-    cnm_t *cnm = cnm_init(scratch_buf, sizeof(scratch_buf), code_area, code_size);
-    cnm_set_errcb(cnm, default_print);
+    cnm_t *cnm = cnm_init(test_region, sizeof(test_region),
+                          test_code_area, test_code_size,
+                          test_globals, sizeof(test_globals));
+    cnm_set_errcb(cnm, test_errcb);
     cnm_set_src(cnm, "5u",
               "test_ast_constant_folding4.cnm");
     token_next(cnm);
@@ -590,8 +655,10 @@ static bool test_ast_constant_folding4(void) {
     return true;
 }
 static bool test_ast_constant_folding5(void) {
-    cnm_t *cnm = cnm_init(scratch_buf, sizeof(scratch_buf), code_area, code_size);
-    cnm_set_errcb(cnm, default_print);
+    cnm_t *cnm = cnm_init(test_region, sizeof(test_region),
+                          test_code_area, test_code_size,
+                          test_globals, sizeof(test_globals));
+    cnm_set_errcb(cnm, test_errcb);
     cnm_set_src(cnm, "9223372036854775809ull",
               "test_ast_constant_folding5.cnm");
     token_next(cnm);
@@ -602,7 +669,9 @@ static bool test_ast_constant_folding5(void) {
     return true;
 }
 static bool test_ast_constant_folding6(void) {
-    cnm_t *cnm = cnm_init(scratch_buf, sizeof(scratch_buf), code_area, code_size);
+    cnm_t *cnm = cnm_init(test_region, sizeof(test_region),
+                          test_code_area, test_code_size,
+                          test_globals, sizeof(test_globals));
     cnm_set_errcb(cnm, test_expect_errcb);
     cnm_set_src(cnm, "9223372036854775809",
               "test_ast_constant_folding6.cnm");
@@ -611,8 +680,10 @@ static bool test_ast_constant_folding6(void) {
     return test_expect_err;
 }
 static bool test_ast_constant_folding7(void) {
-    cnm_t *cnm = cnm_init(scratch_buf, sizeof(scratch_buf), code_area, code_size);
-    cnm_set_errcb(cnm, default_print);
+    cnm_t *cnm = cnm_init(test_region, sizeof(test_region),
+                          test_code_area, test_code_size,
+                          test_globals, sizeof(test_globals));
+    cnm_set_errcb(cnm, test_errcb);
     cnm_set_src(cnm, "92ull",
               "test_ast_constant_folding7.cnm");
     token_next(cnm);
@@ -623,8 +694,10 @@ static bool test_ast_constant_folding7(void) {
     return true;
 }
 static bool test_ast_constant_folding8(void) {
-    cnm_t *cnm = cnm_init(scratch_buf, sizeof(scratch_buf), code_area, code_size);
-    cnm_set_errcb(cnm, default_print);
+    cnm_t *cnm = cnm_init(test_region, sizeof(test_region),
+                          test_code_area, test_code_size,
+                          test_globals, sizeof(test_globals));
+    cnm_set_errcb(cnm, test_errcb);
     cnm_set_src(cnm, "5 + 5",
               "test_ast_constant_folding8.cnm");
     token_next(cnm);
@@ -635,8 +708,10 @@ static bool test_ast_constant_folding8(void) {
     return true;
 }
 static bool test_ast_constant_folding9(void) {
-    cnm_t *cnm = cnm_init(scratch_buf, sizeof(scratch_buf), code_area, code_size);
-    cnm_set_errcb(cnm, default_print);
+    cnm_t *cnm = cnm_init(test_region, sizeof(test_region),
+                          test_code_area, test_code_size,
+                          test_globals, sizeof(test_globals));
+    cnm_set_errcb(cnm, test_errcb);
     cnm_set_src(cnm, "5 * 5 + 3",
               "test_ast_constant_folding9.cnm");
     token_next(cnm);
@@ -647,8 +722,10 @@ static bool test_ast_constant_folding9(void) {
     return true;
 }
 static bool test_ast_constant_folding10(void) {
-    cnm_t *cnm = cnm_init(scratch_buf, sizeof(scratch_buf), code_area, code_size);
-    cnm_set_errcb(cnm, default_print);
+    cnm_t *cnm = cnm_init(test_region, sizeof(test_region),
+                          test_code_area, test_code_size,
+                          test_globals, sizeof(test_globals));
+    cnm_set_errcb(cnm, test_errcb);
     cnm_set_src(cnm, "5 + 5 * 3",
               "test_ast_constant_folding10.cnm");
     token_next(cnm);
@@ -659,8 +736,10 @@ static bool test_ast_constant_folding10(void) {
     return true;
 }
 static bool test_ast_constant_folding11(void) {
-    cnm_t *cnm = cnm_init(scratch_buf, sizeof(scratch_buf), code_area, code_size);
-    cnm_set_errcb(cnm, default_print);
+    cnm_t *cnm = cnm_init(test_region, sizeof(test_region),
+                          test_code_area, test_code_size,
+                          test_globals, sizeof(test_globals));
+    cnm_set_errcb(cnm, test_errcb);
     cnm_set_src(cnm, "5ul + 30.0",
               "test_ast_constant_folding11.cnm");
     token_next(cnm);
@@ -671,8 +750,10 @@ static bool test_ast_constant_folding11(void) {
     return true;
 }
 static bool test_ast_constant_folding12(void) {
-    cnm_t *cnm = cnm_init(scratch_buf, sizeof(scratch_buf), code_area, code_size);
-    cnm_set_errcb(cnm, default_print);
+    cnm_t *cnm = cnm_init(test_region, sizeof(test_region),
+                          test_code_area, test_code_size,
+                          test_globals, sizeof(test_globals));
+    cnm_set_errcb(cnm, test_errcb);
     cnm_set_src(cnm, "10 / 3.0",
               "test_ast_constant_folding12.cnm");
     token_next(cnm);
@@ -683,8 +764,10 @@ static bool test_ast_constant_folding12(void) {
     return true;
 }
 static bool test_ast_constant_folding13(void) {
-    cnm_t *cnm = cnm_init(scratch_buf, sizeof(scratch_buf), code_area, code_size);
-    cnm_set_errcb(cnm, default_print);
+    cnm_t *cnm = cnm_init(test_region, sizeof(test_region),
+                          test_code_area, test_code_size,
+                          test_globals, sizeof(test_globals));
+    cnm_set_errcb(cnm, test_errcb);
     cnm_set_src(cnm, "10 / 3",
               "test_ast_constant_folding13.cnm");
     token_next(cnm);
@@ -695,8 +778,10 @@ static bool test_ast_constant_folding13(void) {
     return true;
 }
 static bool test_ast_constant_folding14(void) {
-    cnm_t *cnm = cnm_init(scratch_buf, sizeof(scratch_buf), code_area, code_size);
-    cnm_set_errcb(cnm, default_print);
+    cnm_t *cnm = cnm_init(test_region, sizeof(test_region),
+                          test_code_area, test_code_size,
+                          test_globals, sizeof(test_globals));
+    cnm_set_errcb(cnm, test_errcb);
     cnm_set_src(cnm, "10ul * 12",
               "test_ast_constant_folding14.cnm");
     token_next(cnm);
@@ -707,8 +792,10 @@ static bool test_ast_constant_folding14(void) {
     return true;
 }
 static bool test_ast_constant_folding15(void) {
-    cnm_t *cnm = cnm_init(scratch_buf, sizeof(scratch_buf), code_area, code_size);
-    cnm_set_errcb(cnm, default_print);
+    cnm_t *cnm = cnm_init(test_region, sizeof(test_region),
+                          test_code_area, test_code_size,
+                          test_globals, sizeof(test_globals));
+    cnm_set_errcb(cnm, test_errcb);
     cnm_set_src(cnm, "3 - 9 * 2l",
               "test_ast_constant_folding15.cnm");
     token_next(cnm);
@@ -719,8 +806,10 @@ static bool test_ast_constant_folding15(void) {
     return true;
 }
 static bool test_ast_constant_folding16(void) {
-    cnm_t *cnm = cnm_init(scratch_buf, sizeof(scratch_buf), code_area, code_size);
-    cnm_set_errcb(cnm, default_print);
+    cnm_t *cnm = cnm_init(test_region, sizeof(test_region),
+                          test_code_area, test_code_size,
+                          test_globals, sizeof(test_globals));
+    cnm_set_errcb(cnm, test_errcb);
     cnm_set_src(cnm, "-8",
               "test_ast_constant_folding16.cnm");
     token_next(cnm);
@@ -731,8 +820,10 @@ static bool test_ast_constant_folding16(void) {
     return true;
 }
 static bool test_ast_constant_folding17(void) {
-    cnm_t *cnm = cnm_init(scratch_buf, sizeof(scratch_buf), code_area, code_size);
-    cnm_set_errcb(cnm, default_print);
+    cnm_t *cnm = cnm_init(test_region, sizeof(test_region),
+                          test_code_area, test_code_size,
+                          test_globals, sizeof(test_globals));
+    cnm_set_errcb(cnm, test_errcb);
     cnm_set_src(cnm, "(-8)",
               "test_ast_constant_folding17.cnm");
     token_next(cnm);
@@ -743,8 +834,10 @@ static bool test_ast_constant_folding17(void) {
     return true;
 }
 static bool test_ast_constant_folding18(void) {
-    cnm_t *cnm = cnm_init(scratch_buf, sizeof(scratch_buf), code_area, code_size);
-    cnm_set_errcb(cnm, default_print);
+    cnm_t *cnm = cnm_init(test_region, sizeof(test_region),
+                          test_code_area, test_code_size,
+                          test_globals, sizeof(test_globals));
+    cnm_set_errcb(cnm, test_errcb);
     cnm_set_src(cnm, "-(0x8)",
               "test_ast_constant_folding18.cnm");
     token_next(cnm);
@@ -755,8 +848,10 @@ static bool test_ast_constant_folding18(void) {
     return true;
 }
 static bool test_ast_constant_folding19(void) {
-    cnm_t *cnm = cnm_init(scratch_buf, sizeof(scratch_buf), code_area, code_size);
-    cnm_set_errcb(cnm, default_print);
+    cnm_t *cnm = cnm_init(test_region, sizeof(test_region),
+                          test_code_area, test_code_size,
+                          test_globals, sizeof(test_globals));
+    cnm_set_errcb(cnm, test_errcb);
     cnm_set_src(cnm, "~0x8u",
               "test_ast_constant_folding19.cnm");
     token_next(cnm);
@@ -767,7 +862,9 @@ static bool test_ast_constant_folding19(void) {
     return true;
 }
 static bool test_ast_constant_folding20(void) {
-    cnm_t *cnm = cnm_init(scratch_buf, sizeof(scratch_buf), code_area, code_size);
+    cnm_t *cnm = cnm_init(test_region, sizeof(test_region),
+                          test_code_area, test_code_size,
+                          test_globals, sizeof(test_globals));
     cnm_set_errcb(cnm, test_expect_errcb);
     cnm_set_src(cnm, "~(1 + 0.9)",
               "test_ast_constant_folding20.cnm");
@@ -776,8 +873,10 @@ static bool test_ast_constant_folding20(void) {
     return test_expect_err;
 }
 static bool test_ast_constant_folding21(void) {
-    cnm_t *cnm = cnm_init(scratch_buf, sizeof(scratch_buf), code_area, code_size);
-    cnm_set_errcb(cnm, default_print);
+    cnm_t *cnm = cnm_init(test_region, sizeof(test_region),
+                          test_code_area, test_code_size,
+                          test_globals, sizeof(test_globals));
+    cnm_set_errcb(cnm, test_errcb);
     cnm_set_src(cnm, "!1",
               "test_ast_constant_folding21.cnm");
     token_next(cnm);
@@ -788,8 +887,10 @@ static bool test_ast_constant_folding21(void) {
     return true;
 }
 static bool test_ast_constant_folding22(void) {
-    cnm_t *cnm = cnm_init(scratch_buf, sizeof(scratch_buf), code_area, code_size);
-    cnm_set_errcb(cnm, default_print);
+    cnm_t *cnm = cnm_init(test_region, sizeof(test_region),
+                          test_code_area, test_code_size,
+                          test_globals, sizeof(test_globals));
+    cnm_set_errcb(cnm, test_errcb);
     cnm_set_src(cnm, "!0.0",
               "test_ast_constant_folding22.cnm");
     token_next(cnm);
@@ -800,8 +901,10 @@ static bool test_ast_constant_folding22(void) {
     return true;
 }
 static bool test_ast_constant_folding23(void) {
-    cnm_t *cnm = cnm_init(scratch_buf, sizeof(scratch_buf), code_area, code_size);
-    cnm_set_errcb(cnm, default_print);
+    cnm_t *cnm = cnm_init(test_region, sizeof(test_region),
+                          test_code_area, test_code_size,
+                          test_globals, sizeof(test_globals));
+    cnm_set_errcb(cnm, test_errcb);
     cnm_set_src(cnm, "1 << 4",
               "test_ast_constant_folding23.cnm");
     token_next(cnm);
@@ -812,8 +915,10 @@ static bool test_ast_constant_folding23(void) {
     return true;
 }
 static bool test_ast_constant_folding24(void) {
-    cnm_t *cnm = cnm_init(scratch_buf, sizeof(scratch_buf), code_area, code_size);
-    cnm_set_errcb(cnm, default_print);
+    cnm_t *cnm = cnm_init(test_region, sizeof(test_region),
+                          test_code_area, test_code_size,
+                          test_globals, sizeof(test_globals));
+    cnm_set_errcb(cnm, test_errcb);
     cnm_set_src(cnm, "0xff | 0xff << 8",
               "test_ast_constant_folding24.cnm");
     token_next(cnm);
@@ -824,8 +929,10 @@ static bool test_ast_constant_folding24(void) {
     return true;
 }
 static bool test_ast_constant_folding25(void) {
-    cnm_t *cnm = cnm_init(scratch_buf, sizeof(scratch_buf), code_area, code_size);
-    cnm_set_errcb(cnm, default_print);
+    cnm_t *cnm = cnm_init(test_region, sizeof(test_region),
+                          test_code_area, test_code_size,
+                          test_globals, sizeof(test_globals));
+    cnm_set_errcb(cnm, test_errcb);
     cnm_set_src(cnm, "-(5 + 10) * 2 + 60 >> 2",
               "test_ast_constant_folding25.cnm");
     token_next(cnm);
@@ -963,8 +1070,8 @@ static test_t tests[] = {
 int main(int argc, char **argv) {
     printf("cnm tester\n");
    
-    code_size = 2048;
-    code_area = mmap(NULL, code_size, PROT_EXEC | PROT_READ | PROT_WRITE,
+    test_code_size = 2048;
+    test_code_area = mmap(NULL, test_code_size, PROT_EXEC | PROT_READ | PROT_WRITE,
                      MAP_PRIVATE | MAP_ANON, -1, 0);
 
     int passed = 0, ntests = 0;
@@ -987,7 +1094,7 @@ int main(int argc, char **argv) {
 
     printf("\n%d/%d tests passing\n", passed, ntests);
 
-    munmap(code_area, code_size);
+    munmap(test_code_area, test_code_size);
 
     return 0;
 }

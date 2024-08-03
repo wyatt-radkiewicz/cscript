@@ -101,8 +101,8 @@ typedef enum typeclass_e {
     // Special types
     TYPE_PTR,       TYPE_REF,
     TYPE_ANYREF,    TYPE_BOOL,
-    TYPE_ARR,       TYPE_PFN,
-    TYPE_PFN_ARG,
+    TYPE_ARR,       TYPE_FN,
+    TYPE_FN_ARG,
 
     // User made types
     TYPE_STRUCT,    TYPE_ENUM,
@@ -112,7 +112,9 @@ typedef enum typeclass_e {
 typedef struct type_s {
     typeclass_t class : 5; // what type of type it is
     unsigned int isconst : 1; // is it const?
-    
+    unsigned int isstatic : 1;
+    unsigned int isextern : 1;
+
     // Could mean type ID, array length, or how long this argument is in layers
     unsigned int n : 24;
 } type_t;
@@ -272,9 +274,18 @@ struct cnm_s {
         uint8_t *buf;
         size_t len;
 
-        uint8_t *global_ptr; // grows downward like a stack
-        uint8_t *code_ptr; // grows upward like how instructions are exectued
+        // If set to non-NULL, all refrences to buf are offset to point to here
+        void *real_addr;
+        uint8_t *ptr; // grows upward like how instructions are exectued
     } code;
+
+    // Where to store globals
+    struct {
+        uint8_t *buf;
+        size_t len;
+
+        uint8_t *next; // Where the next global will be allocated
+    } globals;
 
     struct {
         // Logical 'file' name
@@ -305,8 +316,14 @@ struct cnm_s {
         typedef_t *typedefs;
     } type;
 
-    // Where the next allocation will be served (grows up)
-    uint8_t *next_alloc;
+    struct {
+        // Where the next allocation will be served (grows up)
+        uint8_t *next;
+
+        // Where the current static (infinite lifetime) allocation is being
+        // served (grows down, starts at top)
+        uint8_t *curr_static;
+    } alloc;
 
     // String entries
     strent_t *strs;
@@ -391,28 +408,52 @@ overflow:
 // Allocate memory in the cnm state region
 static void *cnm_alloc(cnm_t *cnm, size_t size, size_t align) {
     // Align the next alloc pointer
-    cnm->next_alloc = (uint8_t *)(((uintptr_t)(cnm->next_alloc - 1) / align + 1) * align);
+    cnm->alloc.next = (uint8_t *)(((uintptr_t)(cnm->alloc.next - 1) / align + 1) * align);
 
     // Check memory overflow
-    if (cnm->next_alloc + size > cnm->buf + cnm->buflen) {
+    if (cnm->alloc.next + size > cnm->alloc.curr_static) {
         cnm_doerr(cnm, true, "ran out of region memory", "at this point in parsing");
         return NULL;
     }
 
     // Return new pointer
-    void *const ptr = cnm->next_alloc;
-    cnm->next_alloc += size;
+    void *const ptr = cnm->alloc.next;
+    cnm->alloc.next += size;
     return ptr;
 }
 
-// Allocate memory at the end of the code region for a constant/global
-static void *cnm_alloc_global(cnm_t *cnm, size_t size) {
-    if (cnm->code.global_ptr - size < cnm->code.code_ptr) {
-        cnm_doerr(cnm, true, "ran out of code space", "at this point in parsing");
+// Allocate memory in the cnm state region statically (IE whole program time)
+static void *cnm_alloc_static(cnm_t *cnm, size_t size, size_t align) {
+    // Align the next alloc pointer
+    cnm->alloc.curr_static = (uint8_t *)(
+        ((uintptr_t)(cnm->alloc.curr_static - size) / align + 1) * align);
+
+    // Check memory overflow
+    if (cnm->alloc.curr_static <= cnm->alloc.next) {
+        cnm_doerr(cnm, true, "ran out of region memory", "at this point in parsing");
         return NULL;
     }
-    cnm->code.global_ptr -= size;
-    return cnm->code.global_ptr;
+
+    // Return new pointer
+    return cnm->alloc.curr_static;
+}
+
+// Allocate memory in the global bufefr
+static void *cnm_alloc_global(cnm_t *cnm, size_t size, size_t align) {
+    // Align the next alloc pointer
+    cnm->globals.next = (uint8_t *)(
+            ((uintptr_t)(cnm->globals.next - 1) / align + 1) * align);
+
+    // Check memory overflow
+    if (cnm->globals.next + size > cnm->globals.buf + cnm->globals.len) {
+        cnm_doerr(cnm, true, "ran out of globals memory", "at this point in parsing");
+        return NULL;
+    }
+
+    // Return new pointer
+    void *const ptr = cnm->globals.next;
+    cnm->globals.next += size;
+    return ptr;
 }
 
 // Lex a identifier
@@ -624,6 +665,9 @@ static token_t *token_string(cnm_t *cnm) {
     int row_backup, col_backup;
     size_t len_backup;
 
+    // To revert global allocation buffer in case this string is already present
+    uint8_t *const global_ptr = cnm->globals.next;
+
     // Get the length of the string token and the length of the stored string
     cnm->s.tok.type = TOKEN_STRING;
     cnm->s.tok.src.len = 0;
@@ -632,8 +676,8 @@ static token_t *token_string(cnm_t *cnm) {
         cnm->s.tok.end.col++;
         cnm->s.tok.src.len++;
 
-        size_t _buflen, _ncols, _srclen = lex_single_string(cnm, curr, NULL,
-                                                            &_buflen, &_ncols);
+        size_t _buflen, _ncols, _srclen =
+            lex_single_string(cnm, curr, NULL, &_buflen, &_ncols);
         if (!_srclen) goto error_scenario;
 
         cnm->s.tok.src.len += _srclen, curr += _srclen, buflen += _buflen;
@@ -659,7 +703,7 @@ static token_t *token_string(cnm_t *cnm) {
     ++buflen;
 
     // Allocate space for the string
-    char *buf = cnm_alloc_global(cnm, buflen);
+    char *buf = cnm_alloc_global(cnm, buflen, 1);
     if (!buf) goto error_scenario;
     size_t bufloc = 0;
 
@@ -680,7 +724,7 @@ static token_t *token_string(cnm_t *cnm) {
         if (strcmp(ent->str, buf)) continue;
 
         // We found exact copy of the string, so use that string instead
-        cnm->code.global_ptr += buflen;
+        cnm->globals.next = global_ptr;
         cnm->s.tok.s = ent->str;
         return &cnm->s.tok;
     }
@@ -907,6 +951,8 @@ TOKENS
     return &cnm->s.tok;
 }
 
+static bool ast_is_const(cnm_t *cnm, ast_t *ast);
+
 // Returns true if this ast node can be used in an arithmetic operation
 static bool type_is_arith(const typeref_t ref) {
     switch (ref.type[0].class) {
@@ -942,6 +988,454 @@ static bool type_is_unsigned(const typeref_t ref) {
 // not already an arithmetic type
 static inline void type_promote_to_int(typeref_t *ref) {
     if (ref->type[0].class < TYPE_INT) ref->type[0].class = TYPE_INT;
+}
+
+// Parses declaration specifiers for a type and store them in type
+static bool type_parse_declspec(cnm_t *cnm, type_t *type, bool *istypedef) {
+    *type = (type_t){ .class = TYPE_INT };
+
+    // Assume like any other compiler that a type is not a typedef
+    if (istypedef) *istypedef = false;
+
+    // Start with signed values like most C compilers
+    // Since you can have multiple decl specifiers, these kind of 'accumulate'
+    bool is_u = false, is_short = false, is_fp = false;
+    bool set_type = false, set_u = false;
+    int n_longs = 0;
+
+    // Start consuming declaration specifiers
+    while (cnm->s.tok.type == TOKEN_IDENT) {
+        switch (cnm->s.tok.src.str[0]) {
+        case 'u':
+            // Look for unsigned keyword
+            if (strview_eq(cnm->s.tok.src, SV("unsigned"))) {
+                // Check if we've already used a signedness specifier
+                if (set_u) {
+                    if (is_u) cnm_doerr(cnm, true, "duplicate unsigned specifiers", "");
+                    else cnm_doerr(cnm, true,
+                            "conflicting signed and unsigned specifiers", "");
+                    return false;
+                }
+
+                // Set qualifiers
+                is_u = true;
+                set_u = true;
+                break;
+            }
+            goto end;
+        case 'i':
+            // Check for int
+            if (strview_eq(cnm->s.tok.src, SV("int"))) {
+                if (set_type) goto multiple_types_err;
+                set_type = true;
+                type->class = TYPE_INT;
+                break;
+            }
+            goto end;
+        case 'd':
+            // Check for double
+            if (strview_eq(cnm->s.tok.src, SV("double"))) {
+                if (set_type) goto multiple_types_err;
+                set_type = true;
+                is_fp = true;
+                type->class = TYPE_DOUBLE;
+                break;
+            }
+            goto end;
+        case 'f':
+            // Check for float
+            if (strview_eq(cnm->s.tok.src, SV("float"))) {
+                if (set_type) goto multiple_types_err;
+                set_type = true;
+                is_fp = true;
+                type->class = TYPE_FLOAT;
+                break;
+            }
+            goto end;
+        case 'v':
+            // Check for void
+            if (strview_eq(cnm->s.tok.src, SV("void"))) {
+                if (set_type) goto multiple_types_err;
+                set_type = true;
+                type->class = TYPE_VOID;
+                break;
+            }
+            goto end;
+        case 'b':
+            // Check for bool (psuedo int like type)
+            if (strview_eq(cnm->s.tok.src, SV("bool"))) {
+                if (set_type) goto multiple_types_err;
+                set_type = true;
+                type->class = TYPE_BOOL;
+                break;
+            }
+            goto end;
+        case 's':
+            // Check for short, static and signed
+            if (strview_eq(cnm->s.tok.src, SV("short"))) {
+                if (is_short) {
+                    cnm_doerr(cnm, true, "duplicate 'short'", "");
+                    return false;
+                }
+                if (n_longs) {
+                    cnm_doerr(cnm, true, "conflicting 'short' and 'long' specifiers", "");
+                    return false;
+                }
+                is_short = true;
+                break;
+            } else if (strview_eq(cnm->s.tok.src, SV("static"))) {
+                if (type->isstatic) {
+                    cnm_doerr(cnm, true, "duplicate 'static'", "");
+                    return false;
+                }
+                if (type->isextern) {
+                    cnm_doerr(cnm, true, "conflicting 'extern' and 'static' qualifiers", "");
+                    return false;
+                }
+                type->isstatic = true;
+                break;
+            } else if (strview_eq(cnm->s.tok.src, SV("signed"))) {
+                // Check for multiple signedness qualifiers
+                if (set_u) {
+                    if (!is_u) cnm_doerr(cnm, true, "duplicate signed specifiers", "");
+                    else cnm_doerr(cnm, true,
+                            "conflicting signed and unsigned specifiers", "");
+                    return false;
+                }
+
+                is_u = false;
+                set_u = true;
+                break;
+            }
+            goto end;
+        case 'c':
+            // Check for char and const
+            if (strview_eq(cnm->s.tok.src, SV("char"))) {
+                if (set_type) goto multiple_types_err;
+                set_type = true;
+                type->class = TYPE_CHAR;
+                break;
+            } else if (strview_eq(cnm->s.tok.src, SV("const"))) {
+                if (type->isconst) {
+                    cnm_doerr(cnm, true, "duplicate 'const'", "");
+                    return false;
+                }
+                type->isconst = true;
+                break;
+            }
+            goto end;
+        case 'l':
+            // Check for long
+            if (strview_eq(cnm->s.tok.src, SV("long"))) {
+                if (n_longs == 2) {
+                    cnm_doerr(cnm, true, "cnm script only supports up to long long ints", "");
+                    return false;
+                }
+                if (is_short) {
+                    cnm_doerr(cnm, true, "conflicting 'short' and 'long' specifiers", "");
+                    return false;
+                }
+                n_longs++;
+                break;
+            }
+            goto end;
+        case 'e':
+            // Check for extern
+            if (strview_eq(cnm->s.tok.src, SV("extern"))) {
+                if (type->isextern) {
+                    cnm_doerr(cnm, true, "duplicate 'extern'", "");
+                    return false;
+                }
+                if (type->isstatic) {
+                    cnm_doerr(cnm, true, "conflicting 'extern' and 'static' qualifiers", "");
+                    return false;
+                }
+                type->isextern = true;
+                break;
+            }
+        case 't':
+            if (strview_eq(cnm->s.tok.src, SV("typedef"))) {
+                if (istypedef && *istypedef) {
+                    cnm_doerr(cnm, true, "duplicate 'typedef'", "");
+                    return false;
+                }
+                if (istypedef) *istypedef = true;
+            }
+            goto end;
+        default:
+            goto end;
+        }
+
+        token_next(cnm);
+    }
+
+end:
+    // short keyword can only be used on int type
+    if (is_short) {
+        if (type->class != TYPE_INT) {
+            cnm_doerr(cnm, true, "used non int type with short specifier", "");
+            return false;
+        }
+        type->class = TYPE_SHORT;
+    }
+
+    // long keyword can only be used on int type
+    if (n_longs) {
+        if (type->class != TYPE_INT) {
+            cnm_doerr(cnm, true, "used non int type with long specifier", "");
+            return false;
+        }
+        if (n_longs == 1) type->class = TYPE_LONG;
+        else type->class = TYPE_LLONG;
+    }
+
+    // Can't use signedness qualifiers on floating point types or booleans
+    if (set_u && (is_fp || type->class == TYPE_BOOL)) {
+        cnm_doerr(cnm, true, "used non int type with signed specifiers", "");
+        return false;
+    }
+
+    // Make type unsigned if nessesary
+    if (is_u) {
+        switch (type->class) {
+        case TYPE_CHAR: type->class = TYPE_UCHAR; break;
+        case TYPE_SHORT: type->class = TYPE_USHORT; break;
+        case TYPE_INT: type->class = TYPE_UINT; break;
+        case TYPE_LONG: type->class = TYPE_ULONG; break;
+        case TYPE_LLONG: type->class = TYPE_ULLONG; break;
+        default:
+            break;
+        }
+    }
+
+    return true;
+
+multiple_types_err:
+    cnm_doerr(cnm, true, "multiple data types in declaration specifiers", "");
+    return false;
+}
+
+// Parse only qualifiers and not type specifiers for type.
+// This means only parsing const, static, or extern
+static bool type_parse_qual_only(cnm_t *cnm, type_t *type) {
+    type->isconst = false;
+    type->isstatic = false;
+    type->isextern = false;
+
+    // Accumulate type qualifiers only
+    while (cnm->s.tok.type == TOKEN_IDENT) {
+        if (strview_eq(cnm->s.tok.src, SV("const"))) {
+            if (type->isconst) {
+                cnm_doerr(cnm, true, "duplicate 'const'", "");
+                return false;
+            }
+            type->isconst = true;
+        } else if (strview_eq(cnm->s.tok.src, SV("static"))) {
+            if (type->isstatic) {
+                cnm_doerr(cnm, true, "duplicate 'static'", "");
+                return false;
+            }
+            if (type->isextern) {
+                cnm_doerr(cnm, true, "conflicting 'extern' and 'static' qualifiers", "");
+                return false;
+            }
+            type->isstatic = true;
+        } else if (strview_eq(cnm->s.tok.src, SV("extern"))) {
+            if (type->isextern) {
+                cnm_doerr(cnm, true, "duplicate 'extern'", "");
+                return false;
+            }
+            if (type->isstatic) {
+                cnm_doerr(cnm, true, "conflicting 'extern' and 'static' qualifiers", "");
+                return false;
+            }
+            type->isextern = true;
+        }
+
+        token_next(cnm);
+    }
+
+    return true;
+}
+
+// Helper function to add pointers in reverse order to a typeref thats on the
+// top of the stack
+static bool type_parse_add_ref_pointers(cnm_t *cnm, typeref_t *ref, type_t *ptrs, int nptrs) {
+    for (; nptrs;) {
+        if (!cnm_alloc(cnm, sizeof(type_t), 1)) return false;
+        ref->type[ref->size++] = ptrs[--nptrs];
+    }
+    return true;
+}
+
+// Parses a type currently pointed to in the source by the current token
+// Will store the name associated with this type optionally into name and can
+// store a boolean of whether or not the typedef keyword was used
+// Allocates information for this type on the state stack region (local)
+// Will allocate new structure info on the state stack static region (static)
+// If an error occurred, it will return a NULL, 0 sized type refrence
+static typeref_t type_parse(cnm_t *cnm, strview_t *name, bool *istypedef) {
+    // Alloc the first part of the type buffer
+    type_t *buf = cnm_alloc(cnm, sizeof(type_t), sizeof(type_t));
+    if (!buf) goto return_error;
+    typeref_t ref = {
+        .type = buf,
+        .size = 0,
+    };
+
+    // Base type that the 'derived' types refrence
+    type_t base;
+    if (!type_parse_declspec(cnm, &base, istypedef)) goto return_error;
+
+    // Save pointers processed and what 'group' we are on here so we can
+    // parse with the correct associativity and precedence
+    type_t ptrs[32];
+    int nptrs[8];
+    int grp = 0, base_ptr = 0;
+
+    // Consume groupings and pointers
+    while (true) {
+        if (cnm->s.tok.type == TOKEN_STAR) {
+            type_t *ptr = &ptrs[base_ptr + nptrs[grp]++];
+            *ptr = (type_t){ .class = TYPE_PTR };
+            token_next(cnm);
+            if (!type_parse_qual_only(cnm, ptr)) goto return_error;
+        } else if (cnm->s.tok.type == TOKEN_PAREN_L) {
+            if (grp + 1 >= arrlen(nptrs)) {
+                cnm_doerr(cnm, true, "too many grouping tokens in this type", "");
+                goto return_error;
+            }
+            base_ptr += nptrs[grp];
+            grp++;
+            token_next(cnm);
+        } else {
+            // Either variable name or start of array/function pointer section
+            break;
+        }
+    }
+
+    // Is there a name?
+    if (cnm->s.tok.type == TOKEN_IDENT) {
+        if (name) *name = cnm->s.tok.src;
+        token_next(cnm);
+    }
+
+    // Start parsing arrays and functions
+    while (true) {
+        if (cnm->s.tok.type == TOKEN_BRACK_L) {
+            // Create new type layer and set it to array
+            if (!cnm_alloc(cnm, sizeof(type_t), 1)) goto return_error;
+            type_t *type = ref.type + ref.size++;
+            type->class = TYPE_ARR;
+
+            // Goto array size parameter/type qualifiers
+            token_next(cnm);
+            type_parse_qual_only(cnm, type);
+            if (cnm->s.tok.type == TOKEN_BRACK_R) {
+                token_next(cnm);
+                continue;
+            }
+
+            // Get size and store alloc pointer so we can free
+            uint8_t *const stack_ptr = cnm->alloc.next;
+            ast_t *ast = ast_generate(cnm, PREC_FULL);
+            if (!ast_is_const(cnm, ast) || ast->class != AST_NUM_LITERAL) {
+                cnm_doerr(cnm, true, "array size must be constant integer expression", "");
+                goto return_error;
+            }
+            if (!type_is_arith(ast->type) || type_is_fp(ast->type)) {
+                cnm_doerr(cnm, true, "array size is non-integer type", "");
+                goto return_error;
+            }
+            if (!type_is_unsigned(ast->type) && ast->num_literal.i < 0) {
+                cnm_doerr(cnm, true, "size of array is negative", "");
+                goto return_error;
+            }
+            if (ast->num_literal.u >= 1 << 24) {
+                cnm_doerr(cnm, true, "length of array is over max array length", "");
+                goto return_error;
+            }
+
+            // Set array size and free ast nodes
+            type->n = ast->num_literal.u;
+            cnm->alloc.next = stack_ptr;
+
+            // Check for ending ']'
+            if (cnm->s.tok.type != TOKEN_BRACK_R) {
+                cnm_doerr(cnm, true, "expected ']'", "");
+                goto return_error;
+            }
+            token_next(cnm);
+        } else if (cnm->s.tok.type == TOKEN_PAREN_L) {
+            // Create new type layer and set it to function
+            if (!cnm_alloc(cnm, sizeof(type_t), 1)) goto return_error;
+            type_t *fntype = ref.type + ref.size++;
+            *fntype = (type_t){ .class = TYPE_FN };
+
+            // Consume parameters
+            token_next(cnm);
+            while (cnm->s.tok.type != TOKEN_PAREN_R) {
+                fntype->n++; // Increase the number of parameters in this func
+
+                // Allocate the argument header
+                if (!cnm_alloc(cnm, sizeof(type_t), 1)) goto return_error;
+                type_t *arg = ref.type + ref.size++;
+                *arg = (type_t){ .class = TYPE_FN_ARG };
+               
+                bool is_arg_typedef;
+                typeref_t argref = type_parse(cnm, NULL, &is_arg_typedef);
+                if (!argref.type) goto return_error;
+                if (!argref.size) {
+                    cnm_doerr(cnm, true, "expected function parameter", "");
+                    goto return_error;
+                }
+                if (is_arg_typedef) {
+                    cnm_doerr(cnm, true, "can not make function parameter a typedef", "");
+                    goto return_error;
+                }
+                
+                // Set the argument's header's length
+                arg->n = argref.size;
+
+                if (cnm->s.tok.type == TOKEN_COMMA) {
+                    if (token_next(cnm)->type == TOKEN_PAREN_R) {
+                        cnm_doerr(cnm, true,
+                            "expected another function parameter after ,", "");
+                        goto return_error;
+                    }
+                }
+            }
+            token_next(cnm);
+        } else if (cnm->s.tok.type == TOKEN_PAREN_R) {
+            // Groupings
+            if (!grp) break; // If there wasn't a grouping then we're at the end
+           
+            // Copy the pointers into the type buffer in reverse order
+            type_parse_add_ref_pointers(cnm, &ref, ptrs + base_ptr, nptrs[grp]);
+
+            // Goto the next group
+            base_ptr -= nptrs[--grp];
+            token_next(cnm);
+        } else {
+            break;
+        }
+    }
+
+    if (grp != 0) {
+        cnm_doerr(cnm, true, "expected ')'", "");
+        goto return_error;
+    }
+
+    // Copy the pointers into the type buffer in reverse order
+    type_parse_add_ref_pointers(cnm, &ref, ptrs, nptrs[0]);
+
+    // Add the base type on
+    if (!cnm_alloc(cnm, sizeof(type_t), 1)) goto return_error;
+    ref.type[ref.size++] = base;
+    
+    return ref;
+return_error:
+    return (typeref_t){0};
 }
 
 // Allocates an AST on the state stack for the current expression.
@@ -1254,7 +1748,7 @@ static ast_t *ast_gen_arith(cnm_t *cnm, ast_t *left) {
 
     // Save stack pointer for if we can constant fold, then we can destroy the
     // child nodes
-    uint8_t *const stack_ptr = cnm->next_alloc;
+    uint8_t *const stack_ptr = cnm->alloc.next;
 
     // Set to if the operation can only be for integers (only needed for
     // constant folding)
@@ -1359,7 +1853,7 @@ static ast_t *ast_gen_arith(cnm_t *cnm, ast_t *left) {
     ast->class = AST_NUM_LITERAL;
 
     // Free the children since they are not needed anymore
-    cnm->next_alloc = stack_ptr;
+    cnm->alloc.next = stack_ptr;
     ast->left = NULL;
     ast->right = NULL;
 
@@ -1382,7 +1876,7 @@ static ast_t *ast_gen_prefix_arith(cnm_t *cnm) {
 
     // Save stack pointer for if we can constant fold, then we can destroy the
     // child node
-    uint8_t *const stack_ptr = cnm->next_alloc;
+    uint8_t *const stack_ptr = cnm->alloc.next;
 
     // Set to true if the operation can only be for integers (only needed for
     // constant folding)
@@ -1452,24 +1946,29 @@ static ast_t *ast_gen_prefix_arith(cnm_t *cnm) {
     ast->class = AST_NUM_LITERAL;
 
     // Free the children since they are not needed anymore
-    cnm->next_alloc = stack_ptr;
+    cnm->alloc.next = stack_ptr;
     ast->child = NULL;
 
     return ast;
 }
 
 // Initialize a cnm state object to compile code in the space provided by the code argument
-cnm_t *cnm_init(void *region, size_t regionsz, void *code, size_t codesz) {
+cnm_t *cnm_init(void *region, size_t regionsz,
+                void *code, size_t codesz,
+                void *globals, size_t globalsz) {
     if (regionsz < sizeof(cnm_t)) return NULL;
     
     cnm_t *cnm = region;
     memset(cnm, 0, sizeof(*cnm));
     cnm->code.buf = code;
     cnm->code.len = codesz;
-    cnm->code.global_ptr = cnm->code.buf + cnm->code.len;
-    cnm->code.code_ptr = cnm->code.buf;
+    cnm->code.ptr = cnm->code.buf;
+    cnm->globals.buf = globals;
+    cnm->globals.len = globalsz;
+    cnm->globals.next = cnm->globals.buf;
     cnm->buflen = regionsz - sizeof(cnm_t);
-    cnm->next_alloc = cnm->buf;
+    cnm->alloc.next = cnm->buf;
+    cnm->alloc.curr_static = cnm->buf + cnm->buflen;
     cnm->strs = NULL;
 
     return cnm;
@@ -1477,6 +1976,15 @@ cnm_t *cnm_init(void *region, size_t regionsz, void *code, size_t codesz) {
 
 void cnm_set_errcb(cnm_t *cnm, cnm_err_cb_t errcb) {
     cnm->cb.err = errcb;
+}
+
+bool cnm_set_real_code_addr(cnm_t *cnm, void *addr) {
+    cnm->code.real_addr = addr;
+    return true;
+}
+
+size_t cnm_get_global_size(const cnm_t *cnm) {
+    return cnm->globals.next - cnm->globals.buf;
 }
 
 static void cnm_set_src(cnm_t *cnm, const char *src, const char *fname) {
