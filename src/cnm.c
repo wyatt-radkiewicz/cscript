@@ -213,6 +213,9 @@ typedef enum astclass_e {
 
     // Binary types
     AST_ADD,    AST_SUB,    AST_MUL,    AST_DIV,
+    AST_NOT,    AST_MOD,    AST_NEG,
+    AST_BIT_AND,AST_BIT_OR, AST_BIT_XOR,AST_BIT_NOT,
+    AST_SHIFT_L,AST_SHIFT_R,
 } astclass_t;
 
 // Data pertaining to an AST node
@@ -230,7 +233,7 @@ typedef struct ast_s {
         strview_t ident; // Identifier name
     };
     typeref_t type; // Types of the ast node
-    struct ast_s *left, *right, *next;
+    struct ast_s *child, *left, *right, *next;
 } ast_t;
 
 // Precedence levels of an expression going from evaluated last (comma) to
@@ -318,14 +321,26 @@ static ast_t *ast_generate(cnm_t *cnm, ast_prec_t prec);
 static ast_parse_prefix_t ast_gen_int;
 static ast_parse_prefix_t ast_gen_double;
 static ast_parse_infix_t ast_gen_arith;
+static ast_parse_prefix_t ast_gen_prefix_arith;
+static ast_parse_prefix_t ast_gen_group;
 
 static ast_rule_t ast_rules[TOKEN_MAX] = {
+    [TOKEN_PAREN_L] = { .prefix_prec = PREC_FACTOR, .prefix = ast_gen_group },
     [TOKEN_INT] = { .prefix_prec = PREC_FACTOR, .prefix = ast_gen_int },
     [TOKEN_DOUBLE] = { .prefix_prec = PREC_FACTOR, .prefix = ast_gen_double },
     [TOKEN_PLUS] = { .infix_prec = PREC_ADDI, .infix = ast_gen_arith },
-    [TOKEN_MINUS] = { .infix_prec = PREC_ADDI, .infix = ast_gen_arith },
+    [TOKEN_MINUS] = { .infix_prec = PREC_ADDI, .infix = ast_gen_arith,
+                      .prefix_prec = PREC_PREFIX, .prefix = ast_gen_prefix_arith },
     [TOKEN_STAR] = { .infix_prec = PREC_MULT, .infix = ast_gen_arith },
     [TOKEN_DIVIDE] = { .infix_prec = PREC_MULT, .infix = ast_gen_arith },
+    [TOKEN_MODULO] = { .infix_prec = PREC_MULT, .infix = ast_gen_arith },
+    [TOKEN_BIT_NOT] = { .prefix_prec = PREC_PREFIX, .prefix = ast_gen_prefix_arith },
+    [TOKEN_NOT] = { .prefix_prec = PREC_PREFIX, .prefix = ast_gen_prefix_arith },
+    [TOKEN_BIT_OR] = { .infix_prec = PREC_BIT_OR, .infix = ast_gen_arith },
+    [TOKEN_BIT_AND] = { .infix_prec = PREC_BIT_OR, .infix = ast_gen_arith },
+    [TOKEN_BIT_XOR] = { .infix_prec = PREC_BIT_OR, .infix = ast_gen_arith },
+    [TOKEN_SHIFT_L] = { .infix_prec = PREC_SHIFT, .infix = ast_gen_arith },
+    [TOKEN_SHIFT_R] = { .infix_prec = PREC_SHIFT, .infix = ast_gen_arith },
 };
 
 static inline bool strview_eq(const strview_t lhs, const strview_t rhs) {
@@ -903,6 +918,16 @@ static bool type_is_arith(const typeref_t ref) {
     }
 }
 
+// Returns whether or not a type is a floating point type
+static bool type_is_fp(const typeref_t ref) {
+    switch (ref.type[0].class) {
+    case TYPE_FLOAT: case TYPE_DOUBLE:
+        return true;
+    default:
+        return false;
+    }
+}
+
 // Returns whether or not the type is unsigned
 static bool type_is_unsigned(const typeref_t ref) {
     switch (ref.type[0].class) {
@@ -911,6 +936,12 @@ static bool type_is_unsigned(const typeref_t ref) {
     default:
         return false;
     }
+}
+
+// Promotes a type to atleast type of int. Behavior is undefined if the type is
+// not already an arithmetic type
+static inline void type_promote_to_int(typeref_t *ref) {
+    if (ref->type[0].class < TYPE_INT) ref->type[0].class = TYPE_INT;
 }
 
 // Allocates an AST on the state stack for the current expression.
@@ -944,6 +975,27 @@ static bool ast_is_const(cnm_t *cnm, ast_t *ast) {
     default:
         return false;
     }
+}
+
+// Group together operations into one group inbetween parentheses
+static ast_t *ast_gen_group(cnm_t *cnm) {
+    // Consume the '(' token
+    const token_t errtok = cnm->s.tok;
+    token_next(cnm);
+    
+    // Get the inner grouping
+    ast_t *ast = ast_generate(cnm, PREC_FULL);
+
+    // Consume the ')' token
+    if (cnm->s.tok.type != TOKEN_PAREN_R) {
+        cnm_doerr(cnm, true, "expected ')' after expression group", "");
+        cnm->s.tok = errtok;
+        cnm_doerr(cnm, false, "", "grouping started here");
+        return NULL;
+    }
+    token_next(cnm);
+
+    return ast;
 }
 
 // Create an ast leaf node for an integer
@@ -1064,8 +1116,7 @@ static void astcf_cast_arith(ast_t *node, typeref_t cast_to) {
     type_t *from = node->type.type, *to = cast_to.type;
 
     // Cache information about from and to types
-    const bool fp_to = to->class == TYPE_DOUBLE || to->class == TYPE_FLOAT,
-        fp_from = from->class == TYPE_DOUBLE || from->class == TYPE_FLOAT,
+    const bool fp_to = type_is_fp(cast_to), fp_from = type_is_fp(node->type),
         u_from = type_is_unsigned(node->type);
 
     // If the types are already equal, skip to type enforcing
@@ -1074,8 +1125,11 @@ static void astcf_cast_arith(ast_t *node, typeref_t cast_to) {
     // Convert type information
     from->class = to->class;
 
-    // Convert from and to float types
-    if (fp_to && !fp_from) {
+    // Convert to or convert from and to float types
+    if (to->class == TYPE_BOOL) {
+        if (fp_from) node->num_literal.u = !!node->num_literal.f;
+        else node->num_literal.u = !!node->num_literal.u;
+    } else if (fp_to && !fp_from) {
         node->num_literal.f = u_from ? node->num_literal.u : node->num_literal.i;
     } else if (!fp_to && fp_from) {
         if (u_from) node->num_literal.u = node->num_literal.f;
@@ -1087,6 +1141,9 @@ enforce_width:
         node->num_literal.f = (float)node->num_literal.f;
         return;
     } else if (to->class == TYPE_DOUBLE) {
+        return;
+    } else if (to->class == TYPE_BOOL) {
+        node->num_literal.u = !!node->num_literal.u;
         return;
     }
 
@@ -1112,7 +1169,7 @@ static bool ast_set_arith_type(cnm_t *cnm, ast_t *ast) {
     // enum definition of types
     // see https://en.cppreference.com/w/c/language/conversion for more
     ast->type.type[0].class = ltype->class > rtype->class ? ltype->class : rtype->class;
-    if (ast->type.type[0].class < TYPE_INT) ast->type.type[0].class = TYPE_INT;
+    type_promote_to_int(&ast->type);
 
     return true;
 }
@@ -1133,6 +1190,54 @@ ASTCF_OP(add, +)
 ASTCF_OP(sub, -)
 ASTCF_OP(mul, *)
 ASTCF_OP(div, /)
+
+// Only perform math operation constant folding on integer ast nodes
+#define ASTCF_OP_INT(opname, optoken) \
+    static void astcf_##opname(ast_t *ast) { \
+        const typeclass_t class = ast->type.type[0].class; \
+        if (type_is_unsigned(ast->type)) { \
+            ast->num_literal.u = ast->left->num_literal.u optoken ast->right->num_literal.u; \
+        } else { \
+            ast->num_literal.i = ast->left->num_literal.i optoken ast->right->num_literal.i; \
+        } \
+    }
+ASTCF_OP_INT(mod, %)
+ASTCF_OP_INT(bit_or, |)
+ASTCF_OP_INT(bit_and, &)
+ASTCF_OP_INT(bit_xor, ^)
+ASTCF_OP_INT(shift_l, <<)
+ASTCF_OP_INT(shift_r, >>)
+
+// Perform math operation constant folding on unary ast nodes
+static void astcf_neg(ast_t *ast) {
+    const typeclass_t class = ast->type.type[0].class;
+    if (class == TYPE_DOUBLE || class == TYPE_FLOAT) {
+        ast->num_literal.f = -ast->child->num_literal.f;
+    } else if (type_is_unsigned(ast->type)) {
+        ast->num_literal.u = -ast->child->num_literal.u;
+    } else {
+        ast->num_literal.i = -ast->child->num_literal.i;
+    }
+}
+static void astcf_not(ast_t *ast) {
+    type_t *type = &ast->type.type[0];
+    if (type->class == TYPE_DOUBLE || type->class == TYPE_FLOAT) {
+        ast->num_literal.u = !ast->child->num_literal.f;
+    } else if (type_is_unsigned(ast->type)) {
+        ast->num_literal.u = !ast->child->num_literal.u;
+    } else {
+        ast->num_literal.u = !ast->child->num_literal.i;
+    }
+    type->class = TYPE_BOOL;
+}
+static void astcf_bit_not(ast_t *ast) {
+    const typeclass_t class = ast->type.type[0].class;
+    if (type_is_unsigned(ast->type)) {
+        ast->num_literal.u = ~ast->child->num_literal.u;
+    } else {
+        ast->num_literal.u = ~ast->child->num_literal.i;
+    }
+}
 
 // Generate ast node that runs arithmetic operation on left and right hand side
 // and perform constant folding if nessesary
@@ -1172,6 +1277,30 @@ static ast_t *ast_gen_arith(cnm_t *cnm, ast_t *left) {
     case TOKEN_DIVIDE:
         ast->class = AST_DIV;
         break;
+    case TOKEN_MODULO:
+        ast->class = AST_MOD;
+        int_only_op = true;
+        break;
+    case TOKEN_BIT_OR:
+        ast->class = AST_BIT_OR;
+        int_only_op = true;
+        break;
+    case TOKEN_BIT_AND:
+        ast->class = AST_BIT_AND;
+        int_only_op = true;
+        break;
+    case TOKEN_BIT_XOR:
+        ast->class = AST_BIT_XOR;
+        int_only_op = true;
+        break;
+    case TOKEN_SHIFT_L:
+        ast->class = AST_SHIFT_L;
+        int_only_op = true;
+        break;
+    case TOKEN_SHIFT_R:
+        ast->class = AST_SHIFT_R;
+        int_only_op = true;
+        break;
     
     default:
         // Should never be reached (dead code)
@@ -1192,6 +1321,14 @@ static ast_t *ast_gen_arith(cnm_t *cnm, ast_t *left) {
         return NULL;
     }
 
+    // Make sure that if we are doing something like a bit operation that
+    // we don't use it on floating point types
+    if (int_only_op && (type_is_fp(ast->left->type) || type_is_fp(ast->right->type))) {
+        cnm->s.tok = backup;
+        cnm_doerr(cnm, true, "expected integer operands for integer/bitwise operation", "");
+        return NULL;
+    }
+
     // Get the new type and convert both sides at compile time if we can
     if (!ast_set_arith_type(cnm, ast)) return NULL;
     if (ast_is_const(cnm, ast->left)) astcf_cast_arith(ast->left, ast->type);
@@ -1206,6 +1343,12 @@ static ast_t *ast_gen_arith(cnm_t *cnm, ast_t *left) {
     case AST_SUB: astcf_sub(ast); break;
     case AST_MUL: astcf_mul(ast); break;
     case AST_DIV: astcf_div(ast); break;
+    case AST_MOD: astcf_mod(ast); break;
+    case AST_BIT_OR: astcf_bit_or(ast); break;
+    case AST_BIT_XOR: astcf_bit_xor(ast); break;
+    case AST_BIT_AND: astcf_bit_and(ast); break;
+    case AST_SHIFT_L: astcf_shift_l(ast); break;
+    case AST_SHIFT_R: astcf_shift_r(ast); break;
     default:
         // Should never be reached (dead code)
         break;
@@ -1221,6 +1364,97 @@ static ast_t *ast_gen_arith(cnm_t *cnm, ast_t *left) {
     ast->right = NULL;
 
     // Finally return the ast node
+    return ast;
+}
+
+// Generate ast node that performs a math operation on its child and does
+// constant folding if nessescary
+static ast_t *ast_gen_prefix_arith(cnm_t *cnm) {
+    // Allocate ast node
+    ast_t *ast = cnm_alloc(cnm, sizeof(*ast), sizeof(void *));
+    if (!ast) return NULL;
+    *ast = (ast_t){0};
+
+    // Allocate ast type
+    if (!(ast->type.type = cnm_alloc(cnm, sizeof(type_t), sizeof(type_t)))) return false;
+    ast->type.size = 1;
+    ast->type.type[0] = (type_t){0};
+
+    // Save stack pointer for if we can constant fold, then we can destroy the
+    // child node
+    uint8_t *const stack_ptr = cnm->next_alloc;
+
+    // Set to true if the operation can only be for integers (only needed for
+    // constant folding)
+    bool int_only_op = false;
+
+    // Set the ast node type
+    switch (cnm->s.tok.type) {
+    case TOKEN_MINUS:
+        ast->class = AST_NEG;
+        break;
+    case TOKEN_NOT:
+        ast->class = AST_NOT;
+        break;
+    case TOKEN_BIT_NOT:
+        ast->class = AST_BIT_NOT;
+        int_only_op = true;
+        break;
+    
+    default:
+        // Should never be reached (dead code)
+        break;
+    }
+
+    // Skip past arithmetic token to be at start of right hand of equasion
+    const token_t backup = cnm->s.tok; // Used for if an error happens
+    token_next(cnm);
+
+    // Evaluate child with right to left hand associativity. Use PREC_PREFIX
+    // for every option because every token used by this function has that prec
+    ast->child = ast_generate(cnm, PREC_PREFIX);
+
+    // Make sure we can even perform the operation we want with this type
+    if (!type_is_arith(ast->child->type)) {
+        cnm->s.tok = backup;
+        cnm_doerr(cnm, true, "expect arithmetic type for operand of operator", "");
+        return NULL;
+    }
+
+    // Make sure that if we are doing something like a bit operation that
+    // we don't use it on floating point types
+    if (int_only_op && type_is_fp(ast->child->type)) {
+        cnm->s.tok = backup;
+        cnm_doerr(cnm, true, "expected integer operand for integer/bitwise operation", "");
+        return NULL;
+    }
+
+    // Get the new type and convert both sides at compile time if we can
+    ast->type.type[0].class = ast->child->type.type[0].class;
+    if (ast->class == AST_NOT) ast->type.type[0].class = TYPE_BOOL;
+    else type_promote_to_int(&ast->type);
+
+    // Now perform constant folding if we can
+    if (!ast_is_const(cnm, ast->child)) return ast;
+
+    // Do the operation in question
+    switch (ast->class) {
+    case AST_NOT: astcf_not(ast); break;
+    case AST_NEG: astcf_neg(ast); break;
+    case AST_BIT_NOT: astcf_bit_not(ast); break;
+    default:
+        // Should never be reached (dead code)
+        break;
+    }
+    
+    // Enforce bit width and class
+    astcf_cast_arith(ast, ast->type);
+    ast->class = AST_NUM_LITERAL;
+
+    // Free the children since they are not needed anymore
+    cnm->next_alloc = stack_ptr;
+    ast->child = NULL;
+
     return ast;
 }
 

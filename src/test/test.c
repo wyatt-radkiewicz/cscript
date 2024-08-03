@@ -11,6 +11,10 @@ static size_t code_size;
 static void default_print(int line, const char *verbose, const char *simple) {
     printf("%s", verbose);
 }
+static bool test_expect_err = false;
+static void test_expect_errcb(int line, const char *v, const char *s) {
+    test_expect_err = true;
+}
 
 ///////////////////////////////////////////////////////////////////////////////
 //
@@ -597,19 +601,14 @@ static bool test_ast_constant_folding5(void) {
     if (ast->num_literal.u != 9223372036854775809ull) return false;
     return true;
 }
-static bool test_ast_constant_folding6_passed = false;
-static void test_ast_constant_folding6_errcb(int line, const char *v, const char *s) {
-    test_ast_constant_folding6_passed = true;
-}
 static bool test_ast_constant_folding6(void) {
     cnm_t *cnm = cnm_init(scratch_buf, sizeof(scratch_buf), code_area, code_size);
-    test_ast_constant_folding6_passed = false;
-    cnm_set_errcb(cnm, test_ast_constant_folding6_errcb);
+    cnm_set_errcb(cnm, test_expect_errcb);
     cnm_set_src(cnm, "9223372036854775809",
               "test_ast_constant_folding6.cnm");
     token_next(cnm);
     ast_t *ast = ast_generate(cnm, PREC_FULL);
-    return test_ast_constant_folding6_passed;
+    return test_expect_err;
 }
 static bool test_ast_constant_folding7(void) {
     cnm_t *cnm = cnm_init(scratch_buf, sizeof(scratch_buf), code_area, code_size);
@@ -717,6 +716,123 @@ static bool test_ast_constant_folding15(void) {
     if (ast->class != AST_NUM_LITERAL) return false;
     if (ast->type.type[0].class != TYPE_LONG) return false;
     if (ast->num_literal.i != -15) return false;
+    return true;
+}
+static bool test_ast_constant_folding16(void) {
+    cnm_t *cnm = cnm_init(scratch_buf, sizeof(scratch_buf), code_area, code_size);
+    cnm_set_errcb(cnm, default_print);
+    cnm_set_src(cnm, "-8",
+              "test_ast_constant_folding16.cnm");
+    token_next(cnm);
+    ast_t *ast = ast_generate(cnm, PREC_FULL);
+    if (ast->class != AST_NUM_LITERAL) return false;
+    if (ast->type.type[0].class != TYPE_INT) return false;
+    if (ast->num_literal.i != -8) return false;
+    return true;
+}
+static bool test_ast_constant_folding17(void) {
+    cnm_t *cnm = cnm_init(scratch_buf, sizeof(scratch_buf), code_area, code_size);
+    cnm_set_errcb(cnm, default_print);
+    cnm_set_src(cnm, "(-8)",
+              "test_ast_constant_folding17.cnm");
+    token_next(cnm);
+    ast_t *ast = ast_generate(cnm, PREC_FULL);
+    if (ast->class != AST_NUM_LITERAL) return false;
+    if (ast->type.type[0].class != TYPE_INT) return false;
+    if (ast->num_literal.i != -8) return false;
+    return true;
+}
+static bool test_ast_constant_folding18(void) {
+    cnm_t *cnm = cnm_init(scratch_buf, sizeof(scratch_buf), code_area, code_size);
+    cnm_set_errcb(cnm, default_print);
+    cnm_set_src(cnm, "-(0x8)",
+              "test_ast_constant_folding18.cnm");
+    token_next(cnm);
+    ast_t *ast = ast_generate(cnm, PREC_FULL);
+    if (ast->class != AST_NUM_LITERAL) return false;
+    if (ast->type.type[0].class != TYPE_INT) return false;
+    if (ast->num_literal.i != -8) return false;
+    return true;
+}
+static bool test_ast_constant_folding19(void) {
+    cnm_t *cnm = cnm_init(scratch_buf, sizeof(scratch_buf), code_area, code_size);
+    cnm_set_errcb(cnm, default_print);
+    cnm_set_src(cnm, "~0x8u",
+              "test_ast_constant_folding19.cnm");
+    token_next(cnm);
+    ast_t *ast = ast_generate(cnm, PREC_FULL);
+    if (ast->class != AST_NUM_LITERAL) return false;
+    if (ast->type.type[0].class != TYPE_UINT) return false;
+    if (ast->num_literal.u != ~0x8u) return false;
+    return true;
+}
+static bool test_ast_constant_folding20(void) {
+    cnm_t *cnm = cnm_init(scratch_buf, sizeof(scratch_buf), code_area, code_size);
+    cnm_set_errcb(cnm, test_expect_errcb);
+    cnm_set_src(cnm, "~(1 + 0.9)",
+              "test_ast_constant_folding20.cnm");
+    token_next(cnm);
+    ast_t *ast = ast_generate(cnm, PREC_FULL);
+    return test_expect_err;
+}
+static bool test_ast_constant_folding21(void) {
+    cnm_t *cnm = cnm_init(scratch_buf, sizeof(scratch_buf), code_area, code_size);
+    cnm_set_errcb(cnm, default_print);
+    cnm_set_src(cnm, "!1",
+              "test_ast_constant_folding21.cnm");
+    token_next(cnm);
+    ast_t *ast = ast_generate(cnm, PREC_FULL);
+    if (ast->class != AST_NUM_LITERAL) return false;
+    if (ast->type.type[0].class != TYPE_BOOL) return false;
+    if (ast->num_literal.u != false) return false;
+    return true;
+}
+static bool test_ast_constant_folding22(void) {
+    cnm_t *cnm = cnm_init(scratch_buf, sizeof(scratch_buf), code_area, code_size);
+    cnm_set_errcb(cnm, default_print);
+    cnm_set_src(cnm, "!0.0",
+              "test_ast_constant_folding22.cnm");
+    token_next(cnm);
+    ast_t *ast = ast_generate(cnm, PREC_FULL);
+    if (ast->class != AST_NUM_LITERAL) return false;
+    if (ast->type.type[0].class != TYPE_BOOL) return false;
+    if (ast->num_literal.u != true) return false;
+    return true;
+}
+static bool test_ast_constant_folding23(void) {
+    cnm_t *cnm = cnm_init(scratch_buf, sizeof(scratch_buf), code_area, code_size);
+    cnm_set_errcb(cnm, default_print);
+    cnm_set_src(cnm, "1 << 4",
+              "test_ast_constant_folding23.cnm");
+    token_next(cnm);
+    ast_t *ast = ast_generate(cnm, PREC_FULL);
+    if (ast->class != AST_NUM_LITERAL) return false;
+    if (ast->type.type[0].class != TYPE_INT) return false;
+    if (ast->num_literal.i != 16) return false;
+    return true;
+}
+static bool test_ast_constant_folding24(void) {
+    cnm_t *cnm = cnm_init(scratch_buf, sizeof(scratch_buf), code_area, code_size);
+    cnm_set_errcb(cnm, default_print);
+    cnm_set_src(cnm, "0xff | 0xff << 8",
+              "test_ast_constant_folding24.cnm");
+    token_next(cnm);
+    ast_t *ast = ast_generate(cnm, PREC_FULL);
+    if (ast->class != AST_NUM_LITERAL) return false;
+    if (ast->type.type[0].class != TYPE_INT) return false;
+    if (ast->num_literal.i != 0xffff) return false;
+    return true;
+}
+static bool test_ast_constant_folding25(void) {
+    cnm_t *cnm = cnm_init(scratch_buf, sizeof(scratch_buf), code_area, code_size);
+    cnm_set_errcb(cnm, default_print);
+    cnm_set_src(cnm, "-(5 + 10) * 2 + 60 >> 2",
+              "test_ast_constant_folding25.cnm");
+    token_next(cnm);
+    ast_t *ast = ast_generate(cnm, PREC_FULL);
+    if (ast->class != AST_NUM_LITERAL) return false;
+    if (ast->type.type[0].class != TYPE_INT) return false;
+    if (ast->num_literal.i != (-(5 + 10) * 2 + 60) >> 2) return false;
     return true;
 }
 
@@ -832,6 +948,16 @@ static test_t tests[] = {
     TEST(test_ast_constant_folding13),
     TEST(test_ast_constant_folding14),
     TEST(test_ast_constant_folding15),
+    TEST(test_ast_constant_folding16),
+    TEST(test_ast_constant_folding17),
+    TEST(test_ast_constant_folding18),
+    TEST(test_ast_constant_folding19),
+    TEST(test_ast_constant_folding20),
+    TEST(test_ast_constant_folding21),
+    TEST(test_ast_constant_folding22),
+    TEST(test_ast_constant_folding23),
+    TEST(test_ast_constant_folding24),
+    TEST(test_ast_constant_folding25),
 };
 
 int main(int argc, char **argv) {
@@ -843,6 +969,7 @@ int main(int argc, char **argv) {
 
     int passed = 0, ntests = 0;
     for (int i = 0; i < arrlen(tests); i++) {
+        test_expect_err = false;
         if (!tests[i].name && !tests[i].pfn) {
             printf("\n");
             continue;
