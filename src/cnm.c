@@ -1365,7 +1365,7 @@ static typeref_t type_parse(cnm_t *cnm, strview_t *name, bool *istypedef) {
 
             // Goto array size parameter/type qualifiers
             token_next(cnm);
-            type_parse_qual_only(cnm, type, true);
+            type_parse_qual_only(cnm, type, false);
             if (cnm->s.tok.type == TOKEN_BRACK_R) {
                 token_next(cnm);
                 continue;

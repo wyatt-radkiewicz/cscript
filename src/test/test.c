@@ -759,6 +759,178 @@ SIMPLE_TEST(test_type_parsing_short4, test_expect_errcb,  "short char", {
     type_parse(cnm, NULL, NULL);
     return test_expect_err;
 })
+SIMPLE_TEST(test_type_parsing_ushort1, test_errcb,  "unsigned short", {
+    token_next(cnm);
+    typeref_t type = type_parse(cnm, NULL, NULL);
+    if (!type_eq(type, (typeref_t){
+        .type = (type_t[]){
+            (type_t){ .class = TYPE_USHORT },
+        },
+        .size = 1,
+    })) return false;
+    return true;
+})
+SIMPLE_TEST(test_type_parsing_ushort2, test_errcb,  "unsigned short int", {
+    token_next(cnm);
+    typeref_t type = type_parse(cnm, NULL, NULL);
+    if (!type_eq(type, (typeref_t){
+        .type = (type_t[]){
+            (type_t){ .class = TYPE_USHORT },
+        },
+        .size = 1,
+    })) return false;
+    return true;
+})
+SIMPLE_TEST(test_type_parsing_ushort3, test_expect_errcb,  "unsigned unsigned short", {
+    token_next(cnm);
+    type_parse(cnm, NULL, NULL);
+    return test_expect_err;
+})
+SIMPLE_TEST(test_type_parsing_int, test_errcb,  "int", {
+    token_next(cnm);
+    typeref_t type = type_parse(cnm, NULL, NULL);
+    if (!type_eq(type, (typeref_t){
+        .type = (type_t[]){
+            (type_t){ .class = TYPE_INT },
+        },
+        .size = 1,
+    })) return false;
+    return true;
+})
+SIMPLE_TEST(test_type_parsing_uint1, test_errcb,  "unsigned int", {
+    token_next(cnm);
+    typeref_t type = type_parse(cnm, NULL, NULL);
+    if (!type_eq(type, (typeref_t){
+        .type = (type_t[]){
+            (type_t){ .class = TYPE_UINT },
+        },
+        .size = 1,
+    })) return false;
+    return true;
+})
+SIMPLE_TEST(test_type_parsing_uint2, test_errcb,  "unsigned", {
+    token_next(cnm);
+    typeref_t type = type_parse(cnm, NULL, NULL);
+    if (!type_eq(type, (typeref_t){
+        .type = (type_t[]){
+            (type_t){ .class = TYPE_UINT },
+        },
+        .size = 1,
+    })) return false;
+    return true;
+})
+SIMPLE_TEST(test_type_parsing_uint3, test_errcb,  "const unsigned", {
+    token_next(cnm);
+    typeref_t type = type_parse(cnm, NULL, NULL);
+    if (!type_eq(type, (typeref_t){
+        .type = (type_t[]){
+            (type_t){ .class = TYPE_UINT, .isconst = true },
+        },
+        .size = 1,
+    })) return false;
+    return true;
+})
+SIMPLE_TEST(test_type_parsing_long1, test_errcb,  "long", {
+    token_next(cnm);
+    typeref_t type = type_parse(cnm, NULL, NULL);
+    if (!type_eq(type, (typeref_t){
+        .type = (type_t[]){
+            (type_t){ .class = TYPE_LONG },
+        },
+        .size = 1,
+    })) return false;
+    return true;
+})
+SIMPLE_TEST(test_type_parsing_long2, test_errcb,  "long long", {
+    token_next(cnm);
+    typeref_t type = type_parse(cnm, NULL, NULL);
+    if (!type_eq(type, (typeref_t){
+        .type = (type_t[]){
+            (type_t){ .class = TYPE_LLONG },
+        },
+        .size = 1,
+    })) return false;
+    return true;
+})
+SIMPLE_TEST(test_type_parsing_long3, test_errcb,  "long int", {
+    token_next(cnm);
+    typeref_t type = type_parse(cnm, NULL, NULL);
+    if (!type_eq(type, (typeref_t){
+        .type = (type_t[]){
+            (type_t){ .class = TYPE_LONG },
+        },
+        .size = 1,
+    })) return false;
+    return true;
+})
+SIMPLE_TEST(test_type_parsing_long4, test_errcb,  "long long int", {
+    token_next(cnm);
+    typeref_t type = type_parse(cnm, NULL, NULL);
+    if (!type_eq(type, (typeref_t){
+        .type = (type_t[]){
+            (type_t){ .class = TYPE_LLONG },
+        },
+        .size = 1,
+    })) return false;
+    return true;
+})
+SIMPLE_TEST(test_type_parsing_ulong, test_errcb,  "unsigned long long", {
+    token_next(cnm);
+    typeref_t type = type_parse(cnm, NULL, NULL);
+    if (!type_eq(type, (typeref_t){
+        .type = (type_t[]){
+            (type_t){ .class = TYPE_ULLONG },
+        },
+        .size = 1,
+    })) return false;
+    return true;
+})
+SIMPLE_TEST(test_type_parsing_float, test_errcb,  "float", {
+    token_next(cnm);
+    typeref_t type = type_parse(cnm, NULL, NULL);
+    if (!type_eq(type, (typeref_t){
+        .type = (type_t[]){
+            (type_t){ .class = TYPE_FLOAT },
+        },
+        .size = 1,
+    })) return false;
+    return true;
+})
+SIMPLE_TEST(test_type_parsing_double, test_errcb,  "double", {
+    token_next(cnm);
+    typeref_t type = type_parse(cnm, NULL, NULL);
+    if (!type_eq(type, (typeref_t){
+        .type = (type_t[]){
+            (type_t){ .class = TYPE_DOUBLE },
+        },
+        .size = 1,
+    })) return false;
+    return true;
+})
+SIMPLE_TEST(test_type_parsing3, test_errcb,  "const void *", {
+    token_next(cnm);
+    typeref_t type = type_parse(cnm, NULL, NULL);
+    if (!type_eq(type, (typeref_t){
+        .type = (type_t[]){
+            (type_t){ .class = TYPE_PTR },
+            (type_t){ .class = TYPE_VOID, .isconst = true },
+        },
+        .size = 2,
+    })) return false;
+    return true;
+})
+SIMPLE_TEST(test_type_parsing4, test_errcb,  "int [static 3]", {
+    token_next(cnm);
+    typeref_t type = type_parse(cnm, NULL, NULL);
+    if (!type_eq(type, (typeref_t){
+        .type = (type_t[]){
+            (type_t){ .class = TYPE_ARR, .n = 3, .isstatic = true },
+            (type_t){ .class = TYPE_INT },
+        },
+        .size = 2,
+    })) return false;
+    return true;
+})
 
 ///////////////////////////////////////////////////////////////////////////////
 //
@@ -892,6 +1064,19 @@ static test_t tests[] = {
     TEST(test_type_parsing_short2),
     TEST(test_type_parsing_short3),
     TEST(test_type_parsing_short4),
+    TEST(test_type_parsing_int),
+    TEST(test_type_parsing_uint1),
+    TEST(test_type_parsing_uint2),
+    TEST(test_type_parsing_uint3),
+    TEST(test_type_parsing_long1),
+    TEST(test_type_parsing_long2),
+    TEST(test_type_parsing_long3),
+    TEST(test_type_parsing_long4),
+    TEST(test_type_parsing_ulong),
+    TEST(test_type_parsing_float),
+    TEST(test_type_parsing_double),
+    TEST(test_type_parsing3),
+    TEST(test_type_parsing4),
 };
 
 int main(int argc, char **argv) {
