@@ -705,6 +705,60 @@ SIMPLE_TEST(test_type_parsing2, test_errcb,  "typedef unsigned char u8", {
     })) return false;
     return true;
 })
+SIMPLE_TEST(test_type_parsing_char, test_errcb,  "char", {
+    token_next(cnm);
+    typeref_t type = type_parse(cnm, NULL, NULL);
+    if (!type_eq(type, (typeref_t){
+        .type = (type_t[]){
+            (type_t){ .class = TYPE_CHAR },
+        },
+        .size = 1,
+    })) return false;
+    return true;
+})
+SIMPLE_TEST(test_type_parsing_uchar, test_errcb,  "unsigned char", {
+    token_next(cnm);
+    typeref_t type = type_parse(cnm, NULL, NULL);
+    if (!type_eq(type, (typeref_t){
+        .type = (type_t[]){
+            (type_t){ .class = TYPE_UCHAR },
+        },
+        .size = 1,
+    })) return false;
+    return true;
+})
+SIMPLE_TEST(test_type_parsing_short1, test_errcb,  "short", {
+    token_next(cnm);
+    typeref_t type = type_parse(cnm, NULL, NULL);
+    if (!type_eq(type, (typeref_t){
+        .type = (type_t[]){
+            (type_t){ .class = TYPE_SHORT },
+        },
+        .size = 1,
+    })) return false;
+    return true;
+})
+SIMPLE_TEST(test_type_parsing_short2, test_errcb,  "short int", {
+    token_next(cnm);
+    typeref_t type = type_parse(cnm, NULL, NULL);
+    if (!type_eq(type, (typeref_t){
+        .type = (type_t[]){
+            (type_t){ .class = TYPE_SHORT },
+        },
+        .size = 1,
+    })) return false;
+    return true;
+})
+SIMPLE_TEST(test_type_parsing_short3, test_expect_errcb,  "short short int", {
+    token_next(cnm);
+    type_parse(cnm, NULL, NULL);
+    return test_expect_err;
+})
+SIMPLE_TEST(test_type_parsing_short4, test_expect_errcb,  "short char", {
+    token_next(cnm);
+    type_parse(cnm, NULL, NULL);
+    return test_expect_err;
+})
 
 ///////////////////////////////////////////////////////////////////////////////
 //
@@ -832,6 +886,12 @@ static test_t tests[] = {
     TEST_PADDING,
     TEST(test_type_parsing1),
     TEST(test_type_parsing2),
+    TEST(test_type_parsing_char),
+    TEST(test_type_parsing_uchar),
+    TEST(test_type_parsing_short1),
+    TEST(test_type_parsing_short2),
+    TEST(test_type_parsing_short3),
+    TEST(test_type_parsing_short4),
 };
 
 int main(int argc, char **argv) {
