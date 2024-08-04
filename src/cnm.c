@@ -107,6 +107,10 @@ typedef enum typeclass_e {
     // User made types
     TYPE_STRUCT,    TYPE_ENUM,
     TYPE_UNION,
+
+    // This special type is only used while parsing, and will immediately be
+    // expanded once parsing is over. (compilation step will never see this type)
+    TYPE_TYPEDEF,
 } typeclass_t;
 
 typedef struct type_s {
@@ -1046,7 +1050,235 @@ static inline void type_promote_to_int(typeref_t *ref) {
     if (ref->type[0].class < TYPE_INT) ref->type[0].class = TYPE_INT;
 }
 
+// Helper struct for type_parse_declspec
+typedef struct type_parse_declspec_state_s {
+    bool is_u, is_short, is_fp;
+    bool set_type, set_u;
+    int n_longs;
+} type_parse_declspec_state_t;
+
+static bool type_parse_declspec_multiple_types_err(cnm_t *cnm) {
+    cnm_doerr(cnm, true, "multiple data types in declaration specifiers", "");
+    return false;
+}
+static bool type_parse_declspec_unsigned(cnm_t *cnm, type_t *type, bool *istypedef,
+                                         type_parse_declspec_state_t *state) {
+    // Check if we've already used a signedness specifier
+    if (state->set_u) {
+        if (state->is_u) cnm_doerr(cnm, true, "duplicate unsigned specifiers", "");
+        else cnm_doerr(cnm, true,
+                "conflicting signed and unsigned specifiers", "");
+        return false;
+    }
+
+    // Set qualifiers
+    state->is_u = true;
+    state->set_u = true;
+    token_next(cnm);
+    return true;
+}
+static bool type_parse_declspec_int(cnm_t *cnm, type_t *type, bool *istypedef,
+                                    type_parse_declspec_state_t *state) {
+    if (state->set_type) return type_parse_declspec_multiple_types_err(cnm);
+    state->set_type = true;
+    type->class = TYPE_INT;
+    token_next(cnm);
+    return true;
+}
+static bool type_parse_declspec_double(cnm_t *cnm, type_t *type, bool *istypedef,
+                                       type_parse_declspec_state_t *state) {
+    if (state->set_type) return type_parse_declspec_multiple_types_err(cnm);
+    state->set_type = true;
+    state->is_fp = true;
+    type->class = TYPE_DOUBLE;
+    token_next(cnm);
+    return true;
+}
+static bool type_parse_declspec_float(cnm_t *cnm, type_t *type, bool *istypedef,
+                                      type_parse_declspec_state_t *state) {
+    if (state->set_type) return type_parse_declspec_multiple_types_err(cnm);
+    state->set_type = true;
+    state->is_fp = true;
+    type->class = TYPE_FLOAT;
+    token_next(cnm);
+    return true;
+}
+static bool type_parse_declspec_void(cnm_t *cnm, type_t *type, bool *istypedef,
+                                     type_parse_declspec_state_t *state) {
+    if (state->set_type) return type_parse_declspec_multiple_types_err(cnm);
+    state->set_type = true;
+    state->is_fp = true;
+    type->class = TYPE_VOID;
+    token_next(cnm);
+    return true;
+}
+static bool type_parse_declspec_bool(cnm_t *cnm, type_t *type, bool *istypedef,
+                                    type_parse_declspec_state_t *state) {
+    if (state->set_type) return type_parse_declspec_multiple_types_err(cnm);
+    state->set_type = true;
+    state->is_fp = true;
+    type->class = TYPE_BOOL;
+    token_next(cnm);
+    return true;
+}
+static bool type_parse_declspec_short(cnm_t *cnm, type_t *type, bool *istypedef,
+                                      type_parse_declspec_state_t *state) {
+    if (state->is_short) {
+        cnm_doerr(cnm, true, "duplicate 'short'", "");
+        return false;
+    }
+    if (state->n_longs) {
+        cnm_doerr(cnm, true, "conflicting 'short' and 'long' specifiers", "");
+        return false;
+    }
+    state->is_short = true;
+    token_next(cnm);
+    return true;
+}
+static bool type_parse_declspec_static(cnm_t *cnm, type_t *type, bool *istypedef,
+                                       type_parse_declspec_state_t *state) {
+    if (type->isstatic) {
+        cnm_doerr(cnm, true, "duplicate 'static'", "");
+        return false;
+    }
+    if (type->isextern) {
+        cnm_doerr(cnm, true, "conflicting 'extern' and 'static' qualifiers", "");
+        return false;
+    }
+    type->isstatic = true;
+    token_next(cnm);
+    return true;
+}
+static bool type_parse_declspec_signed(cnm_t *cnm, type_t *type, bool *istypedef,
+                                       type_parse_declspec_state_t *state) {
+    // Check for multiple signedness qualifiers
+    if (state->set_u) {
+        if (!state->is_u) cnm_doerr(cnm, true, "duplicate signed specifiers", "");
+        else cnm_doerr(cnm, true,
+                "conflicting signed and unsigned specifiers", "");
+        return false;
+    }
+
+    state->is_u = false;
+    state->set_u = true;
+    token_next(cnm);
+    return true;
+}
+static bool type_parse_declspec_char(cnm_t *cnm, type_t *type, bool *istypedef,
+                                     type_parse_declspec_state_t *state) {
+    if (state->set_type) return type_parse_declspec_multiple_types_err(cnm);
+    state->set_type = true;
+    type->class = TYPE_CHAR;
+    token_next(cnm);
+    return true;
+}
+static bool type_parse_declspec_const(cnm_t *cnm, type_t *type, bool *istypedef,
+                                      type_parse_declspec_state_t *state) {
+    if (type->isconst) {
+        cnm_doerr(cnm, true, "duplicate 'const'", "");
+        return false;
+    }
+    type->isconst = true;
+    token_next(cnm);
+    return true;
+}
+static bool type_parse_declspec_long(cnm_t *cnm, type_t *type, bool *istypedef,
+                                     type_parse_declspec_state_t *state) {
+    if (state->n_longs == 2) {
+        cnm_doerr(cnm, true, "cnm script only supports up to long long ints", "");
+        return false;
+    }
+    if (state->is_short) {
+        cnm_doerr(cnm, true, "conflicting 'short' and 'long' specifiers", "");
+        return false;
+    }
+    state->n_longs++;
+    token_next(cnm);
+    return true;
+}
+static bool type_parse_declspec_extern(cnm_t *cnm, type_t *type, bool *istypedef,
+                                       type_parse_declspec_state_t *state) {
+    if (type->isextern) {
+        cnm_doerr(cnm, true, "duplicate 'extern'", "");
+        return false;
+    }
+    if (type->isstatic) {
+        cnm_doerr(cnm, true, "conflicting 'extern' and 'static' qualifiers", "");
+        return false;
+    }
+    type->isextern = true;
+    token_next(cnm);
+    return true;
+}
+static bool type_parse_declspec_typedef(cnm_t *cnm, type_t *type, bool *istypedef,
+                                        type_parse_declspec_state_t *state) {
+    if (istypedef && *istypedef) {
+        cnm_doerr(cnm, true, "duplicate 'typedef'", "");
+        return false;
+    }
+    if (istypedef) *istypedef = true;
+    token_next(cnm);
+    return true;
+}
+static bool type_parse_declspec_struct(cnm_t *cnm, type_t *type, bool *istypedef,
+                                       type_parse_declspec_state_t *state) {
+    token_next(cnm);
+    return true;
+}
+static bool type_parse_declspec_enum(cnm_t *cnm, type_t *type, bool *istypedef,
+                                     type_parse_declspec_state_t *state) {
+    token_next(cnm);
+    return true;
+}
+static bool type_parse_declspec_union(cnm_t *cnm, type_t *type, bool *istypedef,
+                                      type_parse_declspec_state_t *state) {
+    token_next(cnm);
+    return true;
+}
+
+typedef bool(*declspec_parser_pfn_t)(cnm_t *cnm, type_t *type, bool *istypedef,
+                                     type_parse_declspec_state_t *state);
+
+// Returns a parser for the declaration specifer where the cnm token is pointing to
+// It will return NULL if cnm token is not pointing at a typedef or declspec
+static declspec_parser_pfn_t cnm_at_declspec(cnm_t *cnm) {
+    // All keywords that are valid for a declaration specifier
+    static const struct {
+        declspec_parser_pfn_t pfn;
+        strview_t word;
+    } keywords[] = {
+        { .pfn = type_parse_declspec_int, .word = SV("int") },
+        { .pfn = type_parse_declspec_bool, .word = SV("bool") },
+        { .pfn = type_parse_declspec_char, .word = SV("char") },
+        { .pfn = type_parse_declspec_enum, .word = SV("enum") },
+        { .pfn = type_parse_declspec_long, .word = SV("long") },
+        { .pfn = type_parse_declspec_void, .word = SV("void") },
+        { .pfn = type_parse_declspec_const, .word = SV("const") },
+        { .pfn = type_parse_declspec_float, .word = SV("float") },
+        { .pfn = type_parse_declspec_short, .word = SV("short") },
+        { .pfn = type_parse_declspec_union, .word = SV("union") },
+        { .pfn = type_parse_declspec_double, .word = SV("double") },
+        { .pfn = type_parse_declspec_extern, .word = SV("extern") },
+        { .pfn = type_parse_declspec_signed, .word = SV("signed") },
+        { .pfn = type_parse_declspec_static, .word = SV("static") },
+        { .pfn = type_parse_declspec_struct, .word = SV("struct") },
+        { .pfn = type_parse_declspec_typedef, .word = SV("typedef") },
+        { .pfn = type_parse_declspec_unsigned, .word = SV("unsigned") },
+    };
+
+    // Look for keywords
+    if (cnm->s.tok.type != TOKEN_IDENT) return NULL;
+    for (int i = 0; i < arrlen(keywords); i++) {
+        if (strview_eq(cnm->s.tok.src, keywords[i].word)) return keywords[i].pfn;
+    }
+
+    // TODO: Look for typedefs
+    return NULL;
+}
+
 // Parses declaration specifiers for a type and store them in type
+// It may also optionally parse a struct, enum, or union definition or declaration
+// and allocate it in the static region.
 static bool type_parse_declspec(cnm_t *cnm, type_t *type, bool *istypedef) {
     *type = (type_t){ .class = TYPE_INT };
 
@@ -1055,180 +1287,18 @@ static bool type_parse_declspec(cnm_t *cnm, type_t *type, bool *istypedef) {
 
     // Start with signed values like most C compilers
     // Since you can have multiple decl specifiers, these kind of 'accumulate'
-    bool is_u = false, is_short = false, is_fp = false;
-    bool set_type = false, set_u = false;
-    int n_longs = 0;
+    type_parse_declspec_state_t state = {0};
 
     // Start consuming declaration specifiers
-    while (cnm->s.tok.type == TOKEN_IDENT) {
-        switch (cnm->s.tok.src.str[0]) {
-        case 'u':
-            // Look for unsigned keyword
-            if (strview_eq(cnm->s.tok.src, SV("unsigned"))) {
-                // Check if we've already used a signedness specifier
-                if (set_u) {
-                    if (is_u) cnm_doerr(cnm, true, "duplicate unsigned specifiers", "");
-                    else cnm_doerr(cnm, true,
-                            "conflicting signed and unsigned specifiers", "");
-                    return false;
-                }
-
-                // Set qualifiers
-                is_u = true;
-                set_u = true;
-                break;
-            }
-            goto end;
-        case 'i':
-            // Check for int
-            if (strview_eq(cnm->s.tok.src, SV("int"))) {
-                if (set_type) goto multiple_types_err;
-                set_type = true;
-                type->class = TYPE_INT;
-                break;
-            }
-            goto end;
-        case 'd':
-            // Check for double
-            if (strview_eq(cnm->s.tok.src, SV("double"))) {
-                if (set_type) goto multiple_types_err;
-                set_type = true;
-                is_fp = true;
-                type->class = TYPE_DOUBLE;
-                break;
-            }
-            goto end;
-        case 'f':
-            // Check for float
-            if (strview_eq(cnm->s.tok.src, SV("float"))) {
-                if (set_type) goto multiple_types_err;
-                set_type = true;
-                is_fp = true;
-                type->class = TYPE_FLOAT;
-                break;
-            }
-            goto end;
-        case 'v':
-            // Check for void
-            if (strview_eq(cnm->s.tok.src, SV("void"))) {
-                if (set_type) goto multiple_types_err;
-                set_type = true;
-                type->class = TYPE_VOID;
-                break;
-            }
-            goto end;
-        case 'b':
-            // Check for bool (psuedo int like type)
-            if (strview_eq(cnm->s.tok.src, SV("bool"))) {
-                if (set_type) goto multiple_types_err;
-                set_type = true;
-                type->class = TYPE_BOOL;
-                break;
-            }
-            goto end;
-        case 's':
-            // Check for short, static and signed
-            if (strview_eq(cnm->s.tok.src, SV("short"))) {
-                if (is_short) {
-                    cnm_doerr(cnm, true, "duplicate 'short'", "");
-                    return false;
-                }
-                if (n_longs) {
-                    cnm_doerr(cnm, true, "conflicting 'short' and 'long' specifiers", "");
-                    return false;
-                }
-                is_short = true;
-                break;
-            } else if (strview_eq(cnm->s.tok.src, SV("static"))) {
-                if (type->isstatic) {
-                    cnm_doerr(cnm, true, "duplicate 'static'", "");
-                    return false;
-                }
-                if (type->isextern) {
-                    cnm_doerr(cnm, true, "conflicting 'extern' and 'static' qualifiers", "");
-                    return false;
-                }
-                type->isstatic = true;
-                break;
-            } else if (strview_eq(cnm->s.tok.src, SV("signed"))) {
-                // Check for multiple signedness qualifiers
-                if (set_u) {
-                    if (!is_u) cnm_doerr(cnm, true, "duplicate signed specifiers", "");
-                    else cnm_doerr(cnm, true,
-                            "conflicting signed and unsigned specifiers", "");
-                    return false;
-                }
-
-                is_u = false;
-                set_u = true;
-                break;
-            }
-            goto end;
-        case 'c':
-            // Check for char and const
-            if (strview_eq(cnm->s.tok.src, SV("char"))) {
-                if (set_type) goto multiple_types_err;
-                set_type = true;
-                type->class = TYPE_CHAR;
-                break;
-            } else if (strview_eq(cnm->s.tok.src, SV("const"))) {
-                if (type->isconst) {
-                    cnm_doerr(cnm, true, "duplicate 'const'", "");
-                    return false;
-                }
-                type->isconst = true;
-                break;
-            }
-            goto end;
-        case 'l':
-            // Check for long
-            if (strview_eq(cnm->s.tok.src, SV("long"))) {
-                if (n_longs == 2) {
-                    cnm_doerr(cnm, true, "cnm script only supports up to long long ints", "");
-                    return false;
-                }
-                if (is_short) {
-                    cnm_doerr(cnm, true, "conflicting 'short' and 'long' specifiers", "");
-                    return false;
-                }
-                n_longs++;
-                break;
-            }
-            goto end;
-        case 'e':
-            // Check for extern
-            if (strview_eq(cnm->s.tok.src, SV("extern"))) {
-                if (type->isextern) {
-                    cnm_doerr(cnm, true, "duplicate 'extern'", "");
-                    return false;
-                }
-                if (type->isstatic) {
-                    cnm_doerr(cnm, true, "conflicting 'extern' and 'static' qualifiers", "");
-                    return false;
-                }
-                type->isextern = true;
-                break;
-            }
-        case 't':
-            if (strview_eq(cnm->s.tok.src, SV("typedef"))) {
-                if (istypedef && *istypedef) {
-                    cnm_doerr(cnm, true, "duplicate 'typedef'", "");
-                    return false;
-                }
-                if (istypedef) *istypedef = true;
-                break;
-            }
-            goto end;
-        default:
-            goto end;
-        }
-
-        token_next(cnm);
+    declspec_parser_pfn_t parser;
+    while ((parser = cnm_at_declspec(cnm))) {
+        if (!parser(cnm, type, istypedef, &state)) return false;
     }
 
+    // Validate state and make integers unsigned
 end:
     // short keyword can only be used on int type
-    if (is_short) {
+    if (state.is_short) {
         if (type->class != TYPE_INT) {
             cnm_doerr(cnm, true, "used non int type with short specifier", "");
             return false;
@@ -1237,23 +1307,23 @@ end:
     }
 
     // long keyword can only be used on int type
-    if (n_longs) {
+    if (state.n_longs) {
         if (type->class != TYPE_INT) {
             cnm_doerr(cnm, true, "used non int type with long specifier", "");
             return false;
         }
-        if (n_longs == 1) type->class = TYPE_LONG;
+        if (state.n_longs == 1) type->class = TYPE_LONG;
         else type->class = TYPE_LLONG;
     }
 
     // Can't use signedness qualifiers on floating point types or booleans
-    if (set_u && (is_fp || type->class == TYPE_BOOL)) {
+    if (state.set_u && (type->class < TYPE_CHAR || type->class > TYPE_ULLONG)) {
         cnm_doerr(cnm, true, "used non int type with signed specifiers", "");
         return false;
     }
 
     // Make type unsigned if nessesary
-    if (is_u) {
+    if (state.is_u) {
         switch (type->class) {
         case TYPE_CHAR: type->class = TYPE_UCHAR; break;
         case TYPE_SHORT: type->class = TYPE_USHORT; break;
@@ -1266,10 +1336,6 @@ end:
     }
 
     return true;
-
-multiple_types_err:
-    cnm_doerr(cnm, true, "multiple data types in declaration specifiers", "");
-    return false;
 }
 
 // Parse only qualifiers and not type specifiers for type.
