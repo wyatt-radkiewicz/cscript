@@ -984,6 +984,31 @@ static bool type_is_unsigned(const typeref_t ref) {
     }
 }
 
+// Checks whether 2 type refrences are equal or not (ignoring top level qualifiers)
+// There is a to and from because types can be equal if you are going from
+// non-const types to const types but not visa-versa
+static bool type_eq(const typeref_t a, const typeref_t b) {
+    // If sizes aren't equal, can skip rest
+    if (a.size != b.size) return false;
+
+    for (int i = 0; i < a.size; i++) {
+        // Check class
+        if (a.type[i].class != b.type[i].class) return false;
+
+        // Check constness (if not on top level)
+        if (i && a.type[i].isconst != b.type[i].isconst) return false;
+
+        // Check for storage qualifiers
+        if (a.type[i].isstatic != b.type[i].isstatic
+            || a.type[i].isextern != b.type[i].isextern) return false;
+
+        // Check for number
+        if (a.type[i].n != b.type[i].n) return false;
+    }
+
+    return true;
+}
+
 // Promotes a type to atleast type of int. Behavior is undefined if the type is
 // not already an arithmetic type
 static inline void type_promote_to_int(typeref_t *ref) {
@@ -1160,6 +1185,7 @@ static bool type_parse_declspec(cnm_t *cnm, type_t *type, bool *istypedef) {
                     return false;
                 }
                 if (istypedef) *istypedef = true;
+                break;
             }
             goto end;
         default:
@@ -1217,7 +1243,7 @@ multiple_types_err:
 
 // Parse only qualifiers and not type specifiers for type.
 // This means only parsing const, static, or extern
-static bool type_parse_qual_only(cnm_t *cnm, type_t *type) {
+static bool type_parse_qual_only(cnm_t *cnm, type_t *type, bool const_only) {
     type->isconst = false;
     type->isstatic = false;
     type->isextern = false;
@@ -1250,9 +1276,16 @@ static bool type_parse_qual_only(cnm_t *cnm, type_t *type) {
                 return false;
             }
             type->isextern = true;
+        } else {
+            break;
         }
 
         token_next(cnm);
+    }
+
+    if (const_only && (type->isextern || type->isstatic)) {
+        cnm_doerr(cnm, true, "did not expect storage class specifiers", "");
+        return false;
     }
 
     return true;
@@ -1293,13 +1326,15 @@ static typeref_t type_parse(cnm_t *cnm, strview_t *name, bool *istypedef) {
     int nptrs[8];
     int grp = 0, base_ptr = 0;
 
+    nptrs[grp] = 0;
+
     // Consume groupings and pointers
     while (true) {
         if (cnm->s.tok.type == TOKEN_STAR) {
             type_t *ptr = &ptrs[base_ptr + nptrs[grp]++];
             *ptr = (type_t){ .class = TYPE_PTR };
             token_next(cnm);
-            if (!type_parse_qual_only(cnm, ptr)) goto return_error;
+            if (!type_parse_qual_only(cnm, ptr, true)) goto return_error;
         } else if (cnm->s.tok.type == TOKEN_PAREN_L) {
             if (grp + 1 >= arrlen(nptrs)) {
                 cnm_doerr(cnm, true, "too many grouping tokens in this type", "");
@@ -1330,7 +1365,7 @@ static typeref_t type_parse(cnm_t *cnm, strview_t *name, bool *istypedef) {
 
             // Goto array size parameter/type qualifiers
             token_next(cnm);
-            type_parse_qual_only(cnm, type);
+            type_parse_qual_only(cnm, type, true);
             if (cnm->s.tok.type == TOKEN_BRACK_R) {
                 token_next(cnm);
                 continue;
