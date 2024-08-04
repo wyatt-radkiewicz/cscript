@@ -1051,92 +1051,93 @@ static inline void type_promote_to_int(typeref_t *ref) {
 }
 
 // Helper struct for type_parse_declspec
-typedef struct type_parse_declspec_state_s {
-    bool is_u, is_short, is_fp;
-    bool set_type, set_u;
-    int n_longs;
-} type_parse_declspec_state_t;
+typedef struct declspec_options_s {
+    bool is_u, is_short, is_fp; // flags for type
+    bool set_type, set_u; // whether or not the type or signedness was already set
+    int n_longs; // number of long keywords processed
+    strview_t ident; // optional: used for typedefs
+} declspec_options_t;
 
 static bool type_parse_declspec_multiple_types_err(cnm_t *cnm) {
     cnm_doerr(cnm, true, "multiple data types in declaration specifiers", "");
     return false;
 }
 static bool type_parse_declspec_unsigned(cnm_t *cnm, type_t *type, bool *istypedef,
-                                         type_parse_declspec_state_t *state) {
+                                         declspec_options_t *options) {
     // Check if we've already used a signedness specifier
-    if (state->set_u) {
-        if (state->is_u) cnm_doerr(cnm, true, "duplicate unsigned specifiers", "");
+    if (options->set_u) {
+        if (options->is_u) cnm_doerr(cnm, true, "duplicate unsigned specifiers", "");
         else cnm_doerr(cnm, true,
                 "conflicting signed and unsigned specifiers", "");
         return false;
     }
 
     // Set qualifiers
-    state->is_u = true;
-    state->set_u = true;
+    options->is_u = true;
+    options->set_u = true;
     token_next(cnm);
     return true;
 }
 static bool type_parse_declspec_int(cnm_t *cnm, type_t *type, bool *istypedef,
-                                    type_parse_declspec_state_t *state) {
-    if (state->set_type) return type_parse_declspec_multiple_types_err(cnm);
-    state->set_type = true;
+                                    declspec_options_t *options) {
+    if (options->set_type) return type_parse_declspec_multiple_types_err(cnm);
+    options->set_type = true;
     type->class = TYPE_INT;
     token_next(cnm);
     return true;
 }
 static bool type_parse_declspec_double(cnm_t *cnm, type_t *type, bool *istypedef,
-                                       type_parse_declspec_state_t *state) {
-    if (state->set_type) return type_parse_declspec_multiple_types_err(cnm);
-    state->set_type = true;
-    state->is_fp = true;
+                                       declspec_options_t *options) {
+    if (options->set_type) return type_parse_declspec_multiple_types_err(cnm);
+    options->set_type = true;
+    options->is_fp = true;
     type->class = TYPE_DOUBLE;
     token_next(cnm);
     return true;
 }
 static bool type_parse_declspec_float(cnm_t *cnm, type_t *type, bool *istypedef,
-                                      type_parse_declspec_state_t *state) {
-    if (state->set_type) return type_parse_declspec_multiple_types_err(cnm);
-    state->set_type = true;
-    state->is_fp = true;
+                                      declspec_options_t *options) {
+    if (options->set_type) return type_parse_declspec_multiple_types_err(cnm);
+    options->set_type = true;
+    options->is_fp = true;
     type->class = TYPE_FLOAT;
     token_next(cnm);
     return true;
 }
 static bool type_parse_declspec_void(cnm_t *cnm, type_t *type, bool *istypedef,
-                                     type_parse_declspec_state_t *state) {
-    if (state->set_type) return type_parse_declspec_multiple_types_err(cnm);
-    state->set_type = true;
-    state->is_fp = true;
+                                     declspec_options_t *options) {
+    if (options->set_type) return type_parse_declspec_multiple_types_err(cnm);
+    options->set_type = true;
+    options->is_fp = true;
     type->class = TYPE_VOID;
     token_next(cnm);
     return true;
 }
 static bool type_parse_declspec_bool(cnm_t *cnm, type_t *type, bool *istypedef,
-                                    type_parse_declspec_state_t *state) {
-    if (state->set_type) return type_parse_declspec_multiple_types_err(cnm);
-    state->set_type = true;
-    state->is_fp = true;
+                                    declspec_options_t *options) {
+    if (options->set_type) return type_parse_declspec_multiple_types_err(cnm);
+    options->set_type = true;
+    options->is_fp = true;
     type->class = TYPE_BOOL;
     token_next(cnm);
     return true;
 }
 static bool type_parse_declspec_short(cnm_t *cnm, type_t *type, bool *istypedef,
-                                      type_parse_declspec_state_t *state) {
-    if (state->is_short) {
+                                      declspec_options_t *options) {
+    if (options->is_short) {
         cnm_doerr(cnm, true, "duplicate 'short'", "");
         return false;
     }
-    if (state->n_longs) {
+    if (options->n_longs) {
         cnm_doerr(cnm, true, "conflicting 'short' and 'long' specifiers", "");
         return false;
     }
-    state->is_short = true;
+    options->is_short = true;
     token_next(cnm);
     return true;
 }
 static bool type_parse_declspec_static(cnm_t *cnm, type_t *type, bool *istypedef,
-                                       type_parse_declspec_state_t *state) {
+                                       declspec_options_t *options) {
     if (type->isstatic) {
         cnm_doerr(cnm, true, "duplicate 'static'", "");
         return false;
@@ -1150,30 +1151,30 @@ static bool type_parse_declspec_static(cnm_t *cnm, type_t *type, bool *istypedef
     return true;
 }
 static bool type_parse_declspec_signed(cnm_t *cnm, type_t *type, bool *istypedef,
-                                       type_parse_declspec_state_t *state) {
+                                       declspec_options_t *options) {
     // Check for multiple signedness qualifiers
-    if (state->set_u) {
-        if (!state->is_u) cnm_doerr(cnm, true, "duplicate signed specifiers", "");
+    if (options->set_u) {
+        if (!options->is_u) cnm_doerr(cnm, true, "duplicate signed specifiers", "");
         else cnm_doerr(cnm, true,
                 "conflicting signed and unsigned specifiers", "");
         return false;
     }
 
-    state->is_u = false;
-    state->set_u = true;
+    options->is_u = false;
+    options->set_u = true;
     token_next(cnm);
     return true;
 }
 static bool type_parse_declspec_char(cnm_t *cnm, type_t *type, bool *istypedef,
-                                     type_parse_declspec_state_t *state) {
-    if (state->set_type) return type_parse_declspec_multiple_types_err(cnm);
-    state->set_type = true;
+                                     declspec_options_t *options) {
+    if (options->set_type) return type_parse_declspec_multiple_types_err(cnm);
+    options->set_type = true;
     type->class = TYPE_CHAR;
     token_next(cnm);
     return true;
 }
 static bool type_parse_declspec_const(cnm_t *cnm, type_t *type, bool *istypedef,
-                                      type_parse_declspec_state_t *state) {
+                                      declspec_options_t *options) {
     if (type->isconst) {
         cnm_doerr(cnm, true, "duplicate 'const'", "");
         return false;
@@ -1183,21 +1184,21 @@ static bool type_parse_declspec_const(cnm_t *cnm, type_t *type, bool *istypedef,
     return true;
 }
 static bool type_parse_declspec_long(cnm_t *cnm, type_t *type, bool *istypedef,
-                                     type_parse_declspec_state_t *state) {
-    if (state->n_longs == 2) {
+                                     declspec_options_t *options) {
+    if (options->n_longs == 2) {
         cnm_doerr(cnm, true, "cnm script only supports up to long long ints", "");
         return false;
     }
-    if (state->is_short) {
+    if (options->is_short) {
         cnm_doerr(cnm, true, "conflicting 'short' and 'long' specifiers", "");
         return false;
     }
-    state->n_longs++;
+    options->n_longs++;
     token_next(cnm);
     return true;
 }
 static bool type_parse_declspec_extern(cnm_t *cnm, type_t *type, bool *istypedef,
-                                       type_parse_declspec_state_t *state) {
+                                       declspec_options_t *options) {
     if (type->isextern) {
         cnm_doerr(cnm, true, "duplicate 'extern'", "");
         return false;
@@ -1211,7 +1212,7 @@ static bool type_parse_declspec_extern(cnm_t *cnm, type_t *type, bool *istypedef
     return true;
 }
 static bool type_parse_declspec_typedef(cnm_t *cnm, type_t *type, bool *istypedef,
-                                        type_parse_declspec_state_t *state) {
+                                        declspec_options_t *options) {
     if (istypedef && *istypedef) {
         cnm_doerr(cnm, true, "duplicate 'typedef'", "");
         return false;
@@ -1221,23 +1222,28 @@ static bool type_parse_declspec_typedef(cnm_t *cnm, type_t *type, bool *istypede
     return true;
 }
 static bool type_parse_declspec_struct(cnm_t *cnm, type_t *type, bool *istypedef,
-                                       type_parse_declspec_state_t *state) {
+                                       declspec_options_t *options) {
     token_next(cnm);
     return true;
 }
 static bool type_parse_declspec_enum(cnm_t *cnm, type_t *type, bool *istypedef,
-                                     type_parse_declspec_state_t *state) {
+                                     declspec_options_t *options) {
     token_next(cnm);
     return true;
 }
 static bool type_parse_declspec_union(cnm_t *cnm, type_t *type, bool *istypedef,
-                                      type_parse_declspec_state_t *state) {
+                                      declspec_options_t *options) {
     token_next(cnm);
     return true;
 }
+static bool type_parse_declspec_ident(cnm_t *cnm, type_t *type, bool *istypedef,
+                                      declspec_options_t *options) {
+    // TODO: Look for typedefs
+    return false;
+}
 
 typedef bool(*declspec_parser_pfn_t)(cnm_t *cnm, type_t *type, bool *istypedef,
-                                     type_parse_declspec_state_t *state);
+                                     declspec_options_t *options);
 
 // Returns a parser for the declaration specifer where the cnm token is pointing to
 // It will return NULL if cnm token is not pointing at a typedef or declspec
@@ -1272,33 +1278,20 @@ static declspec_parser_pfn_t cnm_at_declspec(cnm_t *cnm) {
         if (strview_eq(cnm->s.tok.src, keywords[i].word)) return keywords[i].pfn;
     }
 
-    // TODO: Look for typedefs
+    // Look for typedefs
+    for (typedef_t *def = cnm->type.typedefs; def; def = def->next) {
+        if (!strview_eq(def->name, cnm->s.tok.src)) continue;
+        return type_parse_declspec_ident;
+    }
+
+    // Unknown identifier
     return NULL;
 }
 
-// Parses declaration specifiers for a type and store them in type
-// It may also optionally parse a struct, enum, or union definition or declaration
-// and allocate it in the static region.
-static bool type_parse_declspec(cnm_t *cnm, type_t *type, bool *istypedef) {
-    *type = (type_t){ .class = TYPE_INT };
-
-    // Assume like any other compiler that a type is not a typedef
-    if (istypedef) *istypedef = false;
-
-    // Start with signed values like most C compilers
-    // Since you can have multiple decl specifiers, these kind of 'accumulate'
-    type_parse_declspec_state_t state = {0};
-
-    // Start consuming declaration specifiers
-    declspec_parser_pfn_t parser;
-    while ((parser = cnm_at_declspec(cnm))) {
-        if (!parser(cnm, type, istypedef, &state)) return false;
-    }
-
-    // Validate state and make integers unsigned
-end:
+// Validate state and make integers unsigned
+static bool declspec_apply_options(cnm_t *cnm, type_t *type, declspec_options_t *options) {
     // short keyword can only be used on int type
-    if (state.is_short) {
+    if (options->is_short) {
         if (type->class != TYPE_INT) {
             cnm_doerr(cnm, true, "used non int type with short specifier", "");
             return false;
@@ -1307,23 +1300,29 @@ end:
     }
 
     // long keyword can only be used on int type
-    if (state.n_longs) {
+    if (options->n_longs) {
         if (type->class != TYPE_INT) {
             cnm_doerr(cnm, true, "used non int type with long specifier", "");
             return false;
         }
-        if (state.n_longs == 1) type->class = TYPE_LONG;
+        if (options->n_longs == 1) type->class = TYPE_LONG;
         else type->class = TYPE_LLONG;
     }
 
     // Can't use signedness qualifiers on floating point types or booleans
-    if (state.set_u && (type->class < TYPE_CHAR || type->class > TYPE_ULLONG)) {
+    if (options->set_u && (type->class < TYPE_CHAR || type->class > TYPE_ULLONG)) {
         cnm_doerr(cnm, true, "used non int type with signed specifiers", "");
         return false;
     }
 
+    // Did we use unsigned on an already unsigned 
+    if (options->set_u && type_is_unsigned((typeref_t){ .type = type, .size = 1, })) {
+        cnm_doerr(cnm, true, "used unsigned on already unsigned type", "");
+        return false;
+    }
+
     // Make type unsigned if nessesary
-    if (state.is_u) {
+    if (options->is_u) {
         switch (type->class) {
         case TYPE_CHAR: type->class = TYPE_UCHAR; break;
         case TYPE_SHORT: type->class = TYPE_USHORT; break;
@@ -1333,6 +1332,36 @@ end:
         default:
             break;
         }
+    }
+
+    return true;
+}
+
+// Parses declaration specifiers for a type and store them in type
+// It may also optionally parse a struct, enum, or union definition or declaration
+// and allocate it in the static region.
+static bool type_parse_declspec(cnm_t *cnm, type_t *type, bool *istypedef,
+                                declspec_options_t *options) {
+    *type = (type_t){ .class = TYPE_INT };
+
+    // Assume like any other compiler that a type is not a typedef
+    if (istypedef) *istypedef = false;
+
+    // Start with signed values like most C compilers
+    // Since you can have multiple decl specifiers, these kind of 'accumulate'
+    *options = (declspec_options_t){0};
+
+    // Start consuming declaration specifiers
+    bool no_keywords = true;
+    declspec_parser_pfn_t parser;
+    while ((parser = cnm_at_declspec(cnm))) {
+        if (!parser(cnm, type, istypedef, options)) return false;
+        no_keywords = false;
+    }
+
+    if (no_keywords) {
+        cnm_doerr(cnm, true, "use of undeclared identifier", "");
+        return false;
     }
 
     return true;
@@ -1407,7 +1436,8 @@ static typeref_t type_parse_ex(cnm_t *cnm, strview_t *name, bool *istypedef, boo
 
     // Base type that the 'derived' types refrence
     type_t base;
-    if (!type_parse_declspec(cnm, &base, istypedef)) goto return_error;
+    declspec_options_t base_options;
+    if (!type_parse_declspec(cnm, &base, istypedef, &base_options)) goto return_error;
 
     // Save pointers processed and what 'group' we are on here so we can
     // parse with the correct associativity and precedence
@@ -1558,6 +1588,9 @@ static typeref_t type_parse_ex(cnm_t *cnm, strview_t *name, bool *istypedef, boo
     // Add the base type on
     if (!cnm_alloc(cnm, sizeof(type_t), 1)) goto return_error;
     ref.type[ref.size++] = base;
+    if (!declspec_apply_options(cnm, ref.type + ref.size - 1, &base_options)) {
+        goto return_error;
+    }
     
     return ref;
 return_error:
