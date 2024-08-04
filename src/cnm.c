@@ -985,13 +985,26 @@ static bool type_is_unsigned(const typeref_t ref) {
 }
 
 // Checks whether 2 type refrences are equal or not (ignoring top level qualifiers)
-// There is a to and from because types can be equal if you are going from
-// non-const types to const types but not visa-versa
 static bool type_eq(const typeref_t a, const typeref_t b) {
     // If sizes aren't equal, can skip rest
     if (a.size != b.size) return false;
 
+    // Check function returns as their own type
+    int nparams = -1;
+
     for (int i = 0; i < a.size; i++) {
+        // Equate function return
+        if (nparams == 0) {
+            size_t size = a.size - i;
+            return type_eq((typeref_t){
+                    .type = a.type + i,
+                    .size = size,
+                }, (typeref_t){
+                    .type = b.type + i,
+                    .size = size,
+                });
+        }
+
         // Check class
         if (a.type[i].class != b.type[i].class) return false;
 
@@ -1004,6 +1017,24 @@ static bool type_eq(const typeref_t a, const typeref_t b) {
 
         // Check for number
         if (a.type[i].n != b.type[i].n) return false;
+
+        // Get number of levels left in the function so we can test return as
+        // its own type and equate function arguments as their own type
+        if (a.type[i].class == TYPE_FN) {
+            nparams = a.type[i].n;
+        } else if (a.type[i].class == TYPE_FN_ARG) {
+            // Equate function arguments
+            size_t size = a.type[i].n;
+            if (!type_eq((typeref_t){
+                    .type = a.type + i + 1,
+                    .size = size,
+                }, (typeref_t){
+                    .type = b.type + i + 1,
+                    .size = size,
+                })) return false;
+            i += size;
+            --nparams;
+        }
     }
 
     return true;
@@ -1301,20 +1332,12 @@ static bool type_parse_add_ref_pointers(cnm_t *cnm, typeref_t *ref, type_t *ptrs
     return true;
 }
 
-// Parses a type currently pointed to in the source by the current token
-// Will store the name associated with this type optionally into name and can
-// store a boolean of whether or not the typedef keyword was used
-// Allocates information for this type on the state stack region (local)
-// Will allocate new structure info on the state stack static region (static)
-// If an error occurred, it will return a NULL, 0 sized type refrence
-static typeref_t type_parse(cnm_t *cnm, strview_t *name, bool *istypedef) {
-    // Alloc the first part of the type buffer
-    type_t *buf = cnm_alloc(cnm, sizeof(type_t), sizeof(type_t));
-    if (!buf) goto return_error;
-    typeref_t ref = {
-        .type = buf,
-        .size = 0,
-    };
+// Helper for type_parse function that will change depending on whether or not
+// it is a function parameter
+static typeref_t type_parse_ex(cnm_t *cnm, strview_t *name, bool *istypedef, bool isparam) {
+    // First align the allocation area
+    typeref_t ref = { .type = cnm_alloc(cnm, 0, sizeof(type_t)) };
+    if (!ref.type) goto return_error;
 
     // Base type that the 'derived' types refrence
     type_t base;
@@ -1341,7 +1364,7 @@ static typeref_t type_parse(cnm_t *cnm, strview_t *name, bool *istypedef) {
                 goto return_error;
             }
             base_ptr += nptrs[grp];
-            grp++;
+            nptrs[++grp] = 0;
             token_next(cnm);
         } else {
             // Either variable name or start of array/function pointer section
@@ -1361,11 +1384,12 @@ static typeref_t type_parse(cnm_t *cnm, strview_t *name, bool *istypedef) {
             // Create new type layer and set it to array
             if (!cnm_alloc(cnm, sizeof(type_t), 1)) goto return_error;
             type_t *type = ref.type + ref.size++;
-            type->class = TYPE_ARR;
+            *type = (type_t){ .class = TYPE_ARR };
+            if (isparam) type->class = TYPE_PTR;
 
             // Goto array size parameter/type qualifiers
             token_next(cnm);
-            type_parse_qual_only(cnm, type, false);
+            type_parse_qual_only(cnm, type, !isparam);
             if (cnm->s.tok.type == TOKEN_BRACK_R) {
                 token_next(cnm);
                 continue;
@@ -1418,7 +1442,7 @@ static typeref_t type_parse(cnm_t *cnm, strview_t *name, bool *istypedef) {
                 *arg = (type_t){ .class = TYPE_FN_ARG };
                
                 bool is_arg_typedef;
-                typeref_t argref = type_parse(cnm, NULL, &is_arg_typedef);
+                typeref_t argref = type_parse_ex(cnm, NULL, &is_arg_typedef, true);
                 if (!argref.type) goto return_error;
                 if (!argref.size) {
                     cnm_doerr(cnm, true, "expected function parameter", "");
@@ -1431,6 +1455,7 @@ static typeref_t type_parse(cnm_t *cnm, strview_t *name, bool *istypedef) {
                 
                 // Set the argument's header's length
                 arg->n = argref.size;
+                ref.size += argref.size;
 
                 if (cnm->s.tok.type == TOKEN_COMMA) {
                     if (token_next(cnm)->type == TOKEN_PAREN_R) {
@@ -1471,6 +1496,16 @@ static typeref_t type_parse(cnm_t *cnm, strview_t *name, bool *istypedef) {
     return ref;
 return_error:
     return (typeref_t){0};
+}
+
+// Parses a type currently pointed to in the source by the current token
+// Will store the name associated with this type optionally into name and can
+// store a boolean of whether or not the typedef keyword was used
+// Allocates information for this type on the state stack region (local)
+// Will allocate new structure info on the state stack static region (static)
+// If an error occurred, it will return a NULL, 0 sized type refrence
+static typeref_t type_parse(cnm_t *cnm, strview_t *name, bool *istypedef) {
+    return type_parse_ex(cnm, name, istypedef, false);
 }
 
 // Allocates an AST on the state stack for the current expression.

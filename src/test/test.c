@@ -828,6 +828,7 @@ SIMPLE_TEST(test_type_parsing_uint3, test_errcb,  "const unsigned", {
         },
         .size = 1,
     })) return false;
+    if (!type.type[0].isconst) return false;
     return true;
 })
 SIMPLE_TEST(test_type_parsing_long1, test_errcb,  "long", {
@@ -919,17 +920,63 @@ SIMPLE_TEST(test_type_parsing3, test_errcb,  "const void *", {
     })) return false;
     return true;
 })
-SIMPLE_TEST(test_type_parsing4, test_errcb,  "int [static 3]", {
+SIMPLE_TEST(test_type_parsing4, test_expect_errcb,  "int [static 3]", {
+    token_next(cnm);
+    type_parse(cnm, NULL, NULL);
+    return test_expect_err;
+})
+SIMPLE_TEST(test_type_parsing5, test_errcb,  "const char *(* const)[][3]", {
     token_next(cnm);
     typeref_t type = type_parse(cnm, NULL, NULL);
     if (!type_eq(type, (typeref_t){
         .type = (type_t[]){
-            (type_t){ .class = TYPE_ARR, .n = 3, .isstatic = true },
+            (type_t){ .class = TYPE_PTR, .isconst = true },
+            (type_t){ .class = TYPE_ARR },
+            (type_t){ .class = TYPE_ARR, .n = 3 },
+            (type_t){ .class = TYPE_PTR },
+            (type_t){ .class = TYPE_CHAR, .isconst = true },
+        },
+        .size = 5,
+    })) return false;
+    if (!type.type[0].isconst) return false;
+    return true;
+})
+SIMPLE_TEST(test_type_parsing6, test_errcb,  "int *(*get_int)(char x[], bool z)", {
+    token_next(cnm);
+    typeref_t type = type_parse(cnm, NULL, NULL);
+    if (!type_eq(type, (typeref_t){
+        .type = (type_t[]){
+            (type_t){ .class = TYPE_PTR, .isconst = true },
+            (type_t){ .class = TYPE_FN, .n = 2 },
+            (type_t){ .class = TYPE_FN_ARG, .n = 2 },
+            (type_t){ .class = TYPE_PTR },
+            (type_t){ .class = TYPE_CHAR },
+            (type_t){ .class = TYPE_FN_ARG, .n = 1 },
+            (type_t){ .class = TYPE_BOOL, .isconst = true },
+            (type_t){ .class = TYPE_PTR, .isconst = true },
             (type_t){ .class = TYPE_INT },
         },
-        .size = 2,
+        .size = 9,
     })) return false;
     return true;
+})
+SIMPLE_TEST(test_type_parsing7, test_errcb,  "int *(*get_int)(char x[], bool z)", {
+    token_next(cnm);
+    typeref_t type = type_parse(cnm, NULL, NULL);
+    return !type_eq(type, (typeref_t){
+        .type = (type_t[]){
+            (type_t){ .class = TYPE_PTR, .isconst = true },
+            (type_t){ .class = TYPE_FN, .n = 2 },
+            (type_t){ .class = TYPE_FN_ARG, .n = 2 },
+            (type_t){ .class = TYPE_PTR },
+            (type_t){ .class = TYPE_CHAR, .isconst = true },
+            (type_t){ .class = TYPE_FN_ARG, .n = 1 },
+            (type_t){ .class = TYPE_BOOL, .isconst = true },
+            (type_t){ .class = TYPE_PTR, .isconst = true },
+            (type_t){ .class = TYPE_INT },
+        },
+        .size = 9,
+    });
 })
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -1077,6 +1124,9 @@ static test_t tests[] = {
     TEST(test_type_parsing_double),
     TEST(test_type_parsing3),
     TEST(test_type_parsing4),
+    TEST(test_type_parsing5),
+    TEST(test_type_parsing6),
+    TEST(test_type_parsing7),
 };
 
 int main(int argc, char **argv) {
