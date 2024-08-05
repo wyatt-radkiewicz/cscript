@@ -1641,6 +1641,6 @@ int main(int argc, char **argv) {
 
     munmap(test_code_area, test_code_size);
 
-    return 0;
+    return passed != ntests;
 }
 
