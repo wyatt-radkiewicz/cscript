@@ -376,10 +376,11 @@ static void cnm_doerr(cnm_t *cnm, bool critical, const char *desc, const char *c
     if (!cnm->cb.err) return;
 
     // Print header
-    int len = snprintf(buf, sizeof(buf), "error: %s\n"
+    int len = snprintf(buf, sizeof(buf), "%s: %s\n"
                                          "  --> %s:%d:%d\n"
                                          "   |\n"
                                          "%-3d|  ",
+                                         critical ? "error" : "warning",
                                          desc, cnm->s.fname,
                                          cnm->s.tok.start.row, cnm->s.tok.start.col,
                                          cnm->s.tok.start.row);
@@ -1357,6 +1358,7 @@ static bool type_parse_declspec_struct(cnm_t *cnm, type_t *type, bool *istypedef
 
         // Get the type data
         bool istypedef;
+        const userty_t *const old_typtr = cnm->type.types;
         f->type = type_parse(cnm, &f->name, &istypedef);
         if (istypedef) {
             cnm_doerr(cnm, true, "can not have typedef in struct field", "");
@@ -1366,6 +1368,9 @@ static bool type_parse_declspec_struct(cnm_t *cnm, type_t *type, bool *istypedef
             // TODO: Make error talk about undefined types as well?
             cnm_doerr(cnm, true, "can not have 0 sized type in struct field", "");
             return false;
+        }
+        if (!f->name.str && old_typtr == cnm->type.types) {
+            cnm_doerr(cnm, false, "declaration does not declare name", "");
         }
 
         // Move type data to static region
@@ -1388,6 +1393,11 @@ static bool type_parse_declspec_struct(cnm_t *cnm, type_t *type, bool *istypedef
             return false;
         }
         token_next(cnm);
+    }
+
+    if (!s->fields) {
+        cnm_doerr(cnm, true, "can not have structure with no fields", "");
+        return false;
     }
 
     // Align the struct size to the alignment size
@@ -1504,6 +1514,11 @@ static bool type_parse_declspec_enum(cnm_t *cnm, type_t *type, bool *istypedef,
         if (cnm->s.tok.type == TOKEN_COMMA) token_next(cnm);
     }
 
+    if (!e->nvariants) {
+        cnm_doerr(cnm, true, "can not have enum with no fields", "");
+        return false;
+    }
+
     token_next(cnm);
     return true;
 }
@@ -1516,6 +1531,8 @@ static bool type_parse_declspec_union(cnm_t *cnm, type_t *type, bool *istypedef,
     if (!u) return true;
     token_next(cnm);
     // u now points to a new struct that we must fill out the members of
+
+    bool any_fields = false;
 
     // Now calculate union size. Don't process fields since you can access
     // union fields anyways in cnm script.
@@ -1550,8 +1567,15 @@ static bool type_parse_declspec_union(cnm_t *cnm, type_t *type, bool *istypedef,
             return false;
         }
         token_next(cnm);
+
+        any_fields = true;
     }
 
+    if (!any_fields) {
+        cnm_doerr(cnm, true, "can not have union with no fields", "");
+        return false;
+    }
+    
     token_next(cnm);
     return true;
 }

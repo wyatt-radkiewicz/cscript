@@ -10,7 +10,7 @@ static void *test_code_area;
 static size_t test_code_size;
 
 static void test_errcb(int line, const char *verbose, const char *simple) {
-    printf("%s", verbose);
+    printf("\n%s", verbose);
 }
 static bool test_expect_err = false;
 static void test_expect_errcb(int line, const char *v, const char *s) {
@@ -1323,6 +1323,131 @@ SIMPLE_TEST(test_typedef_parsing6, test_errcb,
 
     return true;
 })
+SIMPLE_TEST(test_typedef_parsing7, test_errcb,
+        "struct SNU {\n"
+        "    int a;\n"
+        "    struct {\n"
+        "        int foo;\n"
+        "        char baz[3];\n"
+        "    };\n"
+        "    char;\n"
+        "} EBE \n", {
+    token_next(cnm);
+    strview_t name;
+    typeref_t ref = type_parse(cnm, &name, NULL);
+    if (!strview_eq(name, SV("EBE"))) return DOFAIL();
+    if (!type_eq(ref, (typeref_t){
+        .type = (type_t[]){
+            (type_t){ .class = TYPE_USER, .n = 0 },
+        },
+        .size = 1,
+    })) return DOFAIL();
+
+    // struct "anonymous"
+    userty_t *t = cnm->type.types;
+    if (!t) return DOFAIL();
+    struct_t *s = (struct_t *)t->data;
+    field_t *f = s->fields;
+    if (t->inf.size != 8) return DOFAIL();
+    if (t->inf.align != 4) return DOFAIL();
+    if (t->name.str) return DOFAIL();
+    if (t->typeid != 1) return DOFAIL();
+
+    // foo::b::baz
+    if (!f) return DOFAIL();
+    if (!strview_eq(f->name, SV("baz"))) return DOFAIL();
+    if (f->offs != 4) return DOFAIL();
+    if (!type_eq(f->type, (typeref_t){
+        .type = (type_t[]){
+            (type_t){ .class = TYPE_ARR, .n = 3 },
+            (type_t){ .class = TYPE_CHAR },
+        },
+        .size = 2,
+    })) return DOFAIL();
+    f = f->next;
+
+    // foo::b::foo
+    if (!f) return DOFAIL();
+    if (!strview_eq(f->name, SV("foo"))) return DOFAIL();
+    if (f->offs != 0) return DOFAIL();
+    if (!type_eq(f->type, (typeref_t){
+        .type = (type_t[]){
+            (type_t){ .class = TYPE_INT },
+        },
+        .size = 1,
+    })) return DOFAIL();
+    f = f->next;
+
+    // Goto next struct
+    t = t->next;
+    if (!t) return DOFAIL();
+    s = (struct_t *)t->data;
+    f = s->fields;
+
+    // struct SNU
+    if (t->inf.size != 16) return DOFAIL();
+    if (t->inf.align != 4) return DOFAIL();
+    if (!strview_eq(t->name, SV("SNU"))) return DOFAIL();
+    if (t->typeid != 0) return DOFAIL();
+   
+    // foo::c
+    if (!f) return DOFAIL();
+    if (f->name.str) return DOFAIL();
+    if (f->offs != 12) return DOFAIL();
+    if (!type_eq(f->type, (typeref_t){
+        .type = (type_t[]){
+            (type_t){ .class = TYPE_CHAR },
+        },
+        .size = 1,
+    })) return DOFAIL();
+    f = f->next;
+
+    // foo::b
+    if (!f) return DOFAIL();
+    if (f->name.str) return DOFAIL();
+    if (f->offs != 4) return DOFAIL();
+    if (!type_eq(f->type, (typeref_t){
+        .type = (type_t[]){
+            (type_t){ .class = TYPE_USER, .n = 1 },
+        },
+        .size = 1,
+    })) return DOFAIL();
+    f = f->next;
+
+    // foo::a
+    if (!f) return DOFAIL();
+    if (!strview_eq(f->name, SV("a"))) return DOFAIL();
+    if (f->offs != 0) return DOFAIL();
+    if (!type_eq(f->type, (typeref_t){
+        .type = (type_t[]){
+            (type_t){ .class = TYPE_INT },
+        },
+        .size = 1,
+    })) return DOFAIL();
+
+    return true;
+})
+SIMPLE_TEST(test_typedef_parsing8, test_expect_errcb,
+        "struct SNU {\n"
+        "} EBE \n", {
+    token_next(cnm);
+    type_parse(cnm, NULL, NULL);
+    return test_expect_err;
+})
+SIMPLE_TEST(test_typedef_parsing9, test_expect_errcb,
+        "enum SNU {\n"
+        "} EBE \n", {
+    token_next(cnm);
+    type_parse(cnm, NULL, NULL);
+    return test_expect_err;
+})
+SIMPLE_TEST(test_typedef_parsing10, test_expect_errcb,
+        "union SNU {\n"
+        "} EBE \n", {
+    token_next(cnm);
+    type_parse(cnm, NULL, NULL);
+    return test_expect_err;
+})
 
 ///////////////////////////////////////////////////////////////////////////////
 //
@@ -1481,6 +1606,10 @@ static test_t tests[] = {
     TEST(test_typedef_parsing4),
     TEST(test_typedef_parsing5),
     TEST(test_typedef_parsing6),
+    TEST(test_typedef_parsing7),
+    TEST(test_typedef_parsing8),
+    TEST(test_typedef_parsing9),
+    TEST(test_typedef_parsing10),
 };
 
 int main(int argc, char **argv) {
