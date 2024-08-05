@@ -26,6 +26,12 @@ static void test_expect_errcb(int line, const char *v, const char *s) {
         cnm_set_src(cnm, _src, #_name".cnm"); \
         __VA_ARGS__ \
     }
+static bool test_dofail(const char *file, int line) {
+    int i = printf("\nfail at %s:%d:", file, line);
+    for (; i < 34; i++) printf(" ");
+    return false;
+}
+#define DOFAIL() (test_dofail(__FILE__, __LINE__))
 
 ///////////////////////////////////////////////////////////////////////////////
 //
@@ -33,123 +39,123 @@ static void test_expect_errcb(int line, const char *v, const char *s) {
 //
 ///////////////////////////////////////////////////////////////////////////////
 SIMPLE_TEST(test_lexer_uninitialized, test_errcb, "", {
-    if (cnm->s.tok.type != TOKEN_UNINITIALIZED) return false;
-    if (cnm->s.tok.start.row != 1) return false;
-    if (cnm->s.tok.start.col != 1) return false;
-    if (cnm->s.tok.end.row != 1) return false;
-    if (cnm->s.tok.end.col != 1) return false;
-    if (!strview_eq(cnm->s.tok.src, SV(""))) return false;
+    if (cnm->s.tok.type != TOKEN_UNINITIALIZED) return DOFAIL();
+    if (cnm->s.tok.start.row != 1) return DOFAIL();
+    if (cnm->s.tok.start.col != 1) return DOFAIL();
+    if (cnm->s.tok.end.row != 1) return DOFAIL();
+    if (cnm->s.tok.end.col != 1) return DOFAIL();
+    if (!strview_eq(cnm->s.tok.src, SV(""))) return DOFAIL();
     return true;
 })
 SIMPLE_TEST(test_lexer_ident, test_errcb, " _foo123_ ", {
     token_next(cnm);
-    if (cnm->s.tok.type != TOKEN_IDENT) return false;
-    if (cnm->s.tok.start.row != 1) return false;
-    if (cnm->s.tok.start.col != 2) return false;
-    if (cnm->s.tok.end.row != 1) return false;
-    if (cnm->s.tok.end.col != 10) return false;
-    if (!strview_eq(cnm->s.tok.src, SV("_foo123_"))) return false;
+    if (cnm->s.tok.type != TOKEN_IDENT) return DOFAIL();
+    if (cnm->s.tok.start.row != 1) return DOFAIL();
+    if (cnm->s.tok.start.col != 2) return DOFAIL();
+    if (cnm->s.tok.end.row != 1) return DOFAIL();
+    if (cnm->s.tok.end.col != 10) return DOFAIL();
+    if (!strview_eq(cnm->s.tok.src, SV("_foo123_"))) return DOFAIL();
     return true;
 })
 SIMPLE_TEST(test_lexer_string1, test_errcb, "\"hello \"", {
     token_next(cnm);
-    if (cnm->s.tok.type != TOKEN_STRING) return false;
-    if (cnm->s.tok.start.row != 1) return false;
-    if (cnm->s.tok.start.col != 1) return false;
-    if (cnm->s.tok.end.row != 1) return false;
-    if (cnm->s.tok.end.col != 9) return false;
-    if (!strview_eq(cnm->s.tok.src, SV("\"hello \""))) return false;
-    if (strcmp(cnm->s.tok.s, "hello ") != 0) return false;
+    if (cnm->s.tok.type != TOKEN_STRING) return DOFAIL();
+    if (cnm->s.tok.start.row != 1) return DOFAIL();
+    if (cnm->s.tok.start.col != 1) return DOFAIL();
+    if (cnm->s.tok.end.row != 1) return DOFAIL();
+    if (cnm->s.tok.end.col != 9) return DOFAIL();
+    if (!strview_eq(cnm->s.tok.src, SV("\"hello \""))) return DOFAIL();
+    if (strcmp(cnm->s.tok.s, "hello ") != 0) return DOFAIL();
     return true;
 })
 SIMPLE_TEST(test_lexer_string2, test_errcb, "\"hello \"  \"world\"", {
     token_next(cnm);
-    if (cnm->s.tok.type != TOKEN_STRING) return false;
-    if (cnm->s.tok.start.row != 1) return false;
-    if (cnm->s.tok.start.col != 1) return false;
-    if (cnm->s.tok.end.row != 1) return false;
-    if (cnm->s.tok.end.col != 18) return false;
-    if (!strview_eq(cnm->s.tok.src, SV("\"hello \"  \"world\""))) return false;
-    if (strcmp(cnm->s.tok.s, "hello world") != 0) return false;
+    if (cnm->s.tok.type != TOKEN_STRING) return DOFAIL();
+    if (cnm->s.tok.start.row != 1) return DOFAIL();
+    if (cnm->s.tok.start.col != 1) return DOFAIL();
+    if (cnm->s.tok.end.row != 1) return DOFAIL();
+    if (cnm->s.tok.end.col != 18) return DOFAIL();
+    if (!strview_eq(cnm->s.tok.src, SV("\"hello \"  \"world\""))) return DOFAIL();
+    if (strcmp(cnm->s.tok.s, "hello world") != 0) return DOFAIL();
     return true;
 })
 SIMPLE_TEST(test_lexer_string3, test_errcb,
         "\"hello \"\n"
         "  \"world\"", {
     token_next(cnm);
-    if (cnm->s.tok.type != TOKEN_STRING) return false;
-    if (cnm->s.tok.start.row != 1) return false;
-    if (cnm->s.tok.start.col != 1) return false;
-    if (cnm->s.tok.end.row != 2) return false;
-    if (cnm->s.tok.end.col != 10) return false;
-    if (!strview_eq(cnm->s.tok.src, SV("\"hello \"\n  \"world\""))) return false;
-    if (strcmp(cnm->s.tok.s, "hello world") != 0) return false;
+    if (cnm->s.tok.type != TOKEN_STRING) return DOFAIL();
+    if (cnm->s.tok.start.row != 1) return DOFAIL();
+    if (cnm->s.tok.start.col != 1) return DOFAIL();
+    if (cnm->s.tok.end.row != 2) return DOFAIL();
+    if (cnm->s.tok.end.col != 10) return DOFAIL();
+    if (!strview_eq(cnm->s.tok.src, SV("\"hello \"\n  \"world\""))) return DOFAIL();
+    if (strcmp(cnm->s.tok.s, "hello world") != 0) return DOFAIL();
     return true;
 })
 SIMPLE_TEST(test_lexer_string4, test_errcb, "\"hello \\\"world\"", {
     token_next(cnm);
-    if (cnm->s.tok.type != TOKEN_STRING) return false;
-    if (cnm->s.tok.start.row != 1) return false;
-    if (cnm->s.tok.start.col != 1) return false;
-    if (cnm->s.tok.end.row != 1) return false;
-    if (cnm->s.tok.end.col != 16) return false;
-    if (!strview_eq(cnm->s.tok.src, SV("\"hello \\\"world\""))) return false;
-    if (strcmp(cnm->s.tok.s, "hello \"world") != 0) return false;
+    if (cnm->s.tok.type != TOKEN_STRING) return DOFAIL();
+    if (cnm->s.tok.start.row != 1) return DOFAIL();
+    if (cnm->s.tok.start.col != 1) return DOFAIL();
+    if (cnm->s.tok.end.row != 1) return DOFAIL();
+    if (cnm->s.tok.end.col != 16) return DOFAIL();
+    if (!strview_eq(cnm->s.tok.src, SV("\"hello \\\"world\""))) return DOFAIL();
+    if (strcmp(cnm->s.tok.s, "hello \"world") != 0) return DOFAIL();
     return true;
 })
 SIMPLE_TEST(test_lexer_string5, test_errcb,  "\"hello \\u263A world\"", {
     token_next(cnm);
-    if (cnm->s.tok.type != TOKEN_STRING) return false;
-    if (cnm->s.tok.start.row != 1) return false;
-    if (cnm->s.tok.start.col != 1) return false;
-    if (cnm->s.tok.end.row != 1) return false;
-    if (cnm->s.tok.end.col != 21) return false;
-    if (!strview_eq(cnm->s.tok.src, SV("\"hello \\u263A world\""))) return false;
-    if (strcmp(cnm->s.tok.s, "hello ☺ world") != 0) return false;
+    if (cnm->s.tok.type != TOKEN_STRING) return DOFAIL();
+    if (cnm->s.tok.start.row != 1) return DOFAIL();
+    if (cnm->s.tok.start.col != 1) return DOFAIL();
+    if (cnm->s.tok.end.row != 1) return DOFAIL();
+    if (cnm->s.tok.end.col != 21) return DOFAIL();
+    if (!strview_eq(cnm->s.tok.src, SV("\"hello \\u263A world\""))) return DOFAIL();
+    if (strcmp(cnm->s.tok.s, "hello ☺ world") != 0) return DOFAIL();
     return true;
 })
 SIMPLE_TEST(test_lexer_string6, test_errcb,  "\"hello ☺ world\"", {
     token_next(cnm);
-    if (cnm->s.tok.type != TOKEN_STRING) return false;
-    if (cnm->s.tok.start.row != 1) return false;
-    if (cnm->s.tok.start.col != 1) return false;
-    if (cnm->s.tok.end.row != 1) return false;
-    if (cnm->s.tok.end.col != 16) return false;
-    if (!strview_eq(cnm->s.tok.src, SV("\"hello ☺ world\""))) return false;
-    if (strcmp(cnm->s.tok.s, "hello ☺ world") != 0) return false;
+    if (cnm->s.tok.type != TOKEN_STRING) return DOFAIL();
+    if (cnm->s.tok.start.row != 1) return DOFAIL();
+    if (cnm->s.tok.start.col != 1) return DOFAIL();
+    if (cnm->s.tok.end.row != 1) return DOFAIL();
+    if (cnm->s.tok.end.col != 16) return DOFAIL();
+    if (!strview_eq(cnm->s.tok.src, SV("\"hello ☺ world\""))) return DOFAIL();
+    if (strcmp(cnm->s.tok.s, "hello ☺ world") != 0) return DOFAIL();
     return true;
 })
 SIMPLE_TEST(test_lexer_char1, test_errcb,  "'h'", {
     token_next(cnm);
-    if (cnm->s.tok.type != TOKEN_CHAR) return false;
-    if (cnm->s.tok.start.row != 1) return false;
-    if (cnm->s.tok.start.col != 1) return false;
-    if (cnm->s.tok.end.row != 1) return false;
-    if (cnm->s.tok.end.col != 4) return false;
-    if (!strview_eq(cnm->s.tok.src, SV("'h'"))) return false;
-    if (cnm->s.tok.c != 'h') return false;
+    if (cnm->s.tok.type != TOKEN_CHAR) return DOFAIL();
+    if (cnm->s.tok.start.row != 1) return DOFAIL();
+    if (cnm->s.tok.start.col != 1) return DOFAIL();
+    if (cnm->s.tok.end.row != 1) return DOFAIL();
+    if (cnm->s.tok.end.col != 4) return DOFAIL();
+    if (!strview_eq(cnm->s.tok.src, SV("'h'"))) return DOFAIL();
+    if (cnm->s.tok.c != 'h') return DOFAIL();
     return true;
 })
 SIMPLE_TEST(test_lexer_char2, test_errcb,  "'\\x41'", {
     token_next(cnm);
-    if (cnm->s.tok.type != TOKEN_CHAR) return false;
-    if (cnm->s.tok.start.row != 1) return false;
-    if (cnm->s.tok.start.col != 1) return false;
-    if (cnm->s.tok.end.row != 1) return false;
-    if (cnm->s.tok.end.col != 7) return false;
-    if (!strview_eq(cnm->s.tok.src, SV("'\\x41'"))) return false;
-    if (cnm->s.tok.c != 'A') return false;
+    if (cnm->s.tok.type != TOKEN_CHAR) return DOFAIL();
+    if (cnm->s.tok.start.row != 1) return DOFAIL();
+    if (cnm->s.tok.start.col != 1) return DOFAIL();
+    if (cnm->s.tok.end.row != 1) return DOFAIL();
+    if (cnm->s.tok.end.col != 7) return DOFAIL();
+    if (!strview_eq(cnm->s.tok.src, SV("'\\x41'"))) return DOFAIL();
+    if (cnm->s.tok.c != 'A') return DOFAIL();
     return true;
 })
 SIMPLE_TEST(test_lexer_char3, test_errcb,  "'☺'", {
     token_next(cnm);
-    if (cnm->s.tok.type != TOKEN_CHAR) return false;
-    if (cnm->s.tok.start.row != 1) return false;
-    if (cnm->s.tok.start.col != 1) return false;
-    if (cnm->s.tok.end.row != 1) return false;
-    if (cnm->s.tok.end.col != 4) return false;
-    if (!strview_eq(cnm->s.tok.src, SV("'☺'"))) return false;
-    if (cnm->s.tok.c != 0x263A) return false;
+    if (cnm->s.tok.type != TOKEN_CHAR) return DOFAIL();
+    if (cnm->s.tok.start.row != 1) return DOFAIL();
+    if (cnm->s.tok.start.col != 1) return DOFAIL();
+    if (cnm->s.tok.end.row != 1) return DOFAIL();
+    if (cnm->s.tok.end.col != 4) return DOFAIL();
+    if (!strview_eq(cnm->s.tok.src, SV("'☺'"))) return DOFAIL();
+    if (cnm->s.tok.c != 0x263A) return DOFAIL();
     return true;
 })
 SIMPLE_TEST(test_lexer_char4, test_expect_errcb,  "'h '", {
@@ -158,54 +164,54 @@ SIMPLE_TEST(test_lexer_char4, test_expect_errcb,  "'h '", {
 })
 SIMPLE_TEST(test_lexer_int1, test_errcb,  "120", {
     token_next(cnm);
-    if (cnm->s.tok.type != TOKEN_INT) return false;
-    if (cnm->s.tok.start.row != 1) return false;
-    if (cnm->s.tok.start.col != 1) return false;
-    if (cnm->s.tok.end.row != 1) return false;
-    if (cnm->s.tok.end.col != 4) return false;
-    if (!strview_eq(cnm->s.tok.src, SV("120"))) return false;
-    if (cnm->s.tok.i.base != 10) return false;
-    if (cnm->s.tok.i.n != 120) return false;
-    if (strcmp(cnm->s.tok.i.suffix, "") != 0) return false;
+    if (cnm->s.tok.type != TOKEN_INT) return DOFAIL();
+    if (cnm->s.tok.start.row != 1) return DOFAIL();
+    if (cnm->s.tok.start.col != 1) return DOFAIL();
+    if (cnm->s.tok.end.row != 1) return DOFAIL();
+    if (cnm->s.tok.end.col != 4) return DOFAIL();
+    if (!strview_eq(cnm->s.tok.src, SV("120"))) return DOFAIL();
+    if (cnm->s.tok.i.base != 10) return DOFAIL();
+    if (cnm->s.tok.i.n != 120) return DOFAIL();
+    if (strcmp(cnm->s.tok.i.suffix, "") != 0) return DOFAIL();
     return true;
 })
 SIMPLE_TEST(test_lexer_int2, test_errcb,  "69U", {
     token_next(cnm);
-    if (cnm->s.tok.type != TOKEN_INT) return false;
-    if (cnm->s.tok.start.row != 1) return false;
-    if (cnm->s.tok.start.col != 1) return false;
-    if (cnm->s.tok.end.row != 1) return false;
-    if (cnm->s.tok.end.col != 4) return false;
-    if (!strview_eq(cnm->s.tok.src, SV("69U"))) return false;
-    if (cnm->s.tok.i.base != 10) return false;
-    if (cnm->s.tok.i.n != 69) return false;
-    if (strcmp(cnm->s.tok.i.suffix, "u") != 0) return false;
+    if (cnm->s.tok.type != TOKEN_INT) return DOFAIL();
+    if (cnm->s.tok.start.row != 1) return DOFAIL();
+    if (cnm->s.tok.start.col != 1) return DOFAIL();
+    if (cnm->s.tok.end.row != 1) return DOFAIL();
+    if (cnm->s.tok.end.col != 4) return DOFAIL();
+    if (!strview_eq(cnm->s.tok.src, SV("69U"))) return DOFAIL();
+    if (cnm->s.tok.i.base != 10) return DOFAIL();
+    if (cnm->s.tok.i.n != 69) return DOFAIL();
+    if (strcmp(cnm->s.tok.i.suffix, "u") != 0) return DOFAIL();
     return true;
 })
 SIMPLE_TEST(test_lexer_int3, test_errcb,  "420ulL", {
     token_next(cnm);
-    if (cnm->s.tok.type != TOKEN_INT) return false;
-    if (cnm->s.tok.start.row != 1) return false;
-    if (cnm->s.tok.start.col != 1) return false;
-    if (cnm->s.tok.end.row != 1) return false;
-    if (cnm->s.tok.end.col != 7) return false;
-    if (!strview_eq(cnm->s.tok.src, SV("420ulL"))) return false;
-    if (cnm->s.tok.i.base != 10) return false;
-    if (cnm->s.tok.i.n != 420) return false;
-    if (strcmp(cnm->s.tok.i.suffix, "ull") != 0) return false;
+    if (cnm->s.tok.type != TOKEN_INT) return DOFAIL();
+    if (cnm->s.tok.start.row != 1) return DOFAIL();
+    if (cnm->s.tok.start.col != 1) return DOFAIL();
+    if (cnm->s.tok.end.row != 1) return DOFAIL();
+    if (cnm->s.tok.end.col != 7) return DOFAIL();
+    if (!strview_eq(cnm->s.tok.src, SV("420ulL"))) return DOFAIL();
+    if (cnm->s.tok.i.base != 10) return DOFAIL();
+    if (cnm->s.tok.i.n != 420) return DOFAIL();
+    if (strcmp(cnm->s.tok.i.suffix, "ull") != 0) return DOFAIL();
     return true;
 })
 SIMPLE_TEST(test_lexer_int4, test_errcb,  "0xFF", {
     token_next(cnm);
-    if (cnm->s.tok.type != TOKEN_INT) return false;
-    if (cnm->s.tok.start.row != 1) return false;
-    if (cnm->s.tok.start.col != 1) return false;
-    if (cnm->s.tok.end.row != 1) return false;
-    if (cnm->s.tok.end.col != 5) return false;
-    if (!strview_eq(cnm->s.tok.src, SV("0xFF"))) return false;
-    if (cnm->s.tok.i.base != 16) return false;
-    if (cnm->s.tok.i.n != 255) return false;
-    if (strcmp(cnm->s.tok.i.suffix, "") != 0) return false;
+    if (cnm->s.tok.type != TOKEN_INT) return DOFAIL();
+    if (cnm->s.tok.start.row != 1) return DOFAIL();
+    if (cnm->s.tok.start.col != 1) return DOFAIL();
+    if (cnm->s.tok.end.row != 1) return DOFAIL();
+    if (cnm->s.tok.end.col != 5) return DOFAIL();
+    if (!strview_eq(cnm->s.tok.src, SV("0xFF"))) return DOFAIL();
+    if (cnm->s.tok.i.base != 16) return DOFAIL();
+    if (cnm->s.tok.i.n != 255) return DOFAIL();
+    if (strcmp(cnm->s.tok.i.suffix, "") != 0) return DOFAIL();
     return true;
 })
 SIMPLE_TEST(test_lexer_int5, test_expect_errcb,  "0xxF", {
@@ -218,87 +224,87 @@ SIMPLE_TEST(test_lexer_int6, test_expect_errcb,  "420f", {
 })
 SIMPLE_TEST(test_lexer_int7, test_errcb,  "0b1101", {
     token_next(cnm);
-    if (cnm->s.tok.type != TOKEN_INT) return false;
-    if (cnm->s.tok.start.row != 1) return false;
-    if (cnm->s.tok.start.col != 1) return false;
-    if (cnm->s.tok.end.row != 1) return false;
-    if (cnm->s.tok.end.col != 7) return false;
-    if (!strview_eq(cnm->s.tok.src, SV("0b1101"))) return false;
-    if (cnm->s.tok.i.base != 2) return false;
-    if (cnm->s.tok.i.n != 13) return false;
-    if (strcmp(cnm->s.tok.i.suffix, "") != 0) return false;
+    if (cnm->s.tok.type != TOKEN_INT) return DOFAIL();
+    if (cnm->s.tok.start.row != 1) return DOFAIL();
+    if (cnm->s.tok.start.col != 1) return DOFAIL();
+    if (cnm->s.tok.end.row != 1) return DOFAIL();
+    if (cnm->s.tok.end.col != 7) return DOFAIL();
+    if (!strview_eq(cnm->s.tok.src, SV("0b1101"))) return DOFAIL();
+    if (cnm->s.tok.i.base != 2) return DOFAIL();
+    if (cnm->s.tok.i.n != 13) return DOFAIL();
+    if (strcmp(cnm->s.tok.i.suffix, "") != 0) return DOFAIL();
     return true;
 })
 SIMPLE_TEST(test_lexer_double1, test_errcb,  "0.0", {
     token_next(cnm);
-    if (cnm->s.tok.type != TOKEN_DOUBLE) return false;
-    if (cnm->s.tok.start.row != 1) return false;
-    if (cnm->s.tok.start.col != 1) return false;
-    if (cnm->s.tok.end.row != 1) return false;
-    if (cnm->s.tok.end.col != 4) return false;
-    if (!strview_eq(cnm->s.tok.src, SV("0.0"))) return false;
-    if (cnm->s.tok.f.n != 0.0) return false;
-    if (strcmp(cnm->s.tok.f.suffix, "") != 0) return false;
+    if (cnm->s.tok.type != TOKEN_DOUBLE) return DOFAIL();
+    if (cnm->s.tok.start.row != 1) return DOFAIL();
+    if (cnm->s.tok.start.col != 1) return DOFAIL();
+    if (cnm->s.tok.end.row != 1) return DOFAIL();
+    if (cnm->s.tok.end.col != 4) return DOFAIL();
+    if (!strview_eq(cnm->s.tok.src, SV("0.0"))) return DOFAIL();
+    if (cnm->s.tok.f.n != 0.0) return DOFAIL();
+    if (strcmp(cnm->s.tok.f.suffix, "") != 0) return DOFAIL();
     return true;
 })
 SIMPLE_TEST(test_lexer_double2, test_errcb,  "0.5", {
     token_next(cnm);
-    if (cnm->s.tok.type != TOKEN_DOUBLE) return false;
-    if (cnm->s.tok.start.row != 1) return false;
-    if (cnm->s.tok.start.col != 1) return false;
-    if (cnm->s.tok.end.row != 1) return false;
-    if (cnm->s.tok.end.col != 4) return false;
-    if (!strview_eq(cnm->s.tok.src, SV("0.5"))) return false;
-    if (cnm->s.tok.f.n != 0.5) return false;
-    if (strcmp(cnm->s.tok.f.suffix, "") != 0) return false;
+    if (cnm->s.tok.type != TOKEN_DOUBLE) return DOFAIL();
+    if (cnm->s.tok.start.row != 1) return DOFAIL();
+    if (cnm->s.tok.start.col != 1) return DOFAIL();
+    if (cnm->s.tok.end.row != 1) return DOFAIL();
+    if (cnm->s.tok.end.col != 4) return DOFAIL();
+    if (!strview_eq(cnm->s.tok.src, SV("0.5"))) return DOFAIL();
+    if (cnm->s.tok.f.n != 0.5) return DOFAIL();
+    if (strcmp(cnm->s.tok.f.suffix, "") != 0) return DOFAIL();
     return true;
 })
 SIMPLE_TEST(test_lexer_double3, test_errcb,  "420.69", {
     token_next(cnm);
-    if (cnm->s.tok.type != TOKEN_DOUBLE) return false;
-    if (cnm->s.tok.start.row != 1) return false;
-    if (cnm->s.tok.start.col != 1) return false;
-    if (cnm->s.tok.end.row != 1) return false;
-    if (cnm->s.tok.end.col != 7) return false;
-    if (!strview_eq(cnm->s.tok.src, SV("420.69"))) return false;
-    if (cnm->s.tok.f.n != 420.69) return false;
-    if (strcmp(cnm->s.tok.f.suffix, "") != 0) return false;
+    if (cnm->s.tok.type != TOKEN_DOUBLE) return DOFAIL();
+    if (cnm->s.tok.start.row != 1) return DOFAIL();
+    if (cnm->s.tok.start.col != 1) return DOFAIL();
+    if (cnm->s.tok.end.row != 1) return DOFAIL();
+    if (cnm->s.tok.end.col != 7) return DOFAIL();
+    if (!strview_eq(cnm->s.tok.src, SV("420.69"))) return DOFAIL();
+    if (cnm->s.tok.f.n != 420.69) return DOFAIL();
+    if (strcmp(cnm->s.tok.f.suffix, "") != 0) return DOFAIL();
     return true;
 })
 SIMPLE_TEST(test_lexer_double4, test_errcb,  "420.69f", {
     token_next(cnm);
-    if (cnm->s.tok.type != TOKEN_DOUBLE) return false;
-    if (cnm->s.tok.start.row != 1) return false;
-    if (cnm->s.tok.start.col != 1) return false;
-    if (cnm->s.tok.end.row != 1) return false;
-    if (cnm->s.tok.end.col != 8) return false;
-    if (!strview_eq(cnm->s.tok.src, SV("420.69f"))) return false;
-    if (cnm->s.tok.f.n != 420.69) return false;
-    if (strcmp(cnm->s.tok.f.suffix, "f") != 0) return false;
+    if (cnm->s.tok.type != TOKEN_DOUBLE) return DOFAIL();
+    if (cnm->s.tok.start.row != 1) return DOFAIL();
+    if (cnm->s.tok.start.col != 1) return DOFAIL();
+    if (cnm->s.tok.end.row != 1) return DOFAIL();
+    if (cnm->s.tok.end.col != 8) return DOFAIL();
+    if (!strview_eq(cnm->s.tok.src, SV("420.69f"))) return DOFAIL();
+    if (cnm->s.tok.f.n != 420.69) return DOFAIL();
+    if (strcmp(cnm->s.tok.f.suffix, "f") != 0) return DOFAIL();
     return true;
 })
 SIMPLE_TEST(test_lexer_double5, test_errcb,  "42.", {
     token_next(cnm);
-    if (cnm->s.tok.type != TOKEN_DOUBLE) return false;
-    if (cnm->s.tok.start.row != 1) return false;
-    if (cnm->s.tok.start.col != 1) return false;
-    if (cnm->s.tok.end.row != 1) return false;
-    if (cnm->s.tok.end.col != 4) return false;
-    if (!strview_eq(cnm->s.tok.src, SV("42."))) return false;
-    if (cnm->s.tok.f.n != 42.0) return false;
-    if (strcmp(cnm->s.tok.f.suffix, "") != 0) return false;
+    if (cnm->s.tok.type != TOKEN_DOUBLE) return DOFAIL();
+    if (cnm->s.tok.start.row != 1) return DOFAIL();
+    if (cnm->s.tok.start.col != 1) return DOFAIL();
+    if (cnm->s.tok.end.row != 1) return DOFAIL();
+    if (cnm->s.tok.end.col != 4) return DOFAIL();
+    if (!strview_eq(cnm->s.tok.src, SV("42."))) return DOFAIL();
+    if (cnm->s.tok.f.n != 42.0) return DOFAIL();
+    if (strcmp(cnm->s.tok.f.suffix, "") != 0) return DOFAIL();
     return true;
 })
 SIMPLE_TEST(test_lexer_double6, test_errcb,  "42.f", {
     token_next(cnm);
-    if (cnm->s.tok.type != TOKEN_DOUBLE) return false;
-    if (cnm->s.tok.start.row != 1) return false;
-    if (cnm->s.tok.start.col != 1) return false;
-    if (cnm->s.tok.end.row != 1) return false;
-    if (cnm->s.tok.end.col != 5) return false;
-    if (!strview_eq(cnm->s.tok.src, SV("42.f"))) return false;
-    if (cnm->s.tok.f.n != 42.0) return false;
-    if (strcmp(cnm->s.tok.f.suffix, "f") != 0) return false;
+    if (cnm->s.tok.type != TOKEN_DOUBLE) return DOFAIL();
+    if (cnm->s.tok.start.row != 1) return DOFAIL();
+    if (cnm->s.tok.start.col != 1) return DOFAIL();
+    if (cnm->s.tok.end.row != 1) return DOFAIL();
+    if (cnm->s.tok.end.col != 5) return DOFAIL();
+    if (!strview_eq(cnm->s.tok.src, SV("42.f"))) return DOFAIL();
+    if (cnm->s.tok.f.n != 42.0) return DOFAIL();
+    if (strcmp(cnm->s.tok.f.suffix, "f") != 0) return DOFAIL();
     return true;
 })
 SIMPLE_TEST(test_lexer_double7, test_expect_errcb,  "0.0asdf", {
@@ -314,12 +320,12 @@ SIMPLE_TEST(test_lexer_double7, test_expect_errcb,  "0.0asdf", {
         cnm_set_errcb(cnm, test_errcb); \
         cnm_set_src(cnm, string, "test_lexer_"#name_end".cnm"); \
         token_next(cnm); \
-        if (cnm->s.tok.type != token_type) return false; \
-        if (cnm->s.tok.start.row != 1) return false; \
-        if (cnm->s.tok.start.col != 1) return false; \
-        if (cnm->s.tok.end.row != 1) return false; \
-        if (cnm->s.tok.end.col != sizeof(string)) return false; \
-        if (!strview_eq(cnm->s.tok.src, SV(string))) return false; \
+        if (cnm->s.tok.type != token_type) return DOFAIL(); \
+        if (cnm->s.tok.start.row != 1) return DOFAIL(); \
+        if (cnm->s.tok.start.col != 1) return DOFAIL(); \
+        if (cnm->s.tok.end.row != 1) return DOFAIL(); \
+        if (cnm->s.tok.end.col != sizeof(string)) return DOFAIL(); \
+        if (!strview_eq(cnm->s.tok.src, SV(string))) return DOFAIL(); \
         return true; \
     }
 TEST_LEXER_TOKEN(eof, "", TOKEN_EOF)
@@ -435,34 +441,34 @@ SIMPLE_TEST(test_lexer_token_location, test_errcb,
             || cnm->s.tok.end.row != token_checks[i].row
             || cnm->s.tok.end.col != token_checks[i].end_col
             || cnm->s.tok.src.len != token_checks[i].len) {
-            return false;
+            return DOFAIL();
         }
     }
 
     token_next(cnm);
     if (cnm->s.tok.type != TOKEN_IDENT || cnm->s.tok.start.row != 5
         || cnm->s.tok.start.col != 1   || cnm->s.tok.end.row != 5
-        || cnm->s.tok.end.col != 4     || cnm->s.tok.src.len != 3) return false;
+        || cnm->s.tok.end.col != 4     || cnm->s.tok.src.len != 3) return DOFAIL();
     token_next(cnm);
     if (cnm->s.tok.type != TOKEN_STRING || cnm->s.tok.start.row != 5
         || cnm->s.tok.start.col != 5   || cnm->s.tok.end.row != 5
-        || cnm->s.tok.end.col != 16    || cnm->s.tok.src.len != 11) return false;
+        || cnm->s.tok.end.col != 16    || cnm->s.tok.src.len != 11) return DOFAIL();
     token_next(cnm);
     if (cnm->s.tok.type != TOKEN_CHAR || cnm->s.tok.start.row != 5
         || cnm->s.tok.start.col != 17  || cnm->s.tok.end.row != 5
-        || cnm->s.tok.end.col != 20    || cnm->s.tok.src.len != 3) return false;
+        || cnm->s.tok.end.col != 20    || cnm->s.tok.src.len != 3) return DOFAIL();
     token_next(cnm);
     if (cnm->s.tok.type != TOKEN_INT || cnm->s.tok.start.row != 5
         || cnm->s.tok.start.col != 21  || cnm->s.tok.end.row != 5
-        || cnm->s.tok.end.col != 24    || cnm->s.tok.src.len != 3) return false;
+        || cnm->s.tok.end.col != 24    || cnm->s.tok.src.len != 3) return DOFAIL();
     token_next(cnm);
     if (cnm->s.tok.type != TOKEN_DOUBLE || cnm->s.tok.start.row != 5
         || cnm->s.tok.start.col != 25  || cnm->s.tok.end.row != 5
-        || cnm->s.tok.end.col != 29    || cnm->s.tok.src.len != 4) return false;
+        || cnm->s.tok.end.col != 29    || cnm->s.tok.src.len != 4) return DOFAIL();
     token_next(cnm);
     if (cnm->s.tok.type != TOKEN_EOF || cnm->s.tok.start.row != 5
         || cnm->s.tok.start.col != 29  || cnm->s.tok.end.row != 5
-        || cnm->s.tok.end.col != 29    || cnm->s.tok.src.len != 0) return false;
+        || cnm->s.tok.end.col != 29    || cnm->s.tok.src.len != 0) return DOFAIL();
 
     return true;
 })
@@ -475,43 +481,43 @@ SIMPLE_TEST(test_lexer_token_location, test_errcb,
 SIMPLE_TEST(test_ast_constant_folding1, test_errcb,  "5", {
     token_next(cnm);
     ast_t *ast = ast_generate(cnm, PREC_FULL);
-    if (ast->class != AST_NUM_LITERAL) return false;
-    if (ast->type.type[0].class != TYPE_INT) return false;
-    if (ast->type.size != 1) return false;
-    if (ast->num_literal.i != 5) return false;
+    if (ast->class != AST_NUM_LITERAL) return DOFAIL();
+    if (ast->type.type[0].class != TYPE_INT) return DOFAIL();
+    if (ast->type.size != 1) return DOFAIL();
+    if (ast->num_literal.i != 5) return DOFAIL();
     return true;
 })
 
 SIMPLE_TEST(test_ast_constant_folding2, test_errcb,  "5.0", {
     token_next(cnm);
     ast_t *ast = ast_generate(cnm, PREC_FULL);
-    if (ast->class != AST_NUM_LITERAL) return false;
-    if (ast->type.type[0].class != TYPE_DOUBLE) return false;
-    if (ast->num_literal.f != 5.0) return false;
+    if (ast->class != AST_NUM_LITERAL) return DOFAIL();
+    if (ast->type.type[0].class != TYPE_DOUBLE) return DOFAIL();
+    if (ast->num_literal.f != 5.0) return DOFAIL();
     return true;
 })
 SIMPLE_TEST(test_ast_constant_folding3, test_errcb,  "5000000000", {
     token_next(cnm);
     ast_t *ast = ast_generate(cnm, PREC_FULL);
-    if (ast->class != AST_NUM_LITERAL) return false;
-    if (ast->type.type[0].class != TYPE_LONG) return false;
-    if (ast->num_literal.i != 5000000000) return false;
+    if (ast->class != AST_NUM_LITERAL) return DOFAIL();
+    if (ast->type.type[0].class != TYPE_LONG) return DOFAIL();
+    if (ast->num_literal.i != 5000000000) return DOFAIL();
     return true;
 })
 SIMPLE_TEST(test_ast_constant_folding4, test_errcb,  "5u", {
     token_next(cnm);
     ast_t *ast = ast_generate(cnm, PREC_FULL);
-    if (ast->class != AST_NUM_LITERAL) return false;
-    if (ast->type.type[0].class != TYPE_UINT) return false;
-    if (ast->num_literal.u != 5) return false;
+    if (ast->class != AST_NUM_LITERAL) return DOFAIL();
+    if (ast->type.type[0].class != TYPE_UINT) return DOFAIL();
+    if (ast->num_literal.u != 5) return DOFAIL();
     return true;
 })
 SIMPLE_TEST(test_ast_constant_folding5, test_errcb,  "9223372036854775809ull", {
     token_next(cnm);
     ast_t *ast = ast_generate(cnm, PREC_FULL);
-    if (ast->class != AST_NUM_LITERAL) return false;
-    if (ast->type.type[0].class != TYPE_ULLONG) return false;
-    if (ast->num_literal.u != 9223372036854775809ull) return false;
+    if (ast->class != AST_NUM_LITERAL) return DOFAIL();
+    if (ast->type.type[0].class != TYPE_ULLONG) return DOFAIL();
+    if (ast->num_literal.u != 9223372036854775809ull) return DOFAIL();
     return true;
 })
 SIMPLE_TEST(test_ast_constant_folding6, test_expect_errcb,  "9223372036854775809", {
@@ -522,105 +528,105 @@ SIMPLE_TEST(test_ast_constant_folding6, test_expect_errcb,  "9223372036854775809
 SIMPLE_TEST(test_ast_constant_folding7, test_errcb,  "92ull", {
     token_next(cnm);
     ast_t *ast = ast_generate(cnm, PREC_FULL);
-    if (ast->class != AST_NUM_LITERAL) return false;
-    if (ast->type.type[0].class != TYPE_ULLONG) return false;
-    if (ast->num_literal.u != 92ull) return false;
+    if (ast->class != AST_NUM_LITERAL) return DOFAIL();
+    if (ast->type.type[0].class != TYPE_ULLONG) return DOFAIL();
+    if (ast->num_literal.u != 92ull) return DOFAIL();
     return true;
 })
 SIMPLE_TEST(test_ast_constant_folding8, test_errcb,  "5 + 5", {
     token_next(cnm);
     ast_t *ast = ast_generate(cnm, PREC_FULL);
-    if (ast->class != AST_NUM_LITERAL) return false;
-    if (ast->type.type[0].class != TYPE_INT) return false;
-    if (ast->num_literal.i != 10) return false;
+    if (ast->class != AST_NUM_LITERAL) return DOFAIL();
+    if (ast->type.type[0].class != TYPE_INT) return DOFAIL();
+    if (ast->num_literal.i != 10) return DOFAIL();
     return true;
 })
 SIMPLE_TEST(test_ast_constant_folding9, test_errcb,  "5 * 5 + 3", {
     token_next(cnm);
     ast_t *ast = ast_generate(cnm, PREC_FULL);
-    if (ast->class != AST_NUM_LITERAL) return false;
-    if (ast->type.type[0].class != TYPE_INT) return false;
-    if (ast->num_literal.i != 28) return false;
+    if (ast->class != AST_NUM_LITERAL) return DOFAIL();
+    if (ast->type.type[0].class != TYPE_INT) return DOFAIL();
+    if (ast->num_literal.i != 28) return DOFAIL();
     return true;
 })
 SIMPLE_TEST(test_ast_constant_folding10, test_errcb,  "5 + 5 * 3", {
     token_next(cnm);
     ast_t *ast = ast_generate(cnm, PREC_FULL);
-    if (ast->class != AST_NUM_LITERAL) return false;
-    if (ast->type.type[0].class != TYPE_INT) return false;
-    if (ast->num_literal.i != 20) return false;
+    if (ast->class != AST_NUM_LITERAL) return DOFAIL();
+    if (ast->type.type[0].class != TYPE_INT) return DOFAIL();
+    if (ast->num_literal.i != 20) return DOFAIL();
     return true;
 })
 SIMPLE_TEST(test_ast_constant_folding11, test_errcb,  "5ul + 30.0", {
     token_next(cnm);
     ast_t *ast = ast_generate(cnm, PREC_FULL);
-    if (ast->class != AST_NUM_LITERAL) return false;
-    if (ast->type.type[0].class != TYPE_DOUBLE) return false;
-    if (ast->num_literal.f != 35) return false;
+    if (ast->class != AST_NUM_LITERAL) return DOFAIL();
+    if (ast->type.type[0].class != TYPE_DOUBLE) return DOFAIL();
+    if (ast->num_literal.f != 35) return DOFAIL();
     return true;
 })
 SIMPLE_TEST(test_ast_constant_folding12, test_errcb,  "10 / 3.0", {
     token_next(cnm);
     ast_t *ast = ast_generate(cnm, PREC_FULL);
-    if (ast->class != AST_NUM_LITERAL) return false;
-    if (ast->type.type[0].class != TYPE_DOUBLE) return false;
-    if (ast->num_literal.f != 10.0 / 3.0) return false;
+    if (ast->class != AST_NUM_LITERAL) return DOFAIL();
+    if (ast->type.type[0].class != TYPE_DOUBLE) return DOFAIL();
+    if (ast->num_literal.f != 10.0 / 3.0) return DOFAIL();
     return true;
 })
 SIMPLE_TEST(test_ast_constant_folding13, test_errcb,  "10 / 3", {
     token_next(cnm);
     ast_t *ast = ast_generate(cnm, PREC_FULL);
-    if (ast->class != AST_NUM_LITERAL) return false;
-    if (ast->type.type[0].class != TYPE_INT) return false;
-    if (ast->num_literal.i != 10 / 3) return false;
+    if (ast->class != AST_NUM_LITERAL) return DOFAIL();
+    if (ast->type.type[0].class != TYPE_INT) return DOFAIL();
+    if (ast->num_literal.i != 10 / 3) return DOFAIL();
     return true;
 })
 SIMPLE_TEST(test_ast_constant_folding14, test_errcb,  "10ul * 12", {
     token_next(cnm);
     ast_t *ast = ast_generate(cnm, PREC_FULL);
-    if (ast->class != AST_NUM_LITERAL) return false;
-    if (ast->type.type[0].class != TYPE_ULONG) return false;
-    if (ast->num_literal.u != 120) return false;
+    if (ast->class != AST_NUM_LITERAL) return DOFAIL();
+    if (ast->type.type[0].class != TYPE_ULONG) return DOFAIL();
+    if (ast->num_literal.u != 120) return DOFAIL();
     return true;
 })
 SIMPLE_TEST(test_ast_constant_folding15, test_errcb,  "3 - 9 * 2l", {
     token_next(cnm);
     ast_t *ast = ast_generate(cnm, PREC_FULL);
-    if (ast->class != AST_NUM_LITERAL) return false;
-    if (ast->type.type[0].class != TYPE_LONG) return false;
-    if (ast->num_literal.i != -15) return false;
+    if (ast->class != AST_NUM_LITERAL) return DOFAIL();
+    if (ast->type.type[0].class != TYPE_LONG) return DOFAIL();
+    if (ast->num_literal.i != -15) return DOFAIL();
     return true;
 })
 SIMPLE_TEST(test_ast_constant_folding16, test_errcb,  "-8", {
     token_next(cnm);
     ast_t *ast = ast_generate(cnm, PREC_FULL);
-    if (ast->class != AST_NUM_LITERAL) return false;
-    if (ast->type.type[0].class != TYPE_INT) return false;
-    if (ast->num_literal.i != -8) return false;
+    if (ast->class != AST_NUM_LITERAL) return DOFAIL();
+    if (ast->type.type[0].class != TYPE_INT) return DOFAIL();
+    if (ast->num_literal.i != -8) return DOFAIL();
     return true;
 })
 SIMPLE_TEST(test_ast_constant_folding17, test_errcb,  "(-8)", {
     token_next(cnm);
     ast_t *ast = ast_generate(cnm, PREC_FULL);
-    if (ast->class != AST_NUM_LITERAL) return false;
-    if (ast->type.type[0].class != TYPE_INT) return false;
-    if (ast->num_literal.i != -8) return false;
+    if (ast->class != AST_NUM_LITERAL) return DOFAIL();
+    if (ast->type.type[0].class != TYPE_INT) return DOFAIL();
+    if (ast->num_literal.i != -8) return DOFAIL();
     return true;
 })
 SIMPLE_TEST(test_ast_constant_folding18, test_errcb,  "-(0x8)", {
     token_next(cnm);
     ast_t *ast = ast_generate(cnm, PREC_FULL);
-    if (ast->class != AST_NUM_LITERAL) return false;
-    if (ast->type.type[0].class != TYPE_INT) return false;
-    if (ast->num_literal.i != -8) return false;
+    if (ast->class != AST_NUM_LITERAL) return DOFAIL();
+    if (ast->type.type[0].class != TYPE_INT) return DOFAIL();
+    if (ast->num_literal.i != -8) return DOFAIL();
     return true;
 })
 SIMPLE_TEST(test_ast_constant_folding19, test_errcb,  "~0x8u", {
     token_next(cnm);
     ast_t *ast = ast_generate(cnm, PREC_FULL);
-    if (ast->class != AST_NUM_LITERAL) return false;
-    if (ast->type.type[0].class != TYPE_UINT) return false;
-    if (ast->num_literal.u != ~0x8u) return false;
+    if (ast->class != AST_NUM_LITERAL) return DOFAIL();
+    if (ast->type.type[0].class != TYPE_UINT) return DOFAIL();
+    if (ast->num_literal.u != ~0x8u) return DOFAIL();
     return true;
 })
 SIMPLE_TEST(test_ast_constant_folding20, test_expect_errcb,  "~(1 + 0.9)", {
@@ -631,41 +637,41 @@ SIMPLE_TEST(test_ast_constant_folding20, test_expect_errcb,  "~(1 + 0.9)", {
 SIMPLE_TEST(test_ast_constant_folding21, test_errcb,  "!1", {
     token_next(cnm);
     ast_t *ast = ast_generate(cnm, PREC_FULL);
-    if (ast->class != AST_NUM_LITERAL) return false;
-    if (ast->type.type[0].class != TYPE_BOOL) return false;
-    if (ast->num_literal.u != false) return false;
+    if (ast->class != AST_NUM_LITERAL) return DOFAIL();
+    if (ast->type.type[0].class != TYPE_BOOL) return DOFAIL();
+    if (ast->num_literal.u != false) return DOFAIL();
     return true;
 })
 SIMPLE_TEST(test_ast_constant_folding22, test_errcb,  "!0.0", {
     token_next(cnm);
     ast_t *ast = ast_generate(cnm, PREC_FULL);
-    if (ast->class != AST_NUM_LITERAL) return false;
-    if (ast->type.type[0].class != TYPE_BOOL) return false;
-    if (ast->num_literal.u != true) return false;
+    if (ast->class != AST_NUM_LITERAL) return DOFAIL();
+    if (ast->type.type[0].class != TYPE_BOOL) return DOFAIL();
+    if (ast->num_literal.u != true) return DOFAIL();
     return true;
 })
 SIMPLE_TEST(test_ast_constant_folding23, test_errcb,  "1 << 4", {
     token_next(cnm);
     ast_t *ast = ast_generate(cnm, PREC_FULL);
-    if (ast->class != AST_NUM_LITERAL) return false;
-    if (ast->type.type[0].class != TYPE_INT) return false;
-    if (ast->num_literal.i != 16) return false;
+    if (ast->class != AST_NUM_LITERAL) return DOFAIL();
+    if (ast->type.type[0].class != TYPE_INT) return DOFAIL();
+    if (ast->num_literal.i != 16) return DOFAIL();
     return true;
 })
 SIMPLE_TEST(test_ast_constant_folding24, test_errcb,  "0xff | 0xff << 8", {
     token_next(cnm);
     ast_t *ast = ast_generate(cnm, PREC_FULL);
-    if (ast->class != AST_NUM_LITERAL) return false;
-    if (ast->type.type[0].class != TYPE_INT) return false;
-    if (ast->num_literal.i != 0xffff) return false;
+    if (ast->class != AST_NUM_LITERAL) return DOFAIL();
+    if (ast->type.type[0].class != TYPE_INT) return DOFAIL();
+    if (ast->num_literal.i != 0xffff) return DOFAIL();
     return true;
 })
 SIMPLE_TEST(test_ast_constant_folding25, test_errcb,  "-(5 + 10) * 2 + 60 >> 2", {
     token_next(cnm);
     ast_t *ast = ast_generate(cnm, PREC_FULL);
-    if (ast->class != AST_NUM_LITERAL) return false;
-    if (ast->type.type[0].class != TYPE_INT) return false;
-    if (ast->num_literal.i != (-(5 + 10) * 2 + 60) >> 2) return false;
+    if (ast->class != AST_NUM_LITERAL) return DOFAIL();
+    if (ast->type.type[0].class != TYPE_INT) return DOFAIL();
+    if (ast->num_literal.i != (-(5 + 10) * 2 + 60) >> 2) return DOFAIL();
     return true;
 })
 
@@ -679,15 +685,15 @@ SIMPLE_TEST(test_type_parsing1, test_errcb,  "const char *foo", {
     bool istypedef;
     strview_t name;
     typeref_t type = type_parse(cnm, &name, &istypedef);
-    if (istypedef) return false;
-    if (!strview_eq(name, SV("foo"))) return false;
+    if (istypedef) return DOFAIL();
+    if (!strview_eq(name, SV("foo"))) return DOFAIL();
     if (!type_eq(type, (typeref_t){
         .type = (type_t[]){
             (type_t){ .class = TYPE_PTR },
             (type_t){ .class = TYPE_CHAR, .isconst = true },
         },
         .size = 2,
-    })) return false;
+    })) return DOFAIL();
     return true;
 })
 SIMPLE_TEST(test_type_parsing2, test_errcb,  "typedef unsigned char u8", {
@@ -695,14 +701,14 @@ SIMPLE_TEST(test_type_parsing2, test_errcb,  "typedef unsigned char u8", {
     bool istypedef;
     strview_t name;
     typeref_t type = type_parse(cnm, &name, &istypedef);
-    if (!istypedef) return false;
-    if (!strview_eq(name, SV("u8"))) return false;
+    if (!istypedef) return DOFAIL();
+    if (!strview_eq(name, SV("u8"))) return DOFAIL();
     if (!type_eq(type, (typeref_t){
         .type = (type_t[]){
             (type_t){ .class = TYPE_UCHAR },
         },
         .size = 1,
-    })) return false;
+    })) return DOFAIL();
     return true;
 })
 SIMPLE_TEST(test_type_parsing_char, test_errcb,  "char", {
@@ -713,7 +719,7 @@ SIMPLE_TEST(test_type_parsing_char, test_errcb,  "char", {
             (type_t){ .class = TYPE_CHAR },
         },
         .size = 1,
-    })) return false;
+    })) return DOFAIL();
     return true;
 })
 SIMPLE_TEST(test_type_parsing_uchar, test_errcb,  "unsigned char", {
@@ -724,7 +730,7 @@ SIMPLE_TEST(test_type_parsing_uchar, test_errcb,  "unsigned char", {
             (type_t){ .class = TYPE_UCHAR },
         },
         .size = 1,
-    })) return false;
+    })) return DOFAIL();
     return true;
 })
 SIMPLE_TEST(test_type_parsing_short1, test_errcb,  "short", {
@@ -735,7 +741,7 @@ SIMPLE_TEST(test_type_parsing_short1, test_errcb,  "short", {
             (type_t){ .class = TYPE_SHORT },
         },
         .size = 1,
-    })) return false;
+    })) return DOFAIL();
     return true;
 })
 SIMPLE_TEST(test_type_parsing_short2, test_errcb,  "short int", {
@@ -746,7 +752,7 @@ SIMPLE_TEST(test_type_parsing_short2, test_errcb,  "short int", {
             (type_t){ .class = TYPE_SHORT },
         },
         .size = 1,
-    })) return false;
+    })) return DOFAIL();
     return true;
 })
 SIMPLE_TEST(test_type_parsing_short3, test_expect_errcb,  "short short int", {
@@ -767,7 +773,7 @@ SIMPLE_TEST(test_type_parsing_ushort1, test_errcb,  "unsigned short", {
             (type_t){ .class = TYPE_USHORT },
         },
         .size = 1,
-    })) return false;
+    })) return DOFAIL();
     return true;
 })
 SIMPLE_TEST(test_type_parsing_ushort2, test_errcb,  "unsigned short int", {
@@ -778,7 +784,7 @@ SIMPLE_TEST(test_type_parsing_ushort2, test_errcb,  "unsigned short int", {
             (type_t){ .class = TYPE_USHORT },
         },
         .size = 1,
-    })) return false;
+    })) return DOFAIL();
     return true;
 })
 SIMPLE_TEST(test_type_parsing_ushort3, test_expect_errcb,  "unsigned unsigned short", {
@@ -794,7 +800,7 @@ SIMPLE_TEST(test_type_parsing_int, test_errcb,  "int", {
             (type_t){ .class = TYPE_INT },
         },
         .size = 1,
-    })) return false;
+    })) return DOFAIL();
     return true;
 })
 SIMPLE_TEST(test_type_parsing_uint1, test_errcb,  "unsigned int", {
@@ -805,7 +811,7 @@ SIMPLE_TEST(test_type_parsing_uint1, test_errcb,  "unsigned int", {
             (type_t){ .class = TYPE_UINT },
         },
         .size = 1,
-    })) return false;
+    })) return DOFAIL();
     return true;
 })
 SIMPLE_TEST(test_type_parsing_uint2, test_errcb,  "unsigned", {
@@ -816,7 +822,7 @@ SIMPLE_TEST(test_type_parsing_uint2, test_errcb,  "unsigned", {
             (type_t){ .class = TYPE_UINT },
         },
         .size = 1,
-    })) return false;
+    })) return DOFAIL();
     return true;
 })
 SIMPLE_TEST(test_type_parsing_uint3, test_errcb,  "const unsigned", {
@@ -827,8 +833,8 @@ SIMPLE_TEST(test_type_parsing_uint3, test_errcb,  "const unsigned", {
             (type_t){ .class = TYPE_UINT, .isconst = true },
         },
         .size = 1,
-    })) return false;
-    if (!type.type[0].isconst) return false;
+    })) return DOFAIL();
+    if (!type.type[0].isconst) return DOFAIL();
     return true;
 })
 SIMPLE_TEST(test_type_parsing_long1, test_errcb,  "long", {
@@ -839,7 +845,7 @@ SIMPLE_TEST(test_type_parsing_long1, test_errcb,  "long", {
             (type_t){ .class = TYPE_LONG },
         },
         .size = 1,
-    })) return false;
+    })) return DOFAIL();
     return true;
 })
 SIMPLE_TEST(test_type_parsing_long2, test_errcb,  "long long", {
@@ -850,7 +856,7 @@ SIMPLE_TEST(test_type_parsing_long2, test_errcb,  "long long", {
             (type_t){ .class = TYPE_LLONG },
         },
         .size = 1,
-    })) return false;
+    })) return DOFAIL();
     return true;
 })
 SIMPLE_TEST(test_type_parsing_long3, test_errcb,  "long int", {
@@ -861,7 +867,7 @@ SIMPLE_TEST(test_type_parsing_long3, test_errcb,  "long int", {
             (type_t){ .class = TYPE_LONG },
         },
         .size = 1,
-    })) return false;
+    })) return DOFAIL();
     return true;
 })
 SIMPLE_TEST(test_type_parsing_long4, test_errcb,  "long long int", {
@@ -872,7 +878,7 @@ SIMPLE_TEST(test_type_parsing_long4, test_errcb,  "long long int", {
             (type_t){ .class = TYPE_LLONG },
         },
         .size = 1,
-    })) return false;
+    })) return DOFAIL();
     return true;
 })
 SIMPLE_TEST(test_type_parsing_ulong, test_errcb,  "unsigned long long", {
@@ -883,7 +889,7 @@ SIMPLE_TEST(test_type_parsing_ulong, test_errcb,  "unsigned long long", {
             (type_t){ .class = TYPE_ULLONG },
         },
         .size = 1,
-    })) return false;
+    })) return DOFAIL();
     return true;
 })
 SIMPLE_TEST(test_type_parsing_float, test_errcb,  "float", {
@@ -894,7 +900,7 @@ SIMPLE_TEST(test_type_parsing_float, test_errcb,  "float", {
             (type_t){ .class = TYPE_FLOAT },
         },
         .size = 1,
-    })) return false;
+    })) return DOFAIL();
     return true;
 })
 SIMPLE_TEST(test_type_parsing_double, test_errcb,  "double", {
@@ -905,7 +911,7 @@ SIMPLE_TEST(test_type_parsing_double, test_errcb,  "double", {
             (type_t){ .class = TYPE_DOUBLE },
         },
         .size = 1,
-    })) return false;
+    })) return DOFAIL();
     return true;
 })
 SIMPLE_TEST(test_type_parsing3, test_errcb,  "const void *", {
@@ -917,7 +923,7 @@ SIMPLE_TEST(test_type_parsing3, test_errcb,  "const void *", {
             (type_t){ .class = TYPE_VOID, .isconst = true },
         },
         .size = 2,
-    })) return false;
+    })) return DOFAIL();
     return true;
 })
 SIMPLE_TEST(test_type_parsing4, test_expect_errcb,  "int [static 3]", {
@@ -937,8 +943,8 @@ SIMPLE_TEST(test_type_parsing5, test_errcb,  "const char *(* const)[][3]", {
             (type_t){ .class = TYPE_CHAR, .isconst = true },
         },
         .size = 5,
-    })) return false;
-    if (!type.type[0].isconst) return false;
+    })) return DOFAIL();
+    if (!type.type[0].isconst) return DOFAIL();
     return true;
 })
 SIMPLE_TEST(test_type_parsing6, test_errcb,  "int *(*get_int)(char x[], bool z)", {
@@ -957,7 +963,7 @@ SIMPLE_TEST(test_type_parsing6, test_errcb,  "int *(*get_int)(char x[], bool z)"
             (type_t){ .class = TYPE_INT },
         },
         .size = 9,
-    })) return false;
+    })) return DOFAIL();
     return true;
 })
 SIMPLE_TEST(test_type_parsing7, test_errcb,  "int *(*get_int)(char x[], bool z)", {
@@ -977,6 +983,345 @@ SIMPLE_TEST(test_type_parsing7, test_errcb,  "int *(*get_int)(char x[], bool z)"
         },
         .size = 9,
     });
+})
+
+///////////////////////////////////////////////////////////////////////////////
+//
+// Type definition parsing
+//
+///////////////////////////////////////////////////////////////////////////////
+SIMPLE_TEST(test_typedef_parsing1, test_errcb,
+        "struct foo {\n"
+        "    int a;\n"
+        "    int b;\n"
+        "} *bar[4]\n", {
+    token_next(cnm);
+    strview_t name;
+    typeref_t ref = type_parse(cnm, &name, NULL);
+    if (!strview_eq(name, SV("bar"))) return DOFAIL();
+    if (!type_eq(ref, (typeref_t){
+        .type = (type_t[]){
+            (type_t){ .class = TYPE_ARR, .n = 4 },
+            (type_t){ .class = TYPE_PTR },
+            (type_t){ .class = TYPE_USER, .n = 0 },
+        },
+        .size = 3,
+    })) return DOFAIL();
+
+    // struct foo
+    userty_t *t = cnm->type.types;
+    struct_t *s = (struct_t *)t->data;
+    if (!t) return DOFAIL();
+    if (t->inf.size != sizeof(int) * 2) return DOFAIL();
+    if (t->inf.align != sizeof(int)) return DOFAIL();
+    if (!strview_eq(t->name, SV("foo"))) return DOFAIL();
+    if (t->typeid != 0) return DOFAIL();
+   
+    // foo::b
+    field_t *f = s->fields;
+    if (!f) return DOFAIL();
+    if (!strview_eq(f->name, SV("b"))) return DOFAIL();
+    if (f->offs != 4) return DOFAIL();
+    if (!type_eq(f->type, (typeref_t){
+        .type = (type_t[]){
+            (type_t){ .class = TYPE_INT },
+        },
+        .size = 1,
+    })) return DOFAIL();
+    f = f->next;
+
+    // foo::b
+    if (!f) return DOFAIL();
+    if (!strview_eq(f->name, SV("a"))) return DOFAIL();
+    if (f->offs != 0) return DOFAIL();
+    if (!type_eq(f->type, (typeref_t){
+        .type = (type_t[]){
+            (type_t){ .class = TYPE_INT },
+        },
+        .size = 1,
+    })) return DOFAIL();
+
+    return true;
+})
+SIMPLE_TEST(test_typedef_parsing2, test_errcb,
+        "struct baz {\n"
+        "    char a;\n"
+        "    double b;\n"
+        "    int c;\n"
+        "} FSN__FHA__FZR__FEX__FGO\n", {
+    token_next(cnm);
+    strview_t name;
+    typeref_t ref = type_parse(cnm, &name, NULL);
+    if (!strview_eq(name, SV("FSN__FHA__FZR__FEX__FGO"))) return DOFAIL();
+    if (!type_eq(ref, (typeref_t){
+        .type = (type_t[]){
+            (type_t){ .class = TYPE_USER, .n = 0 },
+        },
+        .size = 1,
+    })) return DOFAIL();
+
+    // struct baz
+    userty_t *t = cnm->type.types;
+    struct_t *s = (struct_t *)t->data;
+    if (!t) return DOFAIL();
+    if (t->inf.size != sizeof(double) * 3) return DOFAIL();
+    if (t->inf.align != sizeof(double)) return DOFAIL();
+    if (!strview_eq(t->name, SV("baz"))) return DOFAIL();
+    if (t->typeid != 0) return DOFAIL();
+   
+    // foo::c
+    field_t *f = s->fields;
+    if (!f) return DOFAIL();
+    if (!strview_eq(f->name, SV("c"))) return DOFAIL();
+    if (f->offs != 16) return DOFAIL();
+    if (!type_eq(f->type, (typeref_t){
+        .type = (type_t[]){
+            (type_t){ .class = TYPE_INT },
+        },
+        .size = 1,
+    })) return DOFAIL();
+    f = f->next;
+
+    // foo::b
+    if (!f) return DOFAIL();
+    if (!strview_eq(f->name, SV("b"))) return DOFAIL();
+    if (f->offs != 8) return DOFAIL();
+    if (!type_eq(f->type, (typeref_t){
+        .type = (type_t[]){
+            (type_t){ .class = TYPE_DOUBLE },
+        },
+        .size = 1,
+    })) return DOFAIL();
+    f = f->next;
+
+    // foo::a
+    if (!f) return DOFAIL();
+    if (!strview_eq(f->name, SV("a"))) return DOFAIL();
+    if (f->offs != 0) return DOFAIL();
+    if (!type_eq(f->type, (typeref_t){
+        .type = (type_t[]){
+            (type_t){ .class = TYPE_CHAR },
+        },
+        .size = 1,
+    })) return DOFAIL();
+
+    return true;
+})
+SIMPLE_TEST(test_typedef_parsing3, test_errcb,
+        "struct SNU {\n"
+        "    int a;\n"
+        "    struct {\n"
+        "        int foo;\n"
+        "        char baz[3];\n"
+        "    } b;\n"
+        "    char c;\n"
+        "} EBE \n", {
+    token_next(cnm);
+    strview_t name;
+    typeref_t ref = type_parse(cnm, &name, NULL);
+    if (!strview_eq(name, SV("EBE"))) return DOFAIL();
+    if (!type_eq(ref, (typeref_t){
+        .type = (type_t[]){
+            (type_t){ .class = TYPE_USER, .n = 0 },
+        },
+        .size = 1,
+    })) return DOFAIL();
+
+    // struct "anonymous"
+    userty_t *t = cnm->type.types;
+    if (!t) return DOFAIL();
+    struct_t *s = (struct_t *)t->data;
+    field_t *f = s->fields;
+    if (t->inf.size != 8) return DOFAIL();
+    if (t->inf.align != 4) return DOFAIL();
+    if (t->name.str) return DOFAIL();
+    if (t->typeid != 1) return DOFAIL();
+
+    // foo::b::baz
+    if (!f) return DOFAIL();
+    if (!strview_eq(f->name, SV("baz"))) return DOFAIL();
+    if (f->offs != 4) return DOFAIL();
+    if (!type_eq(f->type, (typeref_t){
+        .type = (type_t[]){
+            (type_t){ .class = TYPE_ARR, .n = 3 },
+            (type_t){ .class = TYPE_CHAR },
+        },
+        .size = 2,
+    })) return DOFAIL();
+    f = f->next;
+
+    // foo::b::foo
+    if (!f) return DOFAIL();
+    if (!strview_eq(f->name, SV("foo"))) return DOFAIL();
+    if (f->offs != 0) return DOFAIL();
+    if (!type_eq(f->type, (typeref_t){
+        .type = (type_t[]){
+            (type_t){ .class = TYPE_INT },
+        },
+        .size = 1,
+    })) return DOFAIL();
+    f = f->next;
+
+    // Goto next struct
+    t = t->next;
+    if (!t) return DOFAIL();
+    s = (struct_t *)t->data;
+    f = s->fields;
+
+    // struct SNU
+    if (t->inf.size != 16) return DOFAIL();
+    if (t->inf.align != 4) return DOFAIL();
+    if (!strview_eq(t->name, SV("SNU"))) return DOFAIL();
+    if (t->typeid != 0) return DOFAIL();
+   
+    // foo::c
+    if (!f) return DOFAIL();
+    if (!strview_eq(f->name, SV("c"))) return DOFAIL();
+    if (f->offs != 12) return DOFAIL();
+    if (!type_eq(f->type, (typeref_t){
+        .type = (type_t[]){
+            (type_t){ .class = TYPE_CHAR },
+        },
+        .size = 1,
+    })) return DOFAIL();
+    f = f->next;
+
+    // foo::b
+    if (!f) return DOFAIL();
+    if (!strview_eq(f->name, SV("b"))) return DOFAIL();
+    if (f->offs != 4) return DOFAIL();
+    if (!type_eq(f->type, (typeref_t){
+        .type = (type_t[]){
+            (type_t){ .class = TYPE_USER, .n = 1 },
+        },
+        .size = 1,
+    })) return DOFAIL();
+    f = f->next;
+
+    // foo::a
+    if (!f) return DOFAIL();
+    if (!strview_eq(f->name, SV("a"))) return DOFAIL();
+    if (f->offs != 0) return DOFAIL();
+    if (!type_eq(f->type, (typeref_t){
+        .type = (type_t[]){
+            (type_t){ .class = TYPE_INT },
+        },
+        .size = 1,
+    })) return DOFAIL();
+
+    return true;
+})
+SIMPLE_TEST(test_typedef_parsing4, test_errcb,
+        "union SNU {\n"
+        "    int a;\n"
+        "    struct {\n"
+        "        int foo;\n"
+        "        char baz[3];\n"
+        "    } b;\n"
+        "    char c;\n"
+        "} EBE \n", {
+    token_next(cnm);
+    strview_t name;
+    typeref_t ref = type_parse(cnm, &name, NULL);
+    if (!strview_eq(name, SV("EBE"))) return DOFAIL();
+    if (!type_eq(ref, (typeref_t){
+        .type = (type_t[]){
+            (type_t){ .class = TYPE_USER, .n = 0 },
+        },
+        .size = 1,
+    })) return DOFAIL();
+
+    // union SNU
+    userty_t *t = cnm->type.types->next;
+    if (!t) return DOFAIL();
+    if (t->inf.size != 8) return DOFAIL();
+    if (t->inf.align != 4) return DOFAIL();
+    if (!strview_eq(t->name, SV("SNU"))) return DOFAIL();
+    if (t->typeid != 0) return DOFAIL();
+
+    return true;
+})
+SIMPLE_TEST(test_typedef_parsing5, test_errcb,
+        "enum E {\n"
+        "    FOO,\n"
+        "    BAR = 5 + 5,\n"
+        "    BAZ\n"
+        "} subihibi \n", {
+    token_next(cnm);
+    strview_t name;
+    typeref_t ref = type_parse(cnm, &name, NULL);
+    if (!strview_eq(name, SV("subihibi"))) return DOFAIL();
+    if (!type_eq(ref, (typeref_t){
+        .type = (type_t[]){
+            (type_t){ .class = TYPE_USER, .n = 0 },
+        },
+        .size = 1,
+    })) return DOFAIL();
+
+    // enum SNU
+    userty_t *t = cnm->type.types;
+    if (!t) return DOFAIL();
+    enum_t *e = (enum_t *)t->data;
+    if (t->inf.size != 4) return DOFAIL();
+    if (t->inf.align != 4) return DOFAIL();
+    if (!strview_eq(t->name, SV("E"))) return DOFAIL();
+    if (t->typeid != 0) return DOFAIL();
+
+    if (e->nvariants != 3) return DOFAIL();
+    if (e->variants[2].id.i != 0) return DOFAIL();
+    if (!strview_eq(e->variants[2].name, SV("FOO"))) return DOFAIL();
+
+    if (e->variants[1].id.i != 10) return DOFAIL();
+    if (!strview_eq(e->variants[1].name, SV("BAR"))) return DOFAIL();
+
+    if (e->variants[0].id.i != 11) return DOFAIL();
+    if (!strview_eq(e->variants[0].name, SV("BAZ"))) return DOFAIL();
+
+    return true;
+})
+SIMPLE_TEST(test_typedef_parsing6, test_errcb,
+        "enum E : unsigned int {\n"
+        "    FOO,\n"
+        "    BAR,\n"
+        "    BAZ,\n"
+        "} subihibi \n", {
+    token_next(cnm);
+    strview_t name;
+    typeref_t ref = type_parse(cnm, &name, NULL);
+    if (!strview_eq(name, SV("subihibi"))) return DOFAIL();
+    if (!type_eq(ref, (typeref_t){
+        .type = (type_t[]){
+            (type_t){ .class = TYPE_USER, .n = 0 },
+        },
+        .size = 1,
+    })) return DOFAIL();
+
+    // enum SNU
+    userty_t *t = cnm->type.types;
+    if (!t) return DOFAIL();
+    enum_t *e = (enum_t *)t->data;
+    if (t->inf.size != 4) return DOFAIL();
+    if (t->inf.align != 4) return DOFAIL();
+    if (!type_eq((typeref_t){ .type = &e->type, .size = 1 }, (typeref_t){
+        .type = (type_t[]){
+            (type_t){ .class = TYPE_UINT },
+        },
+        .size = 1,
+    })) return DOFAIL();
+    if (!strview_eq(t->name, SV("E"))) return DOFAIL();
+    if (t->typeid != 0) return DOFAIL();
+
+    if (e->nvariants != 3) return DOFAIL();
+    if (e->variants[2].id.i != 0) return DOFAIL();
+    if (!strview_eq(e->variants[2].name, SV("FOO"))) return DOFAIL();
+
+    if (e->variants[1].id.i != 1) return DOFAIL();
+    if (!strview_eq(e->variants[1].name, SV("BAR"))) return DOFAIL();
+
+    if (e->variants[0].id.i != 2) return DOFAIL();
+    if (!strview_eq(e->variants[0].name, SV("BAZ"))) return DOFAIL();
+
+    return true;
 })
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -1127,6 +1472,15 @@ static test_t tests[] = {
     TEST(test_type_parsing5),
     TEST(test_type_parsing6),
     TEST(test_type_parsing7),
+
+    // Type parsing tests
+    TEST_PADDING,
+    TEST(test_typedef_parsing1),
+    TEST(test_typedef_parsing2),
+    TEST(test_typedef_parsing3),
+    TEST(test_typedef_parsing4),
+    TEST(test_typedef_parsing5),
+    TEST(test_typedef_parsing6),
 };
 
 int main(int argc, char **argv) {

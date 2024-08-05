@@ -105,8 +105,7 @@ typedef enum typeclass_e {
     TYPE_FN_ARG,
 
     // User made types
-    TYPE_STRUCT,    TYPE_ENUM,
-    TYPE_UNION,
+    TYPE_USER,
 
     // This special type is only used while parsing, and will immediately be
     // expanded once parsing is over. (compilation step will never see this type)
@@ -145,38 +144,33 @@ typedef struct field_s {
     struct field_s *next;
 } field_t;
 
-typedef struct cnm_struct_s {
+typedef enum userty_class_e {
+    USER_STRUCT,
+    USER_ENUM,
+    USER_UNION,
+} userty_class_t;
+
+typedef struct userty_s {
     strview_t name;
 
-    // Type ID assocciated with this struct
+    userty_class_t type;
+
+    // Type ID assocciated with this user made type
     int typeid;
 
     // Cached size and alignment
     typeinf_t inf;
 
+    // Next usertype in the list
+    struct userty_s *next;
+
+    uint8_t data[];
+} userty_t;
+
+typedef struct cnm_struct_s {
     // Fields
     field_t *fields;
-
-    // Next allocated struct
-    struct cnm_struct_s *next;
 } struct_t;
-
-// Unions in cnm script are essentially unfunctional because unions without
-// tags are very dangerous. You can recreate unions pretty easy through the use
-// of anyrefs if you want them to be user extensible, or create functions that
-// return pointers if you want to as well.
-typedef struct union_s {
-    strview_t name;
-
-    // Type ID associated with this
-    int typeid;
-
-    // Cached size and alignment
-    typeinf_t inf;
-
-    // Next allocated union
-    struct union_s *next;
-} union_t;
 
 typedef struct variant_s {
     strview_t name;
@@ -189,20 +183,12 @@ typedef struct variant_s {
 } variant_t;
 
 typedef struct cnm_enum_s {
-    strview_t name;
-
-    // Type ID assocciated with this type
-    int typeid;
-
     // What the default enum type is
     type_t type;
 
     // Enum variants
     variant_t *variants;
     size_t nvariants;
-
-    // Next enum in the enum list
-    struct cnm_enum_s *next;
 } enum_t;
 
 // Typedefs don't have type IDs assocciated with them since typedefs are
@@ -327,9 +313,7 @@ struct cnm_s {
 
     // Custom type info
     struct {
-        struct_t *structs;
-        union_t *unions;
-        enum_t *enums;
+        userty_t *types;
         typedef_t *typedefs;
         int gid, gtypedef_id;
     } type;
@@ -428,6 +412,7 @@ static inline size_t align_size(size_t x, size_t alignment) {
 }
 
 // Allocate memory in the cnm state region
+// Grows up
 static void *cnm_alloc(cnm_t *cnm, size_t size, size_t align) {
     // Align the next alloc pointer
     cnm->alloc.next = (uint8_t *)(((uintptr_t)(cnm->alloc.next - 1) / align + 1) * align);
@@ -449,7 +434,7 @@ static void *cnm_alloc(cnm_t *cnm, size_t size, size_t align) {
 static void *cnm_alloc_static(cnm_t *cnm, size_t size, size_t align) {
     // Align the next alloc pointer
     cnm->alloc.curr_static = (uint8_t *)(
-        ((uintptr_t)(cnm->alloc.curr_static - size) / align + 1) * align);
+        (uintptr_t)(cnm->alloc.curr_static - size) / align * align);
 
     // Check memory overflow
     if (cnm->alloc.curr_static <= cnm->alloc.next) {
@@ -461,7 +446,8 @@ static void *cnm_alloc_static(cnm_t *cnm, size_t size, size_t align) {
     return cnm->alloc.curr_static;
 }
 
-// Allocate memory in the global bufefr
+// Allocate memory in the global buffer
+// Grows up
 static void *cnm_alloc_global(cnm_t *cnm, size_t size, size_t align) {
     // Align the next alloc pointer
     cnm->globals.next = (uint8_t *)(
@@ -980,8 +966,7 @@ static typeref_t type_parse(cnm_t *cnm, strview_t *name, bool *istypedef);
 // Returns true if this ast node can be used in an arithmetic operation
 static bool type_is_arith(const type_t type) {
     switch (type.class) {
-    case TYPE_ARR: case TYPE_STRUCT: case TYPE_ENUM:
-    case TYPE_PTR: case TYPE_REF: case TYPE_UNION:
+    case TYPE_ARR: case TYPE_USER: case TYPE_PTR: case TYPE_REF:
         return false;
     default:
         return true;
@@ -1015,7 +1000,7 @@ static bool type_is_unsigned(const type_t type) {
 
 static typeinf_t typeinf_get(cnm_t *cnm, const type_t *type) {
     switch (type->class) {
-    case TYPE_VOID: return (typeinf_t){ .size = 0, .align = 0 };
+    case TYPE_VOID: return (typeinf_t){ .size = 0, .align = 1 };
     case TYPE_CHAR: case TYPE_UCHAR: case TYPE_BOOL:
         return (typeinf_t){ sizeof(char), sizeof(char) };
     case TYPE_SHORT: case TYPE_USHORT:
@@ -1026,6 +1011,10 @@ static typeinf_t typeinf_get(cnm_t *cnm, const type_t *type) {
         return (typeinf_t){ sizeof(long), sizeof(long) };
     case TYPE_LLONG: case TYPE_ULLONG:
         return (typeinf_t){ sizeof(long long), sizeof(long long) };
+    case TYPE_FLOAT:
+        return (typeinf_t){ sizeof(float), sizeof(float) };
+    case TYPE_DOUBLE:
+        return (typeinf_t){ sizeof(double), sizeof(double) };
     case TYPE_PTR:
         return (typeinf_t){ sizeof(void *), sizeof(void *) };
     case TYPE_REF:
@@ -1037,26 +1026,14 @@ static typeinf_t typeinf_get(cnm_t *cnm, const type_t *type) {
         inf.size *= type->n;
         return inf;
     }
-    case TYPE_STRUCT:
-        for (struct_t *s = cnm->type.structs; s; s = s->next) {
-            if (s->typeid != type->n) continue;
-            return s->inf;
-        }
-        return (typeinf_t){0};
-    case TYPE_ENUM:
-        for (enum_t *e = cnm->type.enums; e; e = e->next) {
-            if (e->typeid != type->n) continue;
-            return typeinf_get(cnm, &e->type);
-        }
-        return (typeinf_t){0};
-    case TYPE_UNION:
-        for (union_t *u = cnm->type.unions; u; u = u->next) {
+    case TYPE_USER:
+        for (userty_t *u = cnm->type.types; u; u = u->next) {
             if (u->typeid != type->n) continue;
             return u->inf;
         }
         return (typeinf_t){0};
     default:
-        return (typeinf_t){0};
+        return (typeinf_t){ .size = 0, .align = 1 };
     }
 }
 
@@ -1293,56 +1270,78 @@ static bool type_parse_declspec_typedef(cnm_t *cnm, type_t *type, bool *istypede
     token_next(cnm);
     return true;
 }
-static bool type_parse_declspec_struct(cnm_t *cnm, type_t *type, bool *istypedef,
-                                       declspec_options_t *options) {
+// Will return false if an error occurred
+// Will set outu to non-NULL if definition must be parsed, will put current token
+// either at '{' or optionally ':' if docolon is true
+static bool type_parse_declspec_user(cnm_t *cnm, type_t *type, bool docolon, userty_t **outu,
+                                     size_t tysize, declspec_options_t *options) {
+    *outu = NULL;
+
     // Check for previous type specs being used
     if (options->set_type) return type_parse_declspec_multiple_types_err(cnm);
     options->set_type = true;
 
-    // Make sure that the struct name is present
-    if (token_next(cnm)->type != TOKEN_IDENT) {
-        cnm_doerr(cnm, true, "expected struct identifier", "");
+    // Make sure that the user type name or body is present
+    if (token_next(cnm)->type != TOKEN_IDENT
+        && cnm->s.tok.type != TOKEN_BRACE_L
+        && (!docolon || cnm->s.tok.type != TOKEN_COLON)) {
+        cnm_doerr(cnm, true, "expected user type identifier", "");
         return false;
     }
 
     // Set type class
-    type->class = TYPE_STRUCT;
+    type->class = TYPE_USER;
    
     // Look for struct with name that matches current token
-    struct_t *s;
-    for (s = cnm->type.structs;; s = s->next) {
+    userty_t *u;
+    for (u = cnm->type.types; u; u = u->next) {
         // Return already existing struct if we can
-        if (strview_eq(s->name, cnm->s.tok.src)) {
-            type->n = s->typeid;
-            if (token_next(cnm)->type == TOKEN_BRACE_L) goto parse_def;
-            else return true;
-        }
-
-        // Create a new struct if we've checked all structs already
-        if (!s->next) {
-            if (!(s->next = cnm_alloc_static(cnm, sizeof(struct_t), sizeof(void *)))) {
-                return false;
+        if (strview_eq(u->name, cnm->s.tok.src)) {
+            type->n = u->typeid;
+            if (token_next(cnm)->type == TOKEN_BRACE_L
+                || (docolon && cnm->s.tok.type == TOKEN_COLON)) {
+                goto parse_def;
             }
-
-            s = s->next;
-            *s = (struct_t){
-                .typeid = cnm->type.gid++,
-                .name = cnm->s.tok.src,
-            };
-            type->n = s->typeid;
-            if (token_next(cnm)->type == TOKEN_BRACE_L) goto parse_def;
-            else return true;
+            return true;
         }
     }
 
-    // s now points to a new struct that we must fill out the members of
-parse_def:
-    // If s has already been defined, then throw an error
-    if (s->fields) {
-        cnm_doerr(cnm, true, "redefinition of struct", "");
+    // Create a new userty if we've checked all structs already
+    if (!(u = cnm_alloc_static(cnm, sizeof(userty_t) + tysize, sizeof(void *)))) {
         return false;
     }
-    token_next(cnm); // skip '{' token
+    *u = (userty_t){ .typeid = cnm->type.gid++ };
+    u->next = cnm->type.types;
+    cnm->type.types = u;
+    memset(u->data, 0, tysize);
+    type->n = u->typeid;
+    if (cnm->s.tok.type == TOKEN_IDENT) {
+        u->name = cnm->s.tok.src;
+        token_next(cnm);
+    }
+    if (cnm->s.tok.type != TOKEN_BRACE_L
+        && (!docolon || cnm->s.tok.type != TOKEN_COLON)) return true;
+
+parse_def:
+    // If s has already been defined, then throw an error
+    if (u->inf.size) {
+        cnm_doerr(cnm, true, "redefinition of type", "");
+        return false;
+    }
+
+    *outu = u;
+    return true;
+}
+static bool type_parse_declspec_struct(cnm_t *cnm, type_t *type, bool *istypedef,
+                                       declspec_options_t *options) {
+    userty_t *u;
+    if (!type_parse_declspec_user(cnm, type, false, &u, sizeof(struct_t), options)) {
+        return false;
+    }
+    if (!u) return true;
+    struct_t *s = (struct_t *)u->data;
+    token_next(cnm);
+    // s now points to a new struct that we must fill out the members of
 
     // Now add members to the field
     while (cnm->s.tok.type != TOKEN_BRACE_R) {
@@ -1378,63 +1377,35 @@ parse_def:
 
         // Get offset and new struct size and alignment
         typeinf_t inf = typeinf_get(cnm, f->type.type);
-        s->inf.size = align_size(s->inf.size, inf.align);
-        f->offs = s->inf.size;
-        s->inf.size += inf.size;
-        if (inf.align > s->inf.align) s->inf.align = inf.align;
+        u->inf.size = align_size(u->inf.size, inf.align);
+        f->offs = u->inf.size;
+        u->inf.size += inf.size;
+        if (inf.align > u->inf.align) u->inf.align = inf.align;
+
+        // Consume ';' token
+        if (cnm->s.tok.type != TOKEN_SEMICOLON) {
+            cnm_doerr(cnm, true, "expected ';' after struct member", "");
+            return false;
+        }
+        token_next(cnm);
     }
 
     // Align the struct size to the alignment size
-    s->inf.size = align_size(s->inf.size, s->inf.align);
+    u->inf.size = align_size(u->inf.size, u->inf.align);
 
+    token_next(cnm);
     return true;
 }
 static bool type_parse_declspec_enum(cnm_t *cnm, type_t *type, bool *istypedef,
                                      declspec_options_t *options) {
-    // Check for previous type specs being used
-    if (options->set_type) return type_parse_declspec_multiple_types_err(cnm);
-    options->set_type = true;
-
-    // Make sure that the struct name is present
-    if (token_next(cnm)->type != TOKEN_IDENT) {
-        cnm_doerr(cnm, true, "expected enum identifier", "");
+    userty_t *u;
+    if (!type_parse_declspec_user(cnm, type, true, &u, sizeof(enum_t), options)) {
         return false;
     }
-
-    // Set type class
-    type->class = TYPE_ENUM;
-   
-    // Look for enum with name that matches current token
-    enum_t *e;
-    for (e = cnm->type.enums;; e = e->next) {
-        // Return already existing enum if we can
-        if (strview_eq(e->name, cnm->s.tok.src)) {
-            type->n = e->typeid;
-            if (token_next(cnm)->type == TOKEN_BRACE_L
-                || cnm->s.tok.type == TOKEN_COLON) goto parse_def;
-            else return true;
-        }
-
-        // Create a new enum if we've checked all structs already
-        if (!e->next) {
-            if (!(e->next = cnm_alloc_static(cnm, sizeof(enum_t), sizeof(void *)))) {
-                return false;
-            }
-
-            e = e->next;
-            *e = (enum_t){
-                .typeid = cnm->type.gid++,
-                .name = cnm->s.tok.src,
-            };
-            type->n = e->typeid;
-            if (token_next(cnm)->type == TOKEN_BRACE_L
-                || cnm->s.tok.type == TOKEN_COLON) goto parse_def;
-            else return true;
-        }
-    }
-
+    if (!u) return true;
+    enum_t *e = (enum_t *)u->data;
     // e now points to a new enum that we must fill out the variants for
-parse_def:
+
     if (cnm->s.tok.type == TOKEN_COLON) {
         // Use custom enum type
         token_next(cnm);
@@ -1460,6 +1431,10 @@ parse_def:
             return false;
         }
 
+        // Set new type
+        e->type = type.type[0];
+
+        // Reset stack and consume '{'
         cnm->alloc.next = stack_ptr;
         if (cnm->s.tok.type != TOKEN_BRACE_L) {
             cnm_doerr(cnm, true, "expect enum definition after enum override type", "");
@@ -1471,6 +1446,8 @@ parse_def:
         e->type = (type_t){ .class = TYPE_INT };
         token_next(cnm);
     }
+
+    u->inf = typeinf_get(cnm, &e->type);
 
     // Align variant area
     if (!cnm_alloc_static(cnm, 0, sizeof(void *))) return false;
@@ -1496,16 +1473,12 @@ parse_def:
         }
         v->name = cnm->s.tok.src;
 
-        if (token_next(cnm)->type == TOKEN_COMMA) {
+        // Consume non '=' token and advance
+        if (token_next(cnm)->type != TOKEN_ASSIGN) {
             if (type_is_unsigned(e->type)) v->id.u = variant_id.u++;
             else v->id.i = variant_id.i++;
-            token_next(cnm);
+            if (cnm->s.tok.type == TOKEN_COMMA) token_next(cnm);
             continue;
-        }
-
-        if (cnm->s.tok.type != TOKEN_ASSIGN) {
-            cnm_doerr(cnm, true, "expected either ',' or '=' token", "here");
-            return false;
         }
 
         // Set variant number to custom number and reset stack position
@@ -1526,60 +1499,23 @@ parse_def:
         else variant_id.i = ast->num_literal.i;
         if (type_is_unsigned(e->type)) v->id.u = variant_id.u++;
         else v->id.i = variant_id.i++;
+
+        // Consume ',' token (optionally)
+        if (cnm->s.tok.type == TOKEN_COMMA) token_next(cnm);
     }
 
+    token_next(cnm);
     return true;
 }
 static bool type_parse_declspec_union(cnm_t *cnm, type_t *type, bool *istypedef,
                                       declspec_options_t *options) {
-    // Check for previous type specs being used
-    if (options->set_type) return type_parse_declspec_multiple_types_err(cnm);
-    options->set_type = true;
-
-    // Make sure that the struct name is present
-    if (token_next(cnm)->type != TOKEN_IDENT) {
-        cnm_doerr(cnm, true, "expected union identifier", "");
+    userty_t *u;
+    if (!type_parse_declspec_user(cnm, type, false, &u, 0, options)) {
         return false;
     }
-
-    // Set type class
-    type->class = TYPE_UNION;
-   
-    // Look for union with name that matches current token
-    union_t *u;
-    for (u = cnm->type.unions;; u = u->next) {
-        // Return already existing union if we can
-        if (strview_eq(u->name, cnm->s.tok.src)) {
-            type->n = u->typeid;
-            if (token_next(cnm)->type == TOKEN_BRACE_L) goto parse_def;
-            else return true;
-        }
-
-        // Create a new struct if we've checked all structs already
-        if (!u->next) {
-            if (!(u->next = cnm_alloc_static(cnm, sizeof(union_t), sizeof(void *)))) {
-                return false;
-            }
-
-            u = u->next;
-            *u = (union_t){
-                .typeid = cnm->type.gid++,
-                .name = cnm->s.tok.src,
-            };
-            type->n = u->typeid;
-            if (token_next(cnm)->type == TOKEN_BRACE_L) goto parse_def;
-            else return true;
-        }
-    }
-
+    if (!u) return true;
+    token_next(cnm);
     // u now points to a new struct that we must fill out the members of
-parse_def:
-    // If u has already been defined, then throw an error
-    if (u->inf.size) {
-        cnm_doerr(cnm, true, "redefinition of union", "");
-        return false;
-    }
-    token_next(cnm); // skip '{' token
 
     // Now calculate union size. Don't process fields since you can access
     // union fields anyways in cnm script.
@@ -1607,8 +1543,16 @@ parse_def:
         if (inf.align > u->inf.align) u->inf.align = inf.align;
 
         cnm->alloc.next = stack_ptr; // free old data
+
+        // Consume ';' token
+        if (cnm->s.tok.type != TOKEN_SEMICOLON) {
+            cnm_doerr(cnm, true, "expected ';' after union field", "");
+            return false;
+        }
+        token_next(cnm);
     }
 
+    token_next(cnm);
     return true;
 }
 static bool type_parse_declspec_ident(cnm_t *cnm, type_t *type, bool *istypedef,
@@ -1819,6 +1763,9 @@ static typeref_t type_parse_ex(cnm_t *cnm, strview_t *name, bool *istypedef, boo
     // First align the allocation area
     typeref_t ref = { .type = cnm_alloc(cnm, 0, sizeof(type_t)) };
     if (!ref.type) goto return_error;
+
+    // Set to name to NULL just in case there is no name here
+    if (name) *name = (strview_t){0};
 
     // Base type that the 'derived' types refrence
     type_t base;
