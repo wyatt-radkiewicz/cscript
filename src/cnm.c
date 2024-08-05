@@ -131,11 +131,18 @@ typedef struct typeref_s {
     size_t size;
 } typeref_t;
 
+// Simple size and alignment info of a type at runtime
+typedef struct typeinf_s {
+    size_t size;
+    size_t align;
+} typeinf_t;
+
 // Field of a struct.
 typedef struct field_s {
     strview_t name;
     size_t offs;
     typeref_t type;
+    struct field_s *next;
 } field_t;
 
 typedef struct cnm_struct_s {
@@ -145,11 +152,10 @@ typedef struct cnm_struct_s {
     int typeid;
 
     // Cached size and alignment
-    size_t size, align;
+    typeinf_t inf;
 
     // Fields
     field_t *fields;
-    size_t nfields;
 
     // Next allocated struct
     struct cnm_struct_s *next;
@@ -166,7 +172,7 @@ typedef struct union_s {
     int typeid;
 
     // Cached size and alignment
-    size_t size, align;
+    typeinf_t inf;
 
     // Next allocated union
     struct union_s *next;
@@ -176,7 +182,10 @@ typedef struct variant_s {
     strview_t name;
 
     // What number the enum variant has associated with it
-    int id;
+    union {
+        intmax_t i;
+        uintmax_t u;
+    } id; // Unsigned or not based on base enum type
 } variant_t;
 
 typedef struct cnm_enum_s {
@@ -184,6 +193,9 @@ typedef struct cnm_enum_s {
 
     // Type ID assocciated with this type
     int typeid;
+
+    // What the default enum type is
+    type_t type;
 
     // Enum variants
     variant_t *variants;
@@ -198,6 +210,7 @@ typedef struct cnm_enum_s {
 typedef struct typedef_s {
     strview_t name;
     typeref_t type;
+    int typedef_id;
 
     // Next typedef in the typedef list
     struct typedef_s *next;
@@ -318,6 +331,7 @@ struct cnm_s {
         union_t *unions;
         enum_t *enums;
         typedef_t *typedefs;
+        int gid, gtypedef_id;
     } type;
 
     struct {
@@ -409,6 +423,10 @@ overflow:
     return;
 }
 
+static inline size_t align_size(size_t x, size_t alignment) {
+    return ((x - 1) / alignment + 1) * alignment;
+}
+
 // Allocate memory in the cnm state region
 static void *cnm_alloc(cnm_t *cnm, size_t size, size_t align) {
     // Align the next alloc pointer
@@ -427,6 +445,7 @@ static void *cnm_alloc(cnm_t *cnm, size_t size, size_t align) {
 }
 
 // Allocate memory in the cnm state region statically (IE whole program time)
+// This region grows downward
 static void *cnm_alloc_static(cnm_t *cnm, size_t size, size_t align) {
     // Align the next alloc pointer
     cnm->alloc.curr_static = (uint8_t *)(
@@ -956,10 +975,11 @@ TOKENS
 }
 
 static bool ast_is_const(cnm_t *cnm, ast_t *ast);
+static typeref_t type_parse(cnm_t *cnm, strview_t *name, bool *istypedef);
 
 // Returns true if this ast node can be used in an arithmetic operation
-static bool type_is_arith(const typeref_t ref) {
-    switch (ref.type[0].class) {
+static bool type_is_arith(const type_t type) {
+    switch (type.class) {
     case TYPE_ARR: case TYPE_STRUCT: case TYPE_ENUM:
     case TYPE_PTR: case TYPE_REF: case TYPE_UNION:
         return false;
@@ -968,9 +988,14 @@ static bool type_is_arith(const typeref_t ref) {
     }
 }
 
+// Returns whether or not a type is an integer type
+static bool type_is_int(const type_t type) {
+    return type.class >= TYPE_CHAR || type.class <= TYPE_ULLONG;
+}
+
 // Returns whether or not a type is a floating point type
-static bool type_is_fp(const typeref_t ref) {
-    switch (ref.type[0].class) {
+static bool type_is_fp(const type_t type) {
+    switch (type.class) {
     case TYPE_FLOAT: case TYPE_DOUBLE:
         return true;
     default:
@@ -979,12 +1004,59 @@ static bool type_is_fp(const typeref_t ref) {
 }
 
 // Returns whether or not the type is unsigned
-static bool type_is_unsigned(const typeref_t ref) {
-    switch (ref.type[0].class) {
+static bool type_is_unsigned(const type_t type) {
+    switch (type.class) {
     case TYPE_UCHAR: case TYPE_USHORT: case TYPE_UINT: case TYPE_ULONG: case TYPE_ULLONG:
         return true;
     default:
         return false;
+    }
+}
+
+static typeinf_t typeinf_get(cnm_t *cnm, const type_t *type) {
+    switch (type->class) {
+    case TYPE_VOID: return (typeinf_t){ .size = 0, .align = 0 };
+    case TYPE_CHAR: case TYPE_UCHAR: case TYPE_BOOL:
+        return (typeinf_t){ sizeof(char), sizeof(char) };
+    case TYPE_SHORT: case TYPE_USHORT:
+        return (typeinf_t){ sizeof(short), sizeof(short) };
+    case TYPE_INT: case TYPE_UINT:
+        return (typeinf_t){ sizeof(int), sizeof(int) };
+    case TYPE_LONG: case TYPE_ULONG:
+        return (typeinf_t){ sizeof(long), sizeof(long) };
+    case TYPE_LLONG: case TYPE_ULLONG:
+        return (typeinf_t){ sizeof(long long), sizeof(long long) };
+    case TYPE_PTR:
+        return (typeinf_t){ sizeof(void *), sizeof(void *) };
+    case TYPE_REF:
+        return (typeinf_t){ sizeof(cnmref_t), sizeof(void *) };
+    case TYPE_ANYREF:
+        return (typeinf_t){ sizeof(cnmanyref_t), sizeof(void *) };
+    case TYPE_ARR: {
+        typeinf_t inf = typeinf_get(cnm, type + 1);
+        inf.size *= type->n;
+        return inf;
+    }
+    case TYPE_STRUCT:
+        for (struct_t *s = cnm->type.structs; s; s = s->next) {
+            if (s->typeid != type->n) continue;
+            return s->inf;
+        }
+        return (typeinf_t){0};
+    case TYPE_ENUM:
+        for (enum_t *e = cnm->type.enums; e; e = e->next) {
+            if (e->typeid != type->n) continue;
+            return typeinf_get(cnm, &e->type);
+        }
+        return (typeinf_t){0};
+    case TYPE_UNION:
+        for (union_t *u = cnm->type.unions; u; u = u->next) {
+            if (u->typeid != type->n) continue;
+            return u->inf;
+        }
+        return (typeinf_t){0};
+    default:
+        return (typeinf_t){0};
     }
 }
 
@@ -1223,22 +1295,336 @@ static bool type_parse_declspec_typedef(cnm_t *cnm, type_t *type, bool *istypede
 }
 static bool type_parse_declspec_struct(cnm_t *cnm, type_t *type, bool *istypedef,
                                        declspec_options_t *options) {
-    token_next(cnm);
+    // Check for previous type specs being used
+    if (options->set_type) return type_parse_declspec_multiple_types_err(cnm);
+    options->set_type = true;
+
+    // Make sure that the struct name is present
+    if (token_next(cnm)->type != TOKEN_IDENT) {
+        cnm_doerr(cnm, true, "expected struct identifier", "");
+        return false;
+    }
+
+    // Set type class
+    type->class = TYPE_STRUCT;
+   
+    // Look for struct with name that matches current token
+    struct_t *s;
+    for (s = cnm->type.structs;; s = s->next) {
+        // Return already existing struct if we can
+        if (strview_eq(s->name, cnm->s.tok.src)) {
+            type->n = s->typeid;
+            if (token_next(cnm)->type == TOKEN_BRACE_L) goto parse_def;
+            else return true;
+        }
+
+        // Create a new struct if we've checked all structs already
+        if (!s->next) {
+            if (!(s->next = cnm_alloc_static(cnm, sizeof(struct_t), sizeof(void *)))) {
+                return false;
+            }
+
+            s = s->next;
+            *s = (struct_t){
+                .typeid = cnm->type.gid++,
+                .name = cnm->s.tok.src,
+            };
+            type->n = s->typeid;
+            if (token_next(cnm)->type == TOKEN_BRACE_L) goto parse_def;
+            else return true;
+        }
+    }
+
+    // s now points to a new struct that we must fill out the members of
+parse_def:
+    // If s has already been defined, then throw an error
+    if (s->fields) {
+        cnm_doerr(cnm, true, "redefinition of struct", "");
+        return false;
+    }
+    token_next(cnm); // skip '{' token
+
+    // Now add members to the field
+    while (cnm->s.tok.type != TOKEN_BRACE_R) {
+        // Allocate new field member and add it to the list
+        field_t *f = cnm_alloc_static(cnm, sizeof(field_t), sizeof(void *));
+        if (!f) return false;
+        f->next = s->fields;
+        s->fields = f;
+
+        // Save normal stack pointer for afterwards when we copy buffers over to
+        // static region
+        uint8_t *const stack_ptr = cnm->alloc.next;
+
+        // Get the type data
+        bool istypedef;
+        f->type = type_parse(cnm, &f->name, &istypedef);
+        if (istypedef) {
+            cnm_doerr(cnm, true, "can not have typedef in struct field", "");
+            return false;
+        }
+        if (!f->type.size) {
+            // TODO: Make error talk about undefined types as well?
+            cnm_doerr(cnm, true, "can not have 0 sized type in struct field", "");
+            return false;
+        }
+
+        // Move type data to static region
+        cnm->alloc.next = stack_ptr; // free old data
+        type_t *buf = cnm_alloc_static(cnm, sizeof(type_t) * f->type.size, sizeof(type_t));
+        if (!buf) return false;
+        memmove(buf, f->type.type, sizeof(type_t) * f->type.size); // move to new spot
+        f->type.type = buf;
+
+        // Get offset and new struct size and alignment
+        typeinf_t inf = typeinf_get(cnm, f->type.type);
+        s->inf.size = align_size(s->inf.size, inf.align);
+        f->offs = s->inf.size;
+        s->inf.size += inf.size;
+        if (inf.align > s->inf.align) s->inf.align = inf.align;
+    }
+
+    // Align the struct size to the alignment size
+    s->inf.size = align_size(s->inf.size, s->inf.align);
+
     return true;
 }
 static bool type_parse_declspec_enum(cnm_t *cnm, type_t *type, bool *istypedef,
                                      declspec_options_t *options) {
-    token_next(cnm);
+    // Check for previous type specs being used
+    if (options->set_type) return type_parse_declspec_multiple_types_err(cnm);
+    options->set_type = true;
+
+    // Make sure that the struct name is present
+    if (token_next(cnm)->type != TOKEN_IDENT) {
+        cnm_doerr(cnm, true, "expected enum identifier", "");
+        return false;
+    }
+
+    // Set type class
+    type->class = TYPE_ENUM;
+   
+    // Look for enum with name that matches current token
+    enum_t *e;
+    for (e = cnm->type.enums;; e = e->next) {
+        // Return already existing enum if we can
+        if (strview_eq(e->name, cnm->s.tok.src)) {
+            type->n = e->typeid;
+            if (token_next(cnm)->type == TOKEN_BRACE_L
+                || cnm->s.tok.type == TOKEN_COLON) goto parse_def;
+            else return true;
+        }
+
+        // Create a new enum if we've checked all structs already
+        if (!e->next) {
+            if (!(e->next = cnm_alloc_static(cnm, sizeof(enum_t), sizeof(void *)))) {
+                return false;
+            }
+
+            e = e->next;
+            *e = (enum_t){
+                .typeid = cnm->type.gid++,
+                .name = cnm->s.tok.src,
+            };
+            type->n = e->typeid;
+            if (token_next(cnm)->type == TOKEN_BRACE_L
+                || cnm->s.tok.type == TOKEN_COLON) goto parse_def;
+            else return true;
+        }
+    }
+
+    // e now points to a new enum that we must fill out the variants for
+parse_def:
+    if (cnm->s.tok.type == TOKEN_COLON) {
+        // Use custom enum type
+        token_next(cnm);
+
+        // Save pointer so we can free this type since its stored directly in enum
+        uint8_t *const stack_ptr = cnm->alloc.next;
+        
+        strview_t name = {0};
+        bool istypedef = false;
+        typeref_t type = type_parse(cnm, &name, &istypedef);
+
+        // Make sure they don't typedef or use names in override type
+        if (istypedef) {
+            cnm_doerr(cnm, true, "can not have typedef as enum override type", "");
+            return false;
+        }
+        if (name.str) {
+            cnm_doerr(cnm, true, "can not have name for enum override type", "");
+            return false;
+        }
+        if (type.size != 1 || !type_is_int(type.type[0])) {
+            cnm_doerr(cnm, true, "enum override type must be integer like type", "");
+            return false;
+        }
+
+        cnm->alloc.next = stack_ptr;
+        if (cnm->s.tok.type != TOKEN_BRACE_L) {
+            cnm_doerr(cnm, true, "expect enum definition after enum override type", "");
+            return false;
+        }
+        token_next(cnm);
+    } else {
+        // Default enum type (int)
+        e->type = (type_t){ .class = TYPE_INT };
+        token_next(cnm);
+    }
+
+    // Align variant area
+    if (!cnm_alloc_static(cnm, 0, sizeof(void *))) return false;
+    e->variants = (variant_t *)cnm->alloc.curr_static;
+
+    // Current variant id
+    union {
+        intmax_t i;
+        uintmax_t u;
+    } variant_id = { .i = 0 };
+
+    // Process enum variants
+    while (cnm->s.tok.type != TOKEN_BRACE_R) {
+        // Allocate new variant
+        if (!cnm_alloc_static(cnm, sizeof(variant_t), 1)) return false;
+        variant_t *v = --e->variants;
+        e->nvariants++;
+
+        // Make sure variant name is here
+        if (cnm->s.tok.type != TOKEN_IDENT) {
+            cnm_doerr(cnm, true, "expected enum variant name", "here");
+            return false;
+        }
+        v->name = cnm->s.tok.src;
+
+        if (token_next(cnm)->type == TOKEN_COMMA) {
+            if (type_is_unsigned(e->type)) v->id.u = variant_id.u++;
+            else v->id.i = variant_id.i++;
+            token_next(cnm);
+            continue;
+        }
+
+        if (cnm->s.tok.type != TOKEN_ASSIGN) {
+            cnm_doerr(cnm, true, "expected either ',' or '=' token", "here");
+            return false;
+        }
+
+        // Set variant number to custom number and reset stack position
+        token_next(cnm);
+        uint8_t *const stack_ptr = cnm->alloc.next;
+
+        // Get number
+        ast_t *ast = ast_generate(cnm, PREC_COND);
+        if (!ast) return false;
+        if (!ast_is_const(cnm, ast) || ast->class != AST_NUM_LITERAL
+            || !type_is_int(*ast->type.type)) {
+            cnm_doerr(cnm, true, "expected constant int expression for variant id", "");
+            return false;
+        }
+
+        // Set number
+        if (type_is_unsigned(*ast->type.type)) variant_id.u = ast->num_literal.u;
+        else variant_id.i = ast->num_literal.i;
+        if (type_is_unsigned(e->type)) v->id.u = variant_id.u++;
+        else v->id.i = variant_id.i++;
+    }
+
     return true;
 }
 static bool type_parse_declspec_union(cnm_t *cnm, type_t *type, bool *istypedef,
                                       declspec_options_t *options) {
-    token_next(cnm);
+    // Check for previous type specs being used
+    if (options->set_type) return type_parse_declspec_multiple_types_err(cnm);
+    options->set_type = true;
+
+    // Make sure that the struct name is present
+    if (token_next(cnm)->type != TOKEN_IDENT) {
+        cnm_doerr(cnm, true, "expected union identifier", "");
+        return false;
+    }
+
+    // Set type class
+    type->class = TYPE_UNION;
+   
+    // Look for union with name that matches current token
+    union_t *u;
+    for (u = cnm->type.unions;; u = u->next) {
+        // Return already existing union if we can
+        if (strview_eq(u->name, cnm->s.tok.src)) {
+            type->n = u->typeid;
+            if (token_next(cnm)->type == TOKEN_BRACE_L) goto parse_def;
+            else return true;
+        }
+
+        // Create a new struct if we've checked all structs already
+        if (!u->next) {
+            if (!(u->next = cnm_alloc_static(cnm, sizeof(union_t), sizeof(void *)))) {
+                return false;
+            }
+
+            u = u->next;
+            *u = (union_t){
+                .typeid = cnm->type.gid++,
+                .name = cnm->s.tok.src,
+            };
+            type->n = u->typeid;
+            if (token_next(cnm)->type == TOKEN_BRACE_L) goto parse_def;
+            else return true;
+        }
+    }
+
+    // u now points to a new struct that we must fill out the members of
+parse_def:
+    // If u has already been defined, then throw an error
+    if (u->inf.size) {
+        cnm_doerr(cnm, true, "redefinition of union", "");
+        return false;
+    }
+    token_next(cnm); // skip '{' token
+
+    // Now calculate union size. Don't process fields since you can access
+    // union fields anyways in cnm script.
+    while (cnm->s.tok.type != TOKEN_BRACE_R) {
+        // Save normal stack pointer for afterwards when we copy buffers over to
+        // static region
+        uint8_t *const stack_ptr = cnm->alloc.next;
+
+        // Get the type data
+        bool istypedef;
+        typeref_t ref = type_parse(cnm, NULL, &istypedef);
+        if (istypedef) {
+            cnm_doerr(cnm, true, "can not have typedef in union field", "");
+            return false;
+        }
+        if (!ref.size) {
+            // TODO: Make error talk about undefined types as well?
+            cnm_doerr(cnm, true, "can not have 0 sized type in union field", "");
+            return false;
+        }
+
+        // Get offset and new struct size and alignment
+        typeinf_t inf = typeinf_get(cnm, ref.type);
+        if (inf.size > u->inf.size) u->inf.size = inf.size;
+        if (inf.align > u->inf.align) u->inf.align = inf.align;
+
+        cnm->alloc.next = stack_ptr; // free old data
+    }
+
     return true;
 }
 static bool type_parse_declspec_ident(cnm_t *cnm, type_t *type, bool *istypedef,
                                       declspec_options_t *options) {
-    // TODO: Look for typedefs
+    type->class = TYPE_TYPEDEF;
+
+    // Look for typedef with name that matches current token
+    for (typedef_t *t = cnm->type.typedefs; t; t = t->next) {
+        // Return already existing union if we can
+        if (!strview_eq(t->name, cnm->s.tok.src)) continue;
+        type->n = t->typedef_id;
+        token_next(cnm);
+        return true;
+    }
+
+    cnm_doerr(cnm, true, "use of unknown identifier", "");
     return false;
 }
 
@@ -1310,13 +1696,13 @@ static bool declspec_apply_options(cnm_t *cnm, type_t *type, declspec_options_t 
     }
 
     // Can't use signedness qualifiers on floating point types or booleans
-    if (options->set_u && (type->class < TYPE_CHAR || type->class > TYPE_ULLONG)) {
+    if (options->set_u && !type_is_int(*type)) {
         cnm_doerr(cnm, true, "used non int type with signed specifiers", "");
         return false;
     }
 
     // Did we use unsigned on an already unsigned 
-    if (options->set_u && type_is_unsigned((typeref_t){ .type = type, .size = 1, })) {
+    if (options->set_u && type_is_unsigned(*type)) {
         cnm_doerr(cnm, true, "used unsigned on already unsigned type", "");
         return false;
     }
@@ -1498,11 +1884,11 @@ static typeref_t type_parse_ex(cnm_t *cnm, strview_t *name, bool *istypedef, boo
                 cnm_doerr(cnm, true, "array size must be constant integer expression", "");
                 goto return_error;
             }
-            if (!type_is_arith(ast->type) || type_is_fp(ast->type)) {
+            if (!type_is_arith(*ast->type.type) || type_is_fp(*ast->type.type)) {
                 cnm_doerr(cnm, true, "array size is non-integer type", "");
                 goto return_error;
             }
-            if (!type_is_unsigned(ast->type) && ast->num_literal.i < 0) {
+            if (!type_is_unsigned(*ast->type.type) && ast->num_literal.i < 0) {
                 cnm_doerr(cnm, true, "size of array is negative", "");
                 goto return_error;
             }
@@ -1779,8 +2165,8 @@ static void astcf_cast_arith(ast_t *node, typeref_t cast_to) {
     type_t *from = node->type.type, *to = cast_to.type;
 
     // Cache information about from and to types
-    const bool fp_to = type_is_fp(cast_to), fp_from = type_is_fp(node->type),
-        u_from = type_is_unsigned(node->type);
+    const bool fp_to = type_is_fp(*cast_to.type), fp_from = type_is_fp(*node->type.type),
+        u_from = type_is_unsigned(*node->type.type);
 
     // If the types are already equal, skip to type enforcing
     if (from->class == to->class) goto enforce_width;
@@ -1811,7 +2197,7 @@ enforce_width:
     }
 
     // Cap the integer to the bit width of what it is
-    if (!type_is_unsigned(cast_to) && node->num_literal.i < 0) return;
+    if (!type_is_unsigned(*cast_to.type) && node->num_literal.i < 0) return;
     switch (to->class) {
     case TYPE_UCHAR:
         node->num_literal.u &= 0xFF;
@@ -1843,7 +2229,7 @@ static bool ast_set_arith_type(cnm_t *cnm, ast_t *ast) {
         const typeclass_t class = ast->type.type[0].class; \
         if (class == TYPE_DOUBLE || class == TYPE_FLOAT) { \
             ast->num_literal.f = ast->left->num_literal.f optoken ast->right->num_literal.f; \
-        } else if (type_is_unsigned(ast->type)) { \
+        } else if (type_is_unsigned(*ast->type.type)) { \
             ast->num_literal.u = ast->left->num_literal.u optoken ast->right->num_literal.u; \
         } else { \
             ast->num_literal.i = ast->left->num_literal.i optoken ast->right->num_literal.i; \
@@ -1858,7 +2244,7 @@ ASTCF_OP(div, /)
 #define ASTCF_OP_INT(opname, optoken) \
     static void astcf_##opname(ast_t *ast) { \
         const typeclass_t class = ast->type.type[0].class; \
-        if (type_is_unsigned(ast->type)) { \
+        if (type_is_unsigned(*ast->type.type)) { \
             ast->num_literal.u = ast->left->num_literal.u optoken ast->right->num_literal.u; \
         } else { \
             ast->num_literal.i = ast->left->num_literal.i optoken ast->right->num_literal.i; \
@@ -1876,7 +2262,7 @@ static void astcf_neg(ast_t *ast) {
     const typeclass_t class = ast->type.type[0].class;
     if (class == TYPE_DOUBLE || class == TYPE_FLOAT) {
         ast->num_literal.f = -ast->child->num_literal.f;
-    } else if (type_is_unsigned(ast->type)) {
+    } else if (type_is_unsigned(*ast->type.type)) {
         ast->num_literal.u = -ast->child->num_literal.u;
     } else {
         ast->num_literal.i = -ast->child->num_literal.i;
@@ -1886,7 +2272,7 @@ static void astcf_not(ast_t *ast) {
     type_t *type = &ast->type.type[0];
     if (type->class == TYPE_DOUBLE || type->class == TYPE_FLOAT) {
         ast->num_literal.u = !ast->child->num_literal.f;
-    } else if (type_is_unsigned(ast->type)) {
+    } else if (type_is_unsigned(*ast->type.type)) {
         ast->num_literal.u = !ast->child->num_literal.u;
     } else {
         ast->num_literal.u = !ast->child->num_literal.i;
@@ -1895,7 +2281,7 @@ static void astcf_not(ast_t *ast) {
 }
 static void astcf_bit_not(ast_t *ast) {
     const typeclass_t class = ast->type.type[0].class;
-    if (type_is_unsigned(ast->type)) {
+    if (type_is_unsigned(*ast->type.type)) {
         ast->num_literal.u = ~ast->child->num_literal.u;
     } else {
         ast->num_literal.u = ~ast->child->num_literal.i;
@@ -1978,7 +2364,7 @@ static ast_t *ast_gen_arith(cnm_t *cnm, ast_t *left) {
     ast->right = ast_generate(cnm, prec + 1);
 
     // Make sure operands can even perform the operation we want
-    if (!type_is_arith(ast->left->type) || !type_is_arith(ast->right->type)) {
+    if (!type_is_arith(*ast->left->type.type) || !type_is_arith(*ast->right->type.type)) {
         cnm->s.tok = backup;
         cnm_doerr(cnm, true, "expect arithmetic types for both operators of operand", "");
         return NULL;
@@ -1986,7 +2372,8 @@ static ast_t *ast_gen_arith(cnm_t *cnm, ast_t *left) {
 
     // Make sure that if we are doing something like a bit operation that
     // we don't use it on floating point types
-    if (int_only_op && (type_is_fp(ast->left->type) || type_is_fp(ast->right->type))) {
+    if (int_only_op
+        && (type_is_fp(*ast->left->type.type) || type_is_fp(*ast->right->type.type))) {
         cnm->s.tok = backup;
         cnm_doerr(cnm, true, "expected integer operands for integer/bitwise operation", "");
         return NULL;
@@ -2078,7 +2465,7 @@ static ast_t *ast_gen_prefix_arith(cnm_t *cnm) {
     ast->child = ast_generate(cnm, PREC_PREFIX);
 
     // Make sure we can even perform the operation we want with this type
-    if (!type_is_arith(ast->child->type)) {
+    if (!type_is_arith(*ast->child->type.type)) {
         cnm->s.tok = backup;
         cnm_doerr(cnm, true, "expect arithmetic type for operand of operator", "");
         return NULL;
@@ -2086,7 +2473,7 @@ static ast_t *ast_gen_prefix_arith(cnm_t *cnm) {
 
     // Make sure that if we are doing something like a bit operation that
     // we don't use it on floating point types
-    if (int_only_op && type_is_fp(ast->child->type)) {
+    if (int_only_op && type_is_fp(*ast->child->type.type)) {
         cnm->s.tok = backup;
         cnm_doerr(cnm, true, "expected integer operand for integer/bitwise operation", "");
         return NULL;
