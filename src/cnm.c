@@ -1043,22 +1043,7 @@ static bool type_eq(const typeref_t a, const typeref_t b) {
     // If sizes aren't equal, can skip rest
     if (a.size != b.size) return false;
 
-    // Check function returns as their own type
-    int nparams = -1;
-
     for (int i = 0; i < a.size; i++) {
-        // Equate function return
-        if (nparams == 0) {
-            size_t size = a.size - i;
-            return type_eq((typeref_t){
-                    .type = a.type + i,
-                    .size = size,
-                }, (typeref_t){
-                    .type = b.type + i,
-                    .size = size,
-                });
-        }
-
         // Check class
         if (a.type[i].class != b.type[i].class) return false;
 
@@ -1072,11 +1057,8 @@ static bool type_eq(const typeref_t a, const typeref_t b) {
         // Check for number
         if (a.type[i].n != b.type[i].n) return false;
 
-        // Get number of levels left in the function so we can test return as
-        // its own type and equate function arguments as their own type
-        if (a.type[i].class == TYPE_FN) {
-            nparams = a.type[i].n;
-        } else if (a.type[i].class == TYPE_FN_ARG) {
+        // Equate function arguments as their own type
+        if (a.type[i].class == TYPE_FN_ARG) {
             // Equate function arguments
             size_t size = a.type[i].n;
             if (!type_eq((typeref_t){
@@ -1087,7 +1069,6 @@ static bool type_eq(const typeref_t a, const typeref_t b) {
                     .size = size,
                 })) return false;
             i += size;
-            --nparams;
         }
     }
 

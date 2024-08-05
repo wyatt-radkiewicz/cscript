@@ -959,7 +959,7 @@ SIMPLE_TEST(test_type_parsing6, test_errcb,  "int *(*get_int)(char x[], bool z)"
             (type_t){ .class = TYPE_CHAR },
             (type_t){ .class = TYPE_FN_ARG, .n = 1 },
             (type_t){ .class = TYPE_BOOL, .isconst = true },
-            (type_t){ .class = TYPE_PTR, .isconst = true },
+            (type_t){ .class = TYPE_PTR },
             (type_t){ .class = TYPE_INT },
         },
         .size = 9,
