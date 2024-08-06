@@ -42,7 +42,7 @@
     __VA_ARGS__ \
     const char *const cnmsymb(symbol_name) = cnmxstr(__VA_ARGS__);
 
-// TODO: Add branches for other cpus
+// TODO: Add branches for other cpus and make this check cross platform (*COUGH* WIN32)
 #if ULONG_MAX == 4294967295
 #define cnmcall __attribute__((cdecl))
 #else
