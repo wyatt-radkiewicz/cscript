@@ -13,8 +13,6 @@
 // other special intermediatary types. Only types that are used in IR are the
 // POD types, VOID, BOOL, REF, ANYREF, and PTR
 typedef enum typeclass_e {
-    TYPE_VOID,
-
     // POD Types
     TYPE_CHAR,      TYPE_UCHAR,
     TYPE_SHORT,     TYPE_USHORT,
@@ -22,12 +20,15 @@ typedef enum typeclass_e {
     TYPE_LONG,      TYPE_ULONG,
     TYPE_LLONG,     TYPE_ULLONG,
     TYPE_FLOAT,     TYPE_DOUBLE,
+    TYPE_BOOL,
+
+    // Derived POD types
+    TYPE_PTR,       TYPE_REF,
+    TYPE_ANYREF,
 
     // Special types
-    TYPE_PTR,       TYPE_REF,
-    TYPE_ANYREF,    TYPE_BOOL,
-    TYPE_ARR,       TYPE_FN,
-    TYPE_FN_ARG,
+    TYPE_VOID,      TYPE_ARR,
+    TYPE_FN,        TYPE_FN_ARG,    
 
     // User made types
     TYPE_USER,
@@ -43,9 +44,9 @@ typedef enum typeclass_e {
 // is used here because the type of the psudo-variable here should be the POD
 // type only.
 typedef struct gidref_s {
-	unsigned len;
-	typeclass_t type;
-	struct gidref_s *next;
+    unsigned len;
+    typeclass_t type;
+    struct gidref_s *next;
 } gidref_t;
 
 #endif

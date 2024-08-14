@@ -186,30 +186,30 @@ typedef struct strent_s {
 
 // A named variable in the current scope
 typedef struct scope_s {
-	strview_t name;
-	typeref_t type;
+    strview_t name;
+    typeref_t type;
 
-	// What instruction offset the range started at
-	unsigned range_start;
+    // What instruction offset the range started at
+    unsigned range_start;
 
-	// The range data associated with this scope
-	// This updates to the latest range data so that it can be updated
-	gidref_t *range;
+    // The range data associated with this scope
+    // This updates to the latest range data so that it can be updated
+    gidref_t *range;
 
-	// The actual GID name of the variable (last one used)
-	unsigned gid;
+    // The actual GID name of the variable (last one used)
+    unsigned gid;
 
-	// The next scope refrence. This one is 'later' than that
-	struct scope_s *next;
+    // The next scope refrence. This one is 'later' than that
+    struct scope_s *next;
 } scope_t;
 
 // A refrence to a variable in the current program. Since this is IR, it could
 // be on the stack or in a register so there is no associated location
 // information with this
 typedef struct {
-	// If this type also has the literal data associated with it
-	bool isliteral;
-	union {
+    // If this type also has the literal data associated with it
+    bool isliteral;
+    union {
         union {
             uintmax_t u;
             intmax_t i;
@@ -217,23 +217,23 @@ typedef struct {
         } num;
         char *str;
         uint32_t chr;
-	} literal;
+    } literal;
 
-	// The type of the value, copy of the scope type if this is a scoped var
-	typeref_t type;
+    // The type of the value, copy of the scope type if this is a scoped var
+    typeref_t type;
 
-	// What instruction offset the range started at
-	unsigned range_start;
+    // What instruction offset the range started at
+    unsigned range_start;
 
-	// The range data associated with this scope
-	// This updates to the latest range data so that it can be updated
-	gidref_t *range;
+    // The range data associated with this scope
+    // This updates to the latest range data so that it can be updated
+    gidref_t *range;
 
-	// The actual GID name of the variable (last one used)
-	unsigned gid;
+    // The actual GID name of the variable (last one used)
+    unsigned gid;
 
-	// Pointer to the actual scope data of this variable
-	scope_t *scope;
+    // Pointer to the actual scope data of this variable
+    scope_t *scope;
 } valref_t;
 
 // Precedence levels of an expression going from evaluated last (comma) to
@@ -296,14 +296,14 @@ struct cnm_s {
         token_t tok;
     } s;
 
-	// Code generation
-	struct {
-		// SSA Variable 'name' next global id
-		unsigned gid;
+    // Code generation
+    struct {
+        // SSA Variable 'name' next global id
+        unsigned gid;
 
-		// GID refrences used in the IR
-		gidref_t *gids;
-	} cg;
+        // GID refrences used in the IR
+        gidref_t *gids;
+    } cg;
 
     // Callbacks
     struct {
@@ -1480,7 +1480,7 @@ static bool type_parse_declspec_enum(cnm_t *cnm, type_t *type, bool *istypedef,
         uint8_t *const stack_ptr = cnm->alloc.next;
 
         // Get number
-		valref_t val;
+        valref_t val;
         if (!expr_parse(cnm, &val, false, false, PREC_COND)) return false;
         if (!val.isliteral || !type_is_int(*val.type.type)) {
             cnm_doerr(cnm, true, "expected constant int expression for variant id", "");
@@ -1833,8 +1833,8 @@ static typeref_t type_parse_ex(cnm_t *cnm, strview_t *name, bool *istypedef, boo
 
             // Get size and store alloc pointer so we can free
             uint8_t *const stack_ptr = cnm->alloc.next;
-			valref_t val;
-			if (!expr_parse(cnm, &val, false, false, PREC_FULL)) goto return_error;
+            valref_t val;
+            if (!expr_parse(cnm, &val, false, false, PREC_FULL)) goto return_error;
             if (!val.isliteral) {
                 cnm_doerr(cnm, true, "array size must be constant integer expression", "");
                 goto return_error;
@@ -1956,14 +1956,14 @@ static bool expr_parse(cnm_t *cnm, valref_t *out, bool gencode, bool gendata, pr
         cnm_doerr(cnm, true, "expected expression", "not a valid start to expression");
         return false;
     }
-	if (!rule->prefix(cnm, out, gencode, gendata)) return false;
+    if (!rule->prefix(cnm, out, gencode, gendata)) return false;
 
     // Continue to consume binary operators that fall under this precedence level
     rule = &expr_rules[cnm->s.tok.type];
     while (rule->infix && prec <= rule->infix_prec) {
-		valref_t tmp;
+        valref_t tmp;
         if (!rule->infix(cnm, &tmp, gencode, gendata, out)) return false;
-		*out = tmp;
+        *out = tmp;
         rule = &expr_rules[cnm->s.tok.type];
     }
 
@@ -1993,7 +1993,7 @@ static bool expr_group(cnm_t *cnm, valref_t *out, bool gencode, bool gendata) {
 
 // Create a literal value valref for the integer
 static bool expr_int(cnm_t *cnm, valref_t *out, bool gencode, bool gendata) {
-	*out = (valref_t){0};
+    *out = (valref_t){ .isliteral = true };
 
     // Allocate type
     if (!(out->type.type = cnm_alloc(cnm, sizeof(type_t), sizeof(type_t)))) return false;
@@ -2080,7 +2080,8 @@ static bool expr_int(cnm_t *cnm, valref_t *out, bool gencode, bool gendata) {
 
 // Generate valref with literal double
 static bool expr_double(cnm_t *cnm, valref_t *out, bool gencode, bool gendata) {
-	*out = (valref_t){
+    *out = (valref_t){
+        .isliteral = true,
         .literal.num.f = cnm->s.tok.f.n,
     };
 
@@ -2148,7 +2149,7 @@ enforce_width:
 }
 
 // Helper function to set the type of an arithmetic valref
-static bool ast_set_arith_type(cnm_t *cnm, valref_t *out, valref_t *left, valref_t *right) {
+static bool set_arith_type(cnm_t *cnm, valref_t *out, valref_t *left, valref_t *right) {
     type_t *ltype = left->type.type, *rtype = right->type.type;
 
     // Binary arithmetic conversion ranks. Ranks have been built into the
@@ -2228,64 +2229,28 @@ static void cf_bit_not(valref_t *var) {
 // Generate valref that runs arithmetic operation on left and right hand side
 // and perform constant folding if nessesary
 static bool expr_arith(cnm_t *cnm, valref_t *out, bool gencode, bool gendata, valref_t *left) {
+    *out = (valref_t){0};
+
     // Allocate ast type
     if (!(out->type.type = cnm_alloc(cnm, sizeof(type_t), sizeof(type_t)))) return false;
     out->type.size = 1;
     out->type.type[0] = (type_t){0};
 
-    // Save stack pointer for if we can constant fold, then we can destroy the
-    // child nodes
-    uint8_t *const stack_ptr = cnm->alloc.next;
+    // Get current precedence level
+    const prec_t prec = expr_rules[cnm->s.tok.type].infix_prec;
 
     // Set to if the operation can only be for integers (only needed for
     // constant folding)
     bool int_only_op = false;
 
-    // Get current precedence level
-    const prec_t prec = expr_rules[cnm->s.tok.type].infix_prec;
-
-    // Set the ast node type
+    // Save the operation type
+    const token_type_t optype = cnm->s.tok.type;
     switch (cnm->s.tok.type) {
-    case TOKEN_PLUS:
-        ast->class = AST_ADD;
-        break;
-    case TOKEN_MINUS:
-        ast->class = AST_SUB;
-        break;
-    case TOKEN_STAR:
-        ast->class = AST_MUL;
-        break;
-    case TOKEN_DIVIDE:
-        ast->class = AST_DIV;
-        break;
-    case TOKEN_MODULO:
-        ast->class = AST_MOD;
+    case TOKEN_MODULO: case TOKEN_BIT_OR: case TOKEN_BIT_AND:
+    case TOKEN_BIT_XOR: case TOKEN_SHIFT_L: case TOKEN_SHIFT_R:
         int_only_op = true;
         break;
-    case TOKEN_BIT_OR:
-        ast->class = AST_BIT_OR;
-        int_only_op = true;
-        break;
-    case TOKEN_BIT_AND:
-        ast->class = AST_BIT_AND;
-        int_only_op = true;
-        break;
-    case TOKEN_BIT_XOR:
-        ast->class = AST_BIT_XOR;
-        int_only_op = true;
-        break;
-    case TOKEN_SHIFT_L:
-        ast->class = AST_SHIFT_L;
-        int_only_op = true;
-        break;
-    case TOKEN_SHIFT_R:
-        ast->class = AST_SHIFT_R;
-        int_only_op = true;
-        break;
-    
-    default:
-        // Should never be reached (dead code)
-        break;
+    default: break;
     }
 
     // Skip past arithmetic token to be at start of right hand of equasion
@@ -2293,111 +2258,82 @@ static bool expr_arith(cnm_t *cnm, valref_t *out, bool gencode, bool gendata, va
     token_next(cnm);
 
     // Evaluate right hand side with left to right associativity
-    ast->right = ast_generate(cnm, prec + 1);
+    valref_t right;
+    if (!expr_parse(cnm, &right, gencode, gendata, prec + 1)) return false;
 
     // Make sure operands can even perform the operation we want
-    if (!type_is_arith(*ast->left->type.type) || !type_is_arith(*ast->right->type.type)) {
+    if (!type_is_arith(*left->type.type) || !type_is_arith(*right.type.type)) {
         cnm->s.tok = backup;
         cnm_doerr(cnm, true, "expect arithmetic types for both operators of operand", "");
-        return NULL;
+        return false;
     }
 
     // Make sure that if we are doing something like a bit operation that
     // we don't use it on floating point types
-    if (int_only_op
-        && (type_is_fp(*ast->left->type.type) || type_is_fp(*ast->right->type.type))) {
+    if (int_only_op && (type_is_fp(*left->type.type) || type_is_fp(*right.type.type))) {
         cnm->s.tok = backup;
         cnm_doerr(cnm, true, "expected integer operands for integer/bitwise operation", "");
-        return NULL;
+        return false;
     }
 
     // Get the new type and convert both sides at compile time if we can
-    if (!ast_set_arith_type(cnm, ast)) return NULL;
-    if (ast_is_const(cnm, ast->left)) astcf_cast_arith(ast->left, ast->type);
-    if (ast_is_const(cnm, ast->right)) astcf_cast_arith(ast->right, ast->type);
+    if (!set_arith_type(cnm, out, left, &right)) return false;
+    if (left->isliteral) cf_cast_arith(left, out->type);
+    if (right.isliteral) cf_cast_arith(&right, out->type);
 
     // Start constant propogation if we can
-    if (!ast_is_const(cnm, ast->left) || !ast_is_const(cnm, ast->right)) return ast;
+    if (!left->isliteral || !right.isliteral) return true;
 
     // Do the operation in question
-    switch (ast->class) {
-    case AST_ADD: astcf_add(ast); break;
-    case AST_SUB: astcf_sub(ast); break;
-    case AST_MUL: astcf_mul(ast); break;
-    case AST_DIV: astcf_div(ast); break;
-    case AST_MOD: astcf_mod(ast); break;
-    case AST_BIT_OR: astcf_bit_or(ast); break;
-    case AST_BIT_XOR: astcf_bit_xor(ast); break;
-    case AST_BIT_AND: astcf_bit_and(ast); break;
-    case AST_SHIFT_L: astcf_shift_l(ast); break;
-    case AST_SHIFT_R: astcf_shift_r(ast); break;
+    switch (optype) {
+    case TOKEN_PLUS: cf_add(out, left, &right); break;
+    case TOKEN_MINUS: cf_sub(out, left, &right); break;
+    case TOKEN_STAR: cf_mul(out, left, &right); break;
+    case TOKEN_DIVIDE: cf_div(out, left, &right); break;
+    case TOKEN_MODULO: cf_mod(out, left, &right); break;
+    case TOKEN_BIT_OR: cf_bit_or(out, left, &right); break;
+    case TOKEN_BIT_XOR: cf_bit_xor(out, left, &right); break;
+    case TOKEN_BIT_AND: cf_bit_and(out, left, &right); break;
+    case TOKEN_SHIFT_L: cf_shift_l(out, left, &right); break;
+    case TOKEN_SHIFT_R: cf_shift_r(out, left, &right); break;
     default:
         // Should never be reached (dead code)
         break;
     }
     
     // Enforce bit width and class
-    astcf_cast_arith(ast, ast->type);
-    ast->class = AST_NUM_LITERAL;
-
-    // Free the children since they are not needed anymore
-    cnm->alloc.next = stack_ptr;
-    ast->left = NULL;
-    ast->right = NULL;
-
-    // Finally return the ast node
-    return ast;
+    cf_cast_arith(out, out->type);
+    out->isliteral = true;
+    return true;
 }
 
 // Generate ast node that performs a math operation on its child and does
 // constant folding if nessescary
-static ast_t *ast_gen_prefix_arith(cnm_t *cnm) {
-    // Allocate ast node
-    ast_t *ast = cnm_alloc(cnm, sizeof(*ast), sizeof(void *));
-    if (!ast) return NULL;
-    *ast = (ast_t){0};
+static bool expr_prefix_arith(cnm_t *cnm, valref_t *out, bool gencode, bool gendata) {
+    *out = (valref_t){0};
 
-    // Allocate ast type
-    if (!(ast->type.type = cnm_alloc(cnm, sizeof(type_t), sizeof(type_t)))) return false;
-    ast->type.size = 1;
-    ast->type.type[0] = (type_t){0};
+    // Allocate out type
+    if (!(out->type.type = cnm_alloc(cnm, sizeof(type_t), sizeof(type_t)))) return false;
+    out->type.size = 1;
+    out->type.type[0] = (type_t){0};
 
-    // Save stack pointer for if we can constant fold, then we can destroy the
-    // child node
-    uint8_t *const stack_ptr = cnm->alloc.next;
+    // Save the operation type
+    const token_type_t optype = cnm->s.tok.type;
 
     // Set to true if the operation can only be for integers (only needed for
     // constant folding)
-    bool int_only_op = false;
+    bool int_only_op = optype == TOKEN_BIT_NOT;
 
-    // Set the ast node type
-    switch (cnm->s.tok.type) {
-    case TOKEN_MINUS:
-        ast->class = AST_NEG;
-        break;
-    case TOKEN_NOT:
-        ast->class = AST_NOT;
-        break;
-    case TOKEN_BIT_NOT:
-        ast->class = AST_BIT_NOT;
-        int_only_op = true;
-        break;
-    
-    default:
-        // Should never be reached (dead code)
-        break;
-    }
-
-    // Skip past arithmetic token to be at start of right hand of equasion
+    // Skip pout arithmetic token to be at start of right hand of equasion
     const token_t backup = cnm->s.tok; // Used for if an error happens
     token_next(cnm);
 
     // Evaluate child with right to left hand associativity. Use PREC_PREFIX
     // for every option because every token used by this function has that prec
-    ast->child = ast_generate(cnm, PREC_PREFIX);
+    if (!expr_parse(cnm, out, gencode, gendata, PREC_PREFIX)) return false;
 
     // Make sure we can even perform the operation we want with this type
-    if (!type_is_arith(*ast->child->type.type)) {
+    if (!type_is_arith(*out->type.type)) {
         cnm->s.tok = backup;
         cnm_doerr(cnm, true, "expect arithmetic type for operand of operator", "");
         return NULL;
@@ -2405,39 +2341,33 @@ static ast_t *ast_gen_prefix_arith(cnm_t *cnm) {
 
     // Make sure that if we are doing something like a bit operation that
     // we don't use it on floating point types
-    if (int_only_op && type_is_fp(*ast->child->type.type)) {
+    if (int_only_op && type_is_fp(*out->type.type)) {
         cnm->s.tok = backup;
         cnm_doerr(cnm, true, "expected integer operand for integer/bitwise operation", "");
         return NULL;
     }
 
     // Get the new type and convert both sides at compile time if we can
-    ast->type.type[0].class = ast->child->type.type[0].class;
-    if (ast->class == AST_NOT) ast->type.type[0].class = TYPE_BOOL;
-    else type_promote_to_int(&ast->type);
+    out->type.type[0].class = out->type.type[0].class;
+    if (optype == TOKEN_NOT) out->type.type[0].class = TYPE_BOOL;
+    else type_promote_to_int(&out->type);
 
     // Now perform constant folding if we can
-    if (!ast_is_const(cnm, ast->child)) return ast;
+    if (!out->isliteral) return out;
 
     // Do the operation in question
-    switch (ast->class) {
-    case AST_NOT: astcf_not(ast); break;
-    case AST_NEG: astcf_neg(ast); break;
-    case AST_BIT_NOT: astcf_bit_not(ast); break;
+    switch (optype) {
+    case TOKEN_NOT: cf_not(out); break;
+    case TOKEN_MINUS: cf_neg(out); break;
+    case TOKEN_BIT_NOT: cf_bit_not(out); break;
     default:
         // Should never be reached (dead code)
         break;
     }
     
     // Enforce bit width and class
-    astcf_cast_arith(ast, ast->type);
-    ast->class = AST_NUM_LITERAL;
-
-    // Free the children since they are not needed anymore
-    cnm->alloc.next = stack_ptr;
-    ast->child = NULL;
-
-    return ast;
+    cf_cast_arith(out, out->type);
+    return true;
 }
 
 // Initialize a cnm state object to compile code in the space provided by the code argument

@@ -475,203 +475,227 @@ SIMPLE_TEST(test_lexer_token_location, test_errcb,
 
 ///////////////////////////////////////////////////////////////////////////////
 //
-// AST Constant Folding Testing
+// Expression Constant Folding Testing
 //
 ///////////////////////////////////////////////////////////////////////////////
-SIMPLE_TEST(test_ast_constant_folding1, test_errcb,  "5", {
+SIMPLE_TEST(test_expr_constant_folding1, test_errcb,  "5", {
     token_next(cnm);
-    ast_t *ast = ast_generate(cnm, PREC_FULL);
-    if (ast->class != AST_NUM_LITERAL) return DOFAIL();
-    if (ast->type.type[0].class != TYPE_INT) return DOFAIL();
-    if (ast->type.size != 1) return DOFAIL();
-    if (ast->num_literal.i != 5) return DOFAIL();
+    valref_t val;
+    if (!expr_parse(cnm, &val, false, false, PREC_FULL)) return DOFAIL();
+    if (!val.isliteral) return DOFAIL();
+    if (val.type.type[0].class != TYPE_INT) return DOFAIL();
+    if (val.type.size != 1) return DOFAIL();
+    if (val.literal.num.i != 5) return DOFAIL();
     return true;
 })
-
-SIMPLE_TEST(test_ast_constant_folding2, test_errcb,  "5.0", {
+SIMPLE_TEST(test_expr_constant_folding2, test_errcb,  "5.0", {
     token_next(cnm);
-    ast_t *ast = ast_generate(cnm, PREC_FULL);
-    if (ast->class != AST_NUM_LITERAL) return DOFAIL();
-    if (ast->type.type[0].class != TYPE_DOUBLE) return DOFAIL();
-    if (ast->num_literal.f != 5.0) return DOFAIL();
+    valref_t val;
+    if (!expr_parse(cnm, &val, false, false, PREC_FULL)) return DOFAIL();
+    if (!val.isliteral) return DOFAIL();
+    if (val.type.type[0].class != TYPE_DOUBLE) return DOFAIL();
+    if (val.literal.num.f != 5.0) return DOFAIL();
     return true;
 })
-SIMPLE_TEST(test_ast_constant_folding3, test_errcb,  "5000000000", {
+SIMPLE_TEST(test_expr_constant_folding3, test_errcb,  "5000000000", {
     token_next(cnm);
-    ast_t *ast = ast_generate(cnm, PREC_FULL);
-    if (ast->class != AST_NUM_LITERAL) return DOFAIL();
-    if (ast->type.type[0].class != TYPE_LONG) return DOFAIL();
-    if (ast->num_literal.i != 5000000000) return DOFAIL();
+    valref_t val;
+    if (!expr_parse(cnm, &val, false, false, PREC_FULL)) return DOFAIL();
+    if (!val.isliteral) return DOFAIL();
+    if (val.type.type[0].class != TYPE_LONG) return DOFAIL();
+    if (val.literal.num.i != 5000000000) return DOFAIL();
     return true;
 })
-SIMPLE_TEST(test_ast_constant_folding4, test_errcb,  "5u", {
+SIMPLE_TEST(test_expr_constant_folding4, test_errcb,  "5u", {
     token_next(cnm);
-    ast_t *ast = ast_generate(cnm, PREC_FULL);
-    if (ast->class != AST_NUM_LITERAL) return DOFAIL();
-    if (ast->type.type[0].class != TYPE_UINT) return DOFAIL();
-    if (ast->num_literal.u != 5) return DOFAIL();
+    valref_t val;
+    if (!expr_parse(cnm, &val, false, false, PREC_FULL)) return DOFAIL();
+    if (!val.isliteral) return DOFAIL();
+    if (val.type.type[0].class != TYPE_UINT) return DOFAIL();
+    if (val.literal.num.u != 5) return DOFAIL();
     return true;
 })
-SIMPLE_TEST(test_ast_constant_folding5, test_errcb,  "9223372036854775809ull", {
+SIMPLE_TEST(test_expr_constant_folding5, test_errcb,  "9223372036854775809ull", {
     token_next(cnm);
-    ast_t *ast = ast_generate(cnm, PREC_FULL);
-    if (ast->class != AST_NUM_LITERAL) return DOFAIL();
-    if (ast->type.type[0].class != TYPE_ULLONG) return DOFAIL();
-    if (ast->num_literal.u != 9223372036854775809ull) return DOFAIL();
+    valref_t val;
+    if (!expr_parse(cnm, &val, false, false, PREC_FULL)) return DOFAIL();
+    if (!val.isliteral) return DOFAIL();
+    if (val.type.type[0].class != TYPE_ULLONG) return DOFAIL();
+    if (val.literal.num.u != 9223372036854775809ull) return DOFAIL();
     return true;
 })
-SIMPLE_TEST(test_ast_constant_folding6, test_expect_errcb,  "9223372036854775809", {
+SIMPLE_TEST(test_expr_constant_folding6, test_expect_errcb,  "9223372036854775809", {
     token_next(cnm);
-    ast_t *ast = ast_generate(cnm, PREC_FULL);
+    valref_t val;
+    if (!expr_parse(cnm, &val, false, false, PREC_FULL)) return DOFAIL();
     return test_expect_err;
 })
-SIMPLE_TEST(test_ast_constant_folding7, test_errcb,  "92ull", {
+SIMPLE_TEST(test_expr_constant_folding7, test_errcb,  "92ull", {
     token_next(cnm);
-    ast_t *ast = ast_generate(cnm, PREC_FULL);
-    if (ast->class != AST_NUM_LITERAL) return DOFAIL();
-    if (ast->type.type[0].class != TYPE_ULLONG) return DOFAIL();
-    if (ast->num_literal.u != 92ull) return DOFAIL();
+    valref_t val;
+    if (!expr_parse(cnm, &val, false, false, PREC_FULL)) return DOFAIL();
+    if (!val.isliteral) return DOFAIL();
+    if (val.type.type[0].class != TYPE_ULLONG) return DOFAIL();
+    if (val.literal.num.u != 92ull) return DOFAIL();
     return true;
 })
-SIMPLE_TEST(test_ast_constant_folding8, test_errcb,  "5 + 5", {
+SIMPLE_TEST(test_expr_constant_folding8, test_errcb,  "5 + 5", {
     token_next(cnm);
-    ast_t *ast = ast_generate(cnm, PREC_FULL);
-    if (ast->class != AST_NUM_LITERAL) return DOFAIL();
-    if (ast->type.type[0].class != TYPE_INT) return DOFAIL();
-    if (ast->num_literal.i != 10) return DOFAIL();
+    valref_t val;
+    if (!expr_parse(cnm, &val, false, false, PREC_FULL)) return DOFAIL();
+    if (!val.isliteral) return DOFAIL();
+    if (val.type.type[0].class != TYPE_INT) return DOFAIL();
+    if (val.literal.num.i != 10) return DOFAIL();
     return true;
 })
-SIMPLE_TEST(test_ast_constant_folding9, test_errcb,  "5 * 5 + 3", {
+SIMPLE_TEST(test_expr_constant_folding9, test_errcb,  "5 * 5 + 3", {
     token_next(cnm);
-    ast_t *ast = ast_generate(cnm, PREC_FULL);
-    if (ast->class != AST_NUM_LITERAL) return DOFAIL();
-    if (ast->type.type[0].class != TYPE_INT) return DOFAIL();
-    if (ast->num_literal.i != 28) return DOFAIL();
+    valref_t val;
+    if (!expr_parse(cnm, &val, false, false, PREC_FULL)) return DOFAIL();
+    if (!val.isliteral) return DOFAIL();
+    if (val.type.type[0].class != TYPE_INT) return DOFAIL();
+    if (val.literal.num.i != 28) return DOFAIL();
     return true;
 })
-SIMPLE_TEST(test_ast_constant_folding10, test_errcb,  "5 + 5 * 3", {
+SIMPLE_TEST(test_expr_constant_folding10, test_errcb,  "5 + 5 * 3", {
     token_next(cnm);
-    ast_t *ast = ast_generate(cnm, PREC_FULL);
-    if (ast->class != AST_NUM_LITERAL) return DOFAIL();
-    if (ast->type.type[0].class != TYPE_INT) return DOFAIL();
-    if (ast->num_literal.i != 20) return DOFAIL();
+    valref_t val;
+    if (!expr_parse(cnm, &val, false, false, PREC_FULL)) return DOFAIL();
+    if (!val.isliteral) return DOFAIL();
+    if (val.type.type[0].class != TYPE_INT) return DOFAIL();
+    if (val.literal.num.i != 20) return DOFAIL();
     return true;
 })
-SIMPLE_TEST(test_ast_constant_folding11, test_errcb,  "5ul + 30.0", {
+SIMPLE_TEST(test_expr_constant_folding11, test_errcb,  "5ul + 30.0", {
     token_next(cnm);
-    ast_t *ast = ast_generate(cnm, PREC_FULL);
-    if (ast->class != AST_NUM_LITERAL) return DOFAIL();
-    if (ast->type.type[0].class != TYPE_DOUBLE) return DOFAIL();
-    if (ast->num_literal.f != 35) return DOFAIL();
+    valref_t val;
+    if (!expr_parse(cnm, &val, false, false, PREC_FULL)) return DOFAIL();
+    if (!val.isliteral) return DOFAIL();
+    if (val.type.type[0].class != TYPE_DOUBLE) return DOFAIL();
+    if (val.literal.num.f != 35) return DOFAIL();
     return true;
 })
-SIMPLE_TEST(test_ast_constant_folding12, test_errcb,  "10 / 3.0", {
+SIMPLE_TEST(test_expr_constant_folding12, test_errcb,  "10 / 3.0", {
     token_next(cnm);
-    ast_t *ast = ast_generate(cnm, PREC_FULL);
-    if (ast->class != AST_NUM_LITERAL) return DOFAIL();
-    if (ast->type.type[0].class != TYPE_DOUBLE) return DOFAIL();
-    if (ast->num_literal.f != 10.0 / 3.0) return DOFAIL();
+    valref_t val;
+    if (!expr_parse(cnm, &val, false, false, PREC_FULL)) return DOFAIL();
+    if (!val.isliteral) return DOFAIL();
+    if (val.type.type[0].class != TYPE_DOUBLE) return DOFAIL();
+    if (val.literal.num.f != 10.0 / 3.0) return DOFAIL();
     return true;
 })
-SIMPLE_TEST(test_ast_constant_folding13, test_errcb,  "10 / 3", {
+SIMPLE_TEST(test_expr_constant_folding13, test_errcb,  "10 / 3", {
     token_next(cnm);
-    ast_t *ast = ast_generate(cnm, PREC_FULL);
-    if (ast->class != AST_NUM_LITERAL) return DOFAIL();
-    if (ast->type.type[0].class != TYPE_INT) return DOFAIL();
-    if (ast->num_literal.i != 10 / 3) return DOFAIL();
+    valref_t val;
+    if (!expr_parse(cnm, &val, false, false, PREC_FULL)) return DOFAIL();
+    if (!val.isliteral) return DOFAIL();
+    if (val.type.type[0].class != TYPE_INT) return DOFAIL();
+    if (val.literal.num.i != 10 / 3) return DOFAIL();
     return true;
 })
-SIMPLE_TEST(test_ast_constant_folding14, test_errcb,  "10ul * 12", {
+SIMPLE_TEST(test_expr_constant_folding14, test_errcb,  "10ul * 12", {
     token_next(cnm);
-    ast_t *ast = ast_generate(cnm, PREC_FULL);
-    if (ast->class != AST_NUM_LITERAL) return DOFAIL();
-    if (ast->type.type[0].class != TYPE_ULONG) return DOFAIL();
-    if (ast->num_literal.u != 120) return DOFAIL();
+    valref_t val;
+    if (!expr_parse(cnm, &val, false, false, PREC_FULL)) return DOFAIL();
+    if (!val.isliteral) return DOFAIL();
+    if (val.type.type[0].class != TYPE_ULONG) return DOFAIL();
+    if (val.literal.num.u != 120) return DOFAIL();
     return true;
 })
-SIMPLE_TEST(test_ast_constant_folding15, test_errcb,  "3 - 9 * 2l", {
+SIMPLE_TEST(test_expr_constant_folding15, test_errcb,  "3 - 9 * 2l", {
     token_next(cnm);
-    ast_t *ast = ast_generate(cnm, PREC_FULL);
-    if (ast->class != AST_NUM_LITERAL) return DOFAIL();
-    if (ast->type.type[0].class != TYPE_LONG) return DOFAIL();
-    if (ast->num_literal.i != -15) return DOFAIL();
+    valref_t val;
+    if (!expr_parse(cnm, &val, false, false, PREC_FULL)) return DOFAIL();
+    if (!val.isliteral) return DOFAIL();
+    if (val.type.type[0].class != TYPE_LONG) return DOFAIL();
+    if (val.literal.num.i != -15) return DOFAIL();
     return true;
 })
-SIMPLE_TEST(test_ast_constant_folding16, test_errcb,  "-8", {
+SIMPLE_TEST(test_expr_constant_folding16, test_errcb,  "-8", {
     token_next(cnm);
-    ast_t *ast = ast_generate(cnm, PREC_FULL);
-    if (ast->class != AST_NUM_LITERAL) return DOFAIL();
-    if (ast->type.type[0].class != TYPE_INT) return DOFAIL();
-    if (ast->num_literal.i != -8) return DOFAIL();
+    valref_t val;
+    if (!expr_parse(cnm, &val, false, false, PREC_FULL)) return DOFAIL();
+    if (!val.isliteral) return DOFAIL();
+    if (val.type.type[0].class != TYPE_INT) return DOFAIL();
+    if (val.literal.num.i != -8) return DOFAIL();
     return true;
 })
-SIMPLE_TEST(test_ast_constant_folding17, test_errcb,  "(-8)", {
+SIMPLE_TEST(test_expr_constant_folding17, test_errcb,  "(-8)", {
     token_next(cnm);
-    ast_t *ast = ast_generate(cnm, PREC_FULL);
-    if (ast->class != AST_NUM_LITERAL) return DOFAIL();
-    if (ast->type.type[0].class != TYPE_INT) return DOFAIL();
-    if (ast->num_literal.i != -8) return DOFAIL();
+    valref_t val;
+    if (!expr_parse(cnm, &val, false, false, PREC_FULL)) return DOFAIL();
+    if (!val.isliteral) return DOFAIL();
+    if (val.type.type[0].class != TYPE_INT) return DOFAIL();
+    if (val.literal.num.i != -8) return DOFAIL();
     return true;
 })
-SIMPLE_TEST(test_ast_constant_folding18, test_errcb,  "-(0x8)", {
+SIMPLE_TEST(test_expr_constant_folding18, test_errcb,  "-(0x8)", {
     token_next(cnm);
-    ast_t *ast = ast_generate(cnm, PREC_FULL);
-    if (ast->class != AST_NUM_LITERAL) return DOFAIL();
-    if (ast->type.type[0].class != TYPE_INT) return DOFAIL();
-    if (ast->num_literal.i != -8) return DOFAIL();
+    valref_t val;
+    if (!expr_parse(cnm, &val, false, false, PREC_FULL)) return DOFAIL();
+    if (!val.isliteral) return DOFAIL();
+    if (val.type.type[0].class != TYPE_INT) return DOFAIL();
+    if (val.literal.num.i != -8) return DOFAIL();
     return true;
 })
-SIMPLE_TEST(test_ast_constant_folding19, test_errcb,  "~0x8u", {
+SIMPLE_TEST(test_expr_constant_folding19, test_errcb,  "~0x8u", {
     token_next(cnm);
-    ast_t *ast = ast_generate(cnm, PREC_FULL);
-    if (ast->class != AST_NUM_LITERAL) return DOFAIL();
-    if (ast->type.type[0].class != TYPE_UINT) return DOFAIL();
-    if (ast->num_literal.u != ~0x8u) return DOFAIL();
+    valref_t val;
+    if (!expr_parse(cnm, &val, false, false, PREC_FULL)) return DOFAIL();
+    if (!val.isliteral) return DOFAIL();
+    if (val.type.type[0].class != TYPE_UINT) return DOFAIL();
+    if (val.literal.num.u != ~0x8u) return DOFAIL();
     return true;
 })
-SIMPLE_TEST(test_ast_constant_folding20, test_expect_errcb,  "~(1 + 0.9)", {
+SIMPLE_TEST(test_expr_constant_folding20, test_expect_errcb,  "~(1 + 0.9)", {
     token_next(cnm);
-    ast_t *ast = ast_generate(cnm, PREC_FULL);
+    valref_t val;
+    if (expr_parse(cnm, &val, false, false, PREC_FULL)) return DOFAIL();
     return test_expect_err;
 })
-SIMPLE_TEST(test_ast_constant_folding21, test_errcb,  "!1", {
+SIMPLE_TEST(test_expr_constant_folding21, test_errcb,  "!1", {
     token_next(cnm);
-    ast_t *ast = ast_generate(cnm, PREC_FULL);
-    if (ast->class != AST_NUM_LITERAL) return DOFAIL();
-    if (ast->type.type[0].class != TYPE_BOOL) return DOFAIL();
-    if (ast->num_literal.u != false) return DOFAIL();
+    valref_t val;
+    if (!expr_parse(cnm, &val, false, false, PREC_FULL)) return DOFAIL();
+    if (!val.isliteral) return DOFAIL();
+    if (val.type.type[0].class != TYPE_BOOL) return DOFAIL();
+    if (val.literal.num.u != false) return DOFAIL();
     return true;
 })
-SIMPLE_TEST(test_ast_constant_folding22, test_errcb,  "!0.0", {
+SIMPLE_TEST(test_expr_constant_folding22, test_errcb,  "!0.0", {
     token_next(cnm);
-    ast_t *ast = ast_generate(cnm, PREC_FULL);
-    if (ast->class != AST_NUM_LITERAL) return DOFAIL();
-    if (ast->type.type[0].class != TYPE_BOOL) return DOFAIL();
-    if (ast->num_literal.u != true) return DOFAIL();
+    valref_t val;
+    if (!expr_parse(cnm, &val, false, false, PREC_FULL)) return DOFAIL();
+    if (!val.isliteral) return DOFAIL();
+    if (val.type.type[0].class != TYPE_BOOL) return DOFAIL();
+    if (val.literal.num.u != true) return DOFAIL();
     return true;
 })
-SIMPLE_TEST(test_ast_constant_folding23, test_errcb,  "1 << 4", {
+SIMPLE_TEST(test_expr_constant_folding23, test_errcb,  "1 << 4", {
     token_next(cnm);
-    ast_t *ast = ast_generate(cnm, PREC_FULL);
-    if (ast->class != AST_NUM_LITERAL) return DOFAIL();
-    if (ast->type.type[0].class != TYPE_INT) return DOFAIL();
-    if (ast->num_literal.i != 16) return DOFAIL();
+    valref_t val;
+    if (!expr_parse(cnm, &val, false, false, PREC_FULL)) return DOFAIL();
+    if (!val.isliteral) return DOFAIL();
+    if (val.type.type[0].class != TYPE_INT) return DOFAIL();
+    if (val.literal.num.i != 16) return DOFAIL();
     return true;
 })
-SIMPLE_TEST(test_ast_constant_folding24, test_errcb,  "0xff | 0xff << 8", {
+SIMPLE_TEST(test_expr_constant_folding24, test_errcb,  "0xff | 0xff << 8", {
     token_next(cnm);
-    ast_t *ast = ast_generate(cnm, PREC_FULL);
-    if (ast->class != AST_NUM_LITERAL) return DOFAIL();
-    if (ast->type.type[0].class != TYPE_INT) return DOFAIL();
-    if (ast->num_literal.i != 0xffff) return DOFAIL();
+    valref_t val;
+    if (!expr_parse(cnm, &val, false, false, PREC_FULL)) return DOFAIL();
+    if (!val.isliteral) return DOFAIL();
+    if (val.type.type[0].class != TYPE_INT) return DOFAIL();
+    if (val.literal.num.i != 0xffff) return DOFAIL();
     return true;
 })
-SIMPLE_TEST(test_ast_constant_folding25, test_errcb,  "-(5 + 10) * 2 + 60 >> 2", {
+SIMPLE_TEST(test_expr_constant_folding25, test_errcb,  "-(5 + 10) * 2 + 60 >> 2", {
     token_next(cnm);
-    ast_t *ast = ast_generate(cnm, PREC_FULL);
-    if (ast->class != AST_NUM_LITERAL) return DOFAIL();
-    if (ast->type.type[0].class != TYPE_INT) return DOFAIL();
-    if (ast->num_literal.i != (-(5 + 10) * 2 + 60) >> 2) return DOFAIL();
+    valref_t val;
+    if (!expr_parse(cnm, &val, false, false, PREC_FULL)) return DOFAIL();
+    if (!val.isliteral) return DOFAIL();
+    if (val.type.type[0].class != TYPE_INT) return DOFAIL();
+    if (val.literal.num.i != (-(5 + 10) * 2 + 60) >> 2) return DOFAIL();
     return true;
 })
 
@@ -1543,33 +1567,33 @@ static test_t tests[] = {
     TEST(test_lexer_shift_r_eq),
     TEST(test_lexer_token_location),
 
-    // AST Generation Tests
+    // Expression Generation Tests
     TEST_PADDING,
-    TEST(test_ast_constant_folding1),
-    TEST(test_ast_constant_folding2),
-    TEST(test_ast_constant_folding3),
-    TEST(test_ast_constant_folding4),
-    TEST(test_ast_constant_folding5),
-    TEST(test_ast_constant_folding6),
-    TEST(test_ast_constant_folding7),
-    TEST(test_ast_constant_folding8),
-    TEST(test_ast_constant_folding9),
-    TEST(test_ast_constant_folding10),
-    TEST(test_ast_constant_folding11),
-    TEST(test_ast_constant_folding12),
-    TEST(test_ast_constant_folding13),
-    TEST(test_ast_constant_folding14),
-    TEST(test_ast_constant_folding15),
-    TEST(test_ast_constant_folding16),
-    TEST(test_ast_constant_folding17),
-    TEST(test_ast_constant_folding18),
-    TEST(test_ast_constant_folding19),
-    TEST(test_ast_constant_folding20),
-    TEST(test_ast_constant_folding21),
-    TEST(test_ast_constant_folding22),
-    TEST(test_ast_constant_folding23),
-    TEST(test_ast_constant_folding24),
-    TEST(test_ast_constant_folding25),
+    TEST(test_expr_constant_folding1),
+    TEST(test_expr_constant_folding2),
+    TEST(test_expr_constant_folding3),
+    TEST(test_expr_constant_folding4),
+    TEST(test_expr_constant_folding5),
+    TEST(test_expr_constant_folding6),
+    TEST(test_expr_constant_folding7),
+    TEST(test_expr_constant_folding8),
+    TEST(test_expr_constant_folding9),
+    TEST(test_expr_constant_folding10),
+    TEST(test_expr_constant_folding11),
+    TEST(test_expr_constant_folding12),
+    TEST(test_expr_constant_folding13),
+    TEST(test_expr_constant_folding14),
+    TEST(test_expr_constant_folding15),
+    TEST(test_expr_constant_folding16),
+    TEST(test_expr_constant_folding17),
+    TEST(test_expr_constant_folding18),
+    TEST(test_expr_constant_folding19),
+    TEST(test_expr_constant_folding20),
+    TEST(test_expr_constant_folding21),
+    TEST(test_expr_constant_folding22),
+    TEST(test_expr_constant_folding23),
+    TEST(test_expr_constant_folding24),
+    TEST(test_expr_constant_folding25),
 
     // Type parsing tests
     TEST_PADDING,
