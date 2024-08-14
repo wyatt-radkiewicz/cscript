@@ -6,6 +6,7 @@
 #include <inttypes.h>
 
 #include "cnm.h"
+#include "cnm_ir.h"
 
 typedef struct strview_s {
     const char *str;
@@ -86,31 +87,6 @@ typedef struct token_s {
         } f; // TOKEN_DOUBLE
     };
 } token_t;
-
-typedef enum typeclass_e {
-    TYPE_VOID,
-
-    // POD Types
-    TYPE_CHAR,      TYPE_UCHAR,
-    TYPE_SHORT,     TYPE_USHORT,
-    TYPE_INT,       TYPE_UINT,
-    TYPE_LONG,      TYPE_ULONG,
-    TYPE_LLONG,     TYPE_ULLONG,
-    TYPE_FLOAT,     TYPE_DOUBLE,
-
-    // Special types
-    TYPE_PTR,       TYPE_REF,
-    TYPE_ANYREF,    TYPE_BOOL,
-    TYPE_ARR,       TYPE_FN,
-    TYPE_FN_ARG,
-
-    // User made types
-    TYPE_USER,
-
-    // This special type is only used while parsing, and will immediately be
-    // expanded once parsing is over. (compilation step will never see this type)
-    TYPE_TYPEDEF,
-} typeclass_t;
 
 typedef struct type_s {
     typeclass_t class : 5; // what type of type it is
@@ -208,42 +184,61 @@ typedef struct strent_s {
     struct strent_s *next;
 } strent_t;
 
-// The type of AST node
-typedef enum astclass_e {
-    // Factor types
-    AST_NUM_LITERAL,
-    AST_STR_LITERAL,
-    AST_CHAR_LITERAL,
-    AST_IDENT,
+// A named variable in the current scope
+typedef struct scope_s {
+	strview_t name;
+	typeref_t type;
 
-    // Binary types
-    AST_ADD,    AST_SUB,    AST_MUL,    AST_DIV,
-    AST_NOT,    AST_MOD,    AST_NEG,
-    AST_BIT_AND,AST_BIT_OR, AST_BIT_XOR,AST_BIT_NOT,
-    AST_SHIFT_L,AST_SHIFT_R,
-} astclass_t;
+	// What instruction offset the range started at
+	unsigned range_start;
 
-// Data pertaining to an AST node
-// AST nodes are only used for expressions in cnm script
-typedef struct ast_s {
-    astclass_t class;
-    union {
+	// The range data associated with this scope
+	// This updates to the latest range data so that it can be updated
+	gidref_t *range;
+
+	// The actual GID name of the variable (last one used)
+	unsigned gid;
+
+	// The next scope refrence. This one is 'later' than that
+	struct scope_s *next;
+} scope_t;
+
+// A refrence to a variable in the current program. Since this is IR, it could
+// be on the stack or in a register so there is no associated location
+// information with this
+typedef struct {
+	// If this type also has the literal data associated with it
+	bool isliteral;
+	union {
         union {
             uintmax_t u;
             intmax_t i;
             double f;
-        } num_literal;
-        char *str_literal;
-        uint32_t char_literal;
-        strview_t ident; // Identifier name
-    };
-    typeref_t type; // Types of the ast node
-    struct ast_s *child, *left, *right, *next;
-} ast_t;
+        } num;
+        char *str;
+        uint32_t chr;
+	} literal;
+
+	// The type of the value, copy of the scope type if this is a scoped var
+	typeref_t type;
+
+	// What instruction offset the range started at
+	unsigned range_start;
+
+	// The range data associated with this scope
+	// This updates to the latest range data so that it can be updated
+	gidref_t *range;
+
+	// The actual GID name of the variable (last one used)
+	unsigned gid;
+
+	// Pointer to the actual scope data of this variable
+	scope_t *scope;
+} valref_t;
 
 // Precedence levels of an expression going from evaluated last (comma) to
 // evaluated first (factors)
-typedef enum ast_prec_e {
+typedef enum prec_e {
     PREC_NONE,      PREC_FULL,
     PREC_COMMA,     PREC_ASSIGN,
     PREC_COND,      PREC_OR,
@@ -253,23 +248,23 @@ typedef enum ast_prec_e {
     PREC_SHIFT,     PREC_ADDI,
     PREC_MULT,      PREC_PREFIX,
     PREC_POSTFIX,   PREC_FACTOR,
-} ast_prec_t;
+} prec_t;
 
 // Used in parsing rules to create correct precedences and associativity and to
 // parse tokens correctly
-typedef ast_t *(ast_parse_prefix_t)(cnm_t *cnm);
-typedef ast_t *(ast_parse_infix_t)(cnm_t *cnm, ast_t *left);
-typedef ast_parse_prefix_t *ast_parse_prefix_pfn_t;
-typedef ast_parse_infix_t *ast_parse_infix_pfn_t;
+typedef bool (expr_parse_prefix_t)(cnm_t *cnm, valref_t *out, bool gencode, bool gendata);
+typedef bool (expr_parse_infix_t)(cnm_t *cnm, valref_t *out, bool gencode, bool gendata, valref_t *left);
+typedef expr_parse_prefix_t *expr_parse_prefix_pfn_t;
+typedef expr_parse_infix_t *expr_parse_infix_pfn_t;
 
 // Defines a rule for when a specific token is lexed
-typedef struct ast_rule_s {
-    ast_prec_t prefix_prec;
-    ast_parse_prefix_pfn_t prefix;
+typedef struct {
+    prec_t prefix_prec;
+    expr_parse_prefix_pfn_t prefix;
 
-    ast_prec_t infix_prec;
-    ast_parse_infix_pfn_t infix;
-} ast_rule_t;
+    prec_t infix_prec;
+    expr_parse_infix_pfn_t infix;
+} expr_rule_t;
 
 struct cnm_s {
     // Where to store our executable code
@@ -300,6 +295,15 @@ struct cnm_s {
         // Where we are in the source code
         token_t tok;
     } s;
+
+	// Code generation
+	struct {
+		// SSA Variable 'name' next global id
+		unsigned gid;
+
+		// GID refrences used in the IR
+		gidref_t *gids;
+	} cg;
 
     // Callbacks
     struct {
@@ -335,31 +339,31 @@ struct cnm_s {
     uint8_t buf[];
 };
 
-static ast_t *ast_generate(cnm_t *cnm, ast_prec_t prec);
+static bool expr_parse(cnm_t *cnm, valref_t *out, bool gencode, bool gendata, prec_t prec);
 
-static ast_parse_prefix_t ast_gen_int;
-static ast_parse_prefix_t ast_gen_double;
-static ast_parse_infix_t ast_gen_arith;
-static ast_parse_prefix_t ast_gen_prefix_arith;
-static ast_parse_prefix_t ast_gen_group;
+static expr_parse_prefix_t expr_int;
+static expr_parse_prefix_t expr_double;
+static expr_parse_infix_t expr_arith;
+static expr_parse_prefix_t expr_prefix_arith;
+static expr_parse_prefix_t expr_group;
 
-static ast_rule_t ast_rules[TOKEN_MAX] = {
-    [TOKEN_PAREN_L] = { .prefix_prec = PREC_FACTOR, .prefix = ast_gen_group },
-    [TOKEN_INT] = { .prefix_prec = PREC_FACTOR, .prefix = ast_gen_int },
-    [TOKEN_DOUBLE] = { .prefix_prec = PREC_FACTOR, .prefix = ast_gen_double },
-    [TOKEN_PLUS] = { .infix_prec = PREC_ADDI, .infix = ast_gen_arith },
-    [TOKEN_MINUS] = { .infix_prec = PREC_ADDI, .infix = ast_gen_arith,
-                      .prefix_prec = PREC_PREFIX, .prefix = ast_gen_prefix_arith },
-    [TOKEN_STAR] = { .infix_prec = PREC_MULT, .infix = ast_gen_arith },
-    [TOKEN_DIVIDE] = { .infix_prec = PREC_MULT, .infix = ast_gen_arith },
-    [TOKEN_MODULO] = { .infix_prec = PREC_MULT, .infix = ast_gen_arith },
-    [TOKEN_BIT_NOT] = { .prefix_prec = PREC_PREFIX, .prefix = ast_gen_prefix_arith },
-    [TOKEN_NOT] = { .prefix_prec = PREC_PREFIX, .prefix = ast_gen_prefix_arith },
-    [TOKEN_BIT_OR] = { .infix_prec = PREC_BIT_OR, .infix = ast_gen_arith },
-    [TOKEN_BIT_AND] = { .infix_prec = PREC_BIT_OR, .infix = ast_gen_arith },
-    [TOKEN_BIT_XOR] = { .infix_prec = PREC_BIT_OR, .infix = ast_gen_arith },
-    [TOKEN_SHIFT_L] = { .infix_prec = PREC_SHIFT, .infix = ast_gen_arith },
-    [TOKEN_SHIFT_R] = { .infix_prec = PREC_SHIFT, .infix = ast_gen_arith },
+static expr_rule_t expr_rules[TOKEN_MAX] = {
+    [TOKEN_PAREN_L] = { .prefix_prec = PREC_FACTOR, .prefix = expr_group },
+    [TOKEN_INT] = { .prefix_prec = PREC_FACTOR, .prefix = expr_int },
+    [TOKEN_DOUBLE] = { .prefix_prec = PREC_FACTOR, .prefix = expr_double },
+    [TOKEN_PLUS] = { .infix_prec = PREC_ADDI, .infix = expr_arith },
+    [TOKEN_MINUS] = { .infix_prec = PREC_ADDI, .infix = expr_arith,
+                      .prefix_prec = PREC_PREFIX, .prefix = expr_prefix_arith },
+    [TOKEN_STAR] = { .infix_prec = PREC_MULT, .infix = expr_arith },
+    [TOKEN_DIVIDE] = { .infix_prec = PREC_MULT, .infix = expr_arith },
+    [TOKEN_MODULO] = { .infix_prec = PREC_MULT, .infix = expr_arith },
+    [TOKEN_BIT_NOT] = { .prefix_prec = PREC_PREFIX, .prefix = expr_prefix_arith },
+    [TOKEN_NOT] = { .prefix_prec = PREC_PREFIX, .prefix = expr_prefix_arith },
+    [TOKEN_BIT_OR] = { .infix_prec = PREC_BIT_OR, .infix = expr_arith },
+    [TOKEN_BIT_AND] = { .infix_prec = PREC_BIT_OR, .infix = expr_arith },
+    [TOKEN_BIT_XOR] = { .infix_prec = PREC_BIT_OR, .infix = expr_arith },
+    [TOKEN_SHIFT_L] = { .infix_prec = PREC_SHIFT, .infix = expr_arith },
+    [TOKEN_SHIFT_R] = { .infix_prec = PREC_SHIFT, .infix = expr_arith },
 };
 
 static inline bool strview_eq(const strview_t lhs, const strview_t rhs) {
@@ -961,7 +965,6 @@ TOKENS
     return &cnm->s.tok;
 }
 
-static bool ast_is_const(cnm_t *cnm, ast_t *ast);
 static typeref_t type_parse(cnm_t *cnm, strview_t *name, bool *istypedef);
 
 // Returns true if this ast node can be used in an arithmetic operation
@@ -1477,17 +1480,16 @@ static bool type_parse_declspec_enum(cnm_t *cnm, type_t *type, bool *istypedef,
         uint8_t *const stack_ptr = cnm->alloc.next;
 
         // Get number
-        ast_t *ast = ast_generate(cnm, PREC_COND);
-        if (!ast) return false;
-        if (!ast_is_const(cnm, ast) || ast->class != AST_NUM_LITERAL
-            || !type_is_int(*ast->type.type)) {
+		valref_t val;
+        if (!expr_parse(cnm, &val, false, false, PREC_COND)) return false;
+        if (!val.isliteral || !type_is_int(*val.type.type)) {
             cnm_doerr(cnm, true, "expected constant int expression for variant id", "");
             return false;
         }
 
         // Set number
-        if (type_is_unsigned(*ast->type.type)) variant_id.u = ast->num_literal.u;
-        else variant_id.i = ast->num_literal.i;
+        if (type_is_unsigned(*val.type.type)) variant_id.u = val.literal.num.u;
+        else variant_id.i = val.literal.num.i;
         if (type_is_unsigned(e->type)) v->id.u = variant_id.u++;
         else v->id.i = variant_id.i++;
 
@@ -1831,26 +1833,27 @@ static typeref_t type_parse_ex(cnm_t *cnm, strview_t *name, bool *istypedef, boo
 
             // Get size and store alloc pointer so we can free
             uint8_t *const stack_ptr = cnm->alloc.next;
-            ast_t *ast = ast_generate(cnm, PREC_FULL);
-            if (!ast_is_const(cnm, ast) || ast->class != AST_NUM_LITERAL) {
+			valref_t val;
+			if (!expr_parse(cnm, &val, false, false, PREC_FULL)) goto return_error;
+            if (!val.isliteral) {
                 cnm_doerr(cnm, true, "array size must be constant integer expression", "");
                 goto return_error;
             }
-            if (!type_is_arith(*ast->type.type) || type_is_fp(*ast->type.type)) {
+            if (!type_is_arith(*val.type.type) || type_is_fp(*val.type.type)) {
                 cnm_doerr(cnm, true, "array size is non-integer type", "");
                 goto return_error;
             }
-            if (!type_is_unsigned(*ast->type.type) && ast->num_literal.i < 0) {
+            if (!type_is_unsigned(*val.type.type) && val.literal.num.i < 0) {
                 cnm_doerr(cnm, true, "size of array is negative", "");
                 goto return_error;
             }
-            if (ast->num_literal.u >= 1 << 24) {
+            if (val.literal.num.u >= 1 << 24) {
                 cnm_doerr(cnm, true, "length of array is over max array length", "");
                 goto return_error;
             }
 
             // Set array size and free ast nodes
-            type->n = ast->num_literal.u;
+            type->n = val.literal.num.u;
             cnm->alloc.next = stack_ptr;
 
             // Check for ending ']'
@@ -1945,47 +1948,36 @@ static typeref_t type_parse(cnm_t *cnm, strview_t *name, bool *istypedef) {
     return type_parse_ex(cnm, name, istypedef, false);
 }
 
-// Allocates an AST on the state stack for the current expression.
-// The current token must point to the first token of the expression
-static ast_t *ast_generate(cnm_t *cnm, ast_prec_t prec) {
+// Generates code and data for the expression being parsed
+static bool expr_parse(cnm_t *cnm, valref_t *out, bool gencode, bool gendata, prec_t prec) {
     // Consume a prefix/unary ast node like an integer literal
-    ast_rule_t *rule = &ast_rules[cnm->s.tok.type];
+    expr_rule_t *rule = &expr_rules[cnm->s.tok.type];
     if (!rule->prefix || prec > rule->prefix_prec) {
         cnm_doerr(cnm, true, "expected expression", "not a valid start to expression");
-        return NULL;
-    }
-    ast_t *ast = rule->prefix(cnm);
-    if (!ast) return NULL;
-
-    // Continue to consume binary operators that fall under this precedence level
-    rule = &ast_rules[cnm->s.tok.type];
-    while (rule->infix && prec <= rule->infix_prec) {
-        ast = rule->infix(cnm, ast);
-        if (!ast) return NULL;
-        rule = &ast_rules[cnm->s.tok.type];
-    }
-
-    return ast;
-}
-
-// Returns true if this ast node can be constant folded
-static bool ast_is_const(cnm_t *cnm, ast_t *ast) {
-    switch (ast->class) {
-    case AST_NUM_LITERAL: case AST_STR_LITERAL: case AST_CHAR_LITERAL:
-        return true;
-    default:
         return false;
     }
+	if (!rule->prefix(cnm, out, gencode, gendata)) return false;
+
+    // Continue to consume binary operators that fall under this precedence level
+    rule = &expr_rules[cnm->s.tok.type];
+    while (rule->infix && prec <= rule->infix_prec) {
+		valref_t tmp;
+        if (!rule->infix(cnm, &tmp, gencode, gendata, out)) return false;
+		*out = tmp;
+        rule = &expr_rules[cnm->s.tok.type];
+    }
+
+    return true;
 }
 
 // Group together operations into one group inbetween parentheses
-static ast_t *ast_gen_group(cnm_t *cnm) {
+static bool expr_group(cnm_t *cnm, valref_t *out, bool gencode, bool gendata) {
     // Consume the '(' token
     const token_t errtok = cnm->s.tok;
     token_next(cnm);
     
     // Get the inner grouping
-    ast_t *ast = ast_generate(cnm, PREC_FULL);
+    if (!expr_parse(cnm, out, gencode, gendata, PREC_FULL)) return false;
 
     // Consume the ')' token
     if (cnm->s.tok.type != TOKEN_PAREN_R) {
@@ -1996,19 +1988,16 @@ static ast_t *ast_gen_group(cnm_t *cnm) {
     }
     token_next(cnm);
 
-    return ast;
+    return true;
 }
 
-// Create an ast leaf node for an integer
-static ast_t *ast_gen_int(cnm_t *cnm) {
-    // Create node and set ast class
-    ast_t *ast = cnm_alloc(cnm, sizeof(*ast), sizeof(void *));
-    if (!ast) return NULL;
-    *ast = (ast_t){ .class = AST_NUM_LITERAL };
+// Create a literal value valref for the integer
+static bool expr_int(cnm_t *cnm, valref_t *out, bool gencode, bool gendata) {
+	*out = (valref_t){0};
 
-    // Allocate ast type
-    if (!(ast->type.type = cnm_alloc(cnm, sizeof(type_t), sizeof(type_t)))) return NULL;
-    ast->type.size = 1;
+    // Allocate type
+    if (!(out->type.type = cnm_alloc(cnm, sizeof(type_t), sizeof(type_t)))) return false;
+    out->type.size = 1;
 
     // Get minimum allowed type by suffix
     typeclass_t mintype = TYPE_INT;
@@ -2034,91 +2023,87 @@ static ast_t *ast_gen_int(cnm_t *cnm) {
     switch (mintype) {
     case TYPE_INT:
         if (cnm->s.tok.i.n <= INT_MAX && cnm->s.tok.i.suffix[0] != 'u') {
-            ast->type.type[0] = (type_t){ .class = TYPE_INT };
-            ast->num_literal.i = cnm->s.tok.i.n;
+            out->type.type[0] = (type_t){ .class = TYPE_INT };
+            out->literal.num.i = cnm->s.tok.i.n;
             token_next(cnm); // Continue to next part in expression
-            return ast;
+            return true;
         }
     case TYPE_UINT:
         if (cnm->s.tok.i.n <= UINT_MAX && allow_u) {
-            ast->type.type[0] = (type_t){ .class = TYPE_UINT };
-            ast->num_literal.u = cnm->s.tok.i.n;
+            out->type.type[0] = (type_t){ .class = TYPE_UINT };
+            out->literal.num.u = cnm->s.tok.i.n;
             token_next(cnm); // Continue to next part in expression
-            return ast;
+            return true;
         }
     case TYPE_LONG:
         if (cnm->s.tok.i.n <= LONG_MAX && cnm->s.tok.i.suffix[0] != 'u') {
-            ast->type.type[0] = (type_t){ .class = TYPE_LONG };
-            ast->num_literal.i = cnm->s.tok.i.n;
+            out->type.type[0] = (type_t){ .class = TYPE_LONG };
+            out->literal.num.i = cnm->s.tok.i.n;
             token_next(cnm); // Continue to next part in expression
-            return ast;
+            return true;
         }
     case TYPE_ULONG:
         if (cnm->s.tok.i.n <= ULONG_MAX && allow_u) {
-            ast->type.type[0] = (type_t){ .class = TYPE_ULONG };
-            ast->num_literal.u = cnm->s.tok.i.n;
+            out->type.type[0] = (type_t){ .class = TYPE_ULONG };
+            out->literal.num.u = cnm->s.tok.i.n;
             token_next(cnm); // Continue to next part in expression
-            return ast;
+            return true;
         }
     case TYPE_LLONG:
         if (cnm->s.tok.i.n <= LLONG_MAX && cnm->s.tok.i.suffix[0] != 'u') {
-            ast->type.type[0] = (type_t){ .class = TYPE_LLONG };
-            ast->num_literal.i = cnm->s.tok.i.n;
+            out->type.type[0] = (type_t){ .class = TYPE_LLONG };
+            out->literal.num.i = cnm->s.tok.i.n;
             token_next(cnm); // Continue to next part in expression
-            return ast;
+            return true;
         }
     case TYPE_ULLONG:
         if (allow_u) {
-            ast->type.type[0] = (type_t){ .class = TYPE_ULLONG };
-            ast->num_literal.u = cnm->s.tok.i.n;
+            out->type.type[0] = (type_t){ .class = TYPE_ULLONG };
+            out->literal.num.u = cnm->s.tok.i.n;
             token_next(cnm); // Continue to next part in expression
-            return ast;
+            return true;
         }
     default:
         break;
     }
 
     // Couldn't find type to fix the number, default to int
-    ast->type.type[0] = (type_t){ .class = TYPE_INT };
-    ast->num_literal.u = cnm->s.tok.i.n;
+    out->type.type[0] = (type_t){ .class = TYPE_INT };
+    out->literal.num.u = cnm->s.tok.i.n;
     cnm_doerr(cnm, false, "integer constant can not fit, defaulting to int", "");
 
     // Goto next token for the rest of the expression
     token_next(cnm);
 
-    return ast;
+    return true;
 }
 
-// Generate ast leaf node for doubles and floats
-static ast_t *ast_gen_double(cnm_t *cnm) {
-    // Create node and set ast class
-    ast_t *ast = cnm_alloc(cnm, sizeof(*ast), sizeof(void *));
-    if (!ast) return NULL;
-    *ast = (ast_t){
-        .class = AST_NUM_LITERAL,
-        .num_literal.f = cnm->s.tok.f.n,
+// Generate valref with literal double
+static bool expr_double(cnm_t *cnm, valref_t *out, bool gencode, bool gendata) {
+	*out = (valref_t){
+        .literal.num.f = cnm->s.tok.f.n,
     };
 
     // Allocate ast type
-    if (!(ast->type.type = cnm_alloc(cnm, sizeof(type_t), sizeof(type_t)))) return NULL;
-    ast->type.size = 1;
-    ast->type.type[0] = (type_t){
+    if (!(out->type.type = cnm_alloc(cnm, sizeof(type_t), sizeof(type_t)))) return false;
+    out->type.size = 1;
+    out->type.type[0] = (type_t){
         .class = cnm->s.tok.f.suffix[0] == 'f' ? TYPE_FLOAT : TYPE_DOUBLE,
     };
 
     // Goto next token for the rest of the expression
     token_next(cnm);
 
-    return ast;
+    return true;
 }
 
-// AST Constant fold cast an ast node to the to type
-static void astcf_cast_arith(ast_t *node, typeref_t cast_to) {
-    type_t *from = node->type.type, *to = cast_to.type;
+// Constant fold cast an valref to the to type
+static void cf_cast_arith(valref_t *val, typeref_t cast_to) {
+    type_t *from = val->type.type, *to = cast_to.type;
 
     // Cache information about from and to types
-    const bool fp_to = type_is_fp(*cast_to.type), fp_from = type_is_fp(*node->type.type),
-        u_from = type_is_unsigned(*node->type.type);
+    const bool fp_to = type_is_fp(*cast_to.type), fp_from = type_is_fp(*val->type.type),
+        u_from = type_is_unsigned(*val->type.type);
 
     // If the types are already equal, skip to type enforcing
     if (from->class == to->class) goto enforce_width;
@@ -2128,130 +2113,125 @@ static void astcf_cast_arith(ast_t *node, typeref_t cast_to) {
 
     // Convert to or convert from and to float types
     if (to->class == TYPE_BOOL) {
-        if (fp_from) node->num_literal.u = !!node->num_literal.f;
-        else node->num_literal.u = !!node->num_literal.u;
+        if (fp_from) val->literal.num.u = !!val->literal.num.f;
+        else val->literal.num.u = !!val->literal.num.u;
     } else if (fp_to && !fp_from) {
-        node->num_literal.f = u_from ? node->num_literal.u : node->num_literal.i;
+        val->literal.num.f = u_from ? val->literal.num.u : val->literal.num.i;
     } else if (!fp_to && fp_from) {
-        if (u_from) node->num_literal.u = node->num_literal.f;
-        else node->num_literal.i = node->num_literal.f;
+        if (u_from) val->literal.num.u = val->literal.num.f;
+        else val->literal.num.i = val->literal.num.f;
     }
 
 enforce_width:
     if (to->class == TYPE_FLOAT) {
-        node->num_literal.f = (float)node->num_literal.f;
+        val->literal.num.f = (float)val->literal.num.f;
         return;
     } else if (to->class == TYPE_DOUBLE) {
         return;
     } else if (to->class == TYPE_BOOL) {
-        node->num_literal.u = !!node->num_literal.u;
+        val->literal.num.u = !!val->literal.num.u;
         return;
     }
 
     // Cap the integer to the bit width of what it is
-    if (!type_is_unsigned(*cast_to.type) && node->num_literal.i < 0) return;
+    if (!type_is_unsigned(*cast_to.type) && val->literal.num.i < 0) return;
     switch (to->class) {
     case TYPE_UCHAR:
-        node->num_literal.u &= 0xFF;
+        val->literal.num.u &= 0xFF;
     case TYPE_USHORT:
-        node->num_literal.u &= 0xFFFF;
+        val->literal.num.u &= 0xFFFF;
     case TYPE_UINT:
-        node->num_literal.u &= 0xFFFFFFFF;
+        val->literal.num.u &= 0xFFFFFFFF;
     default:
         break;
     }
 }
 
-// Helper function to set the type of an arithmetic ast node
-static bool ast_set_arith_type(cnm_t *cnm, ast_t *ast) {
-    type_t *ltype = ast->left->type.type, *rtype = ast->right->type.type;
+// Helper function to set the type of an arithmetic valref
+static bool ast_set_arith_type(cnm_t *cnm, valref_t *out, valref_t *left, valref_t *right) {
+    type_t *ltype = left->type.type, *rtype = right->type.type;
 
     // Binary arithmetic conversion ranks. Ranks have been built into the
     // enum definition of types
     // see https://en.cppreference.com/w/c/language/conversion for more
-    ast->type.type[0].class = ltype->class > rtype->class ? ltype->class : rtype->class;
-    type_promote_to_int(&ast->type);
+    out->type.type[0].class = ltype->class > rtype->class ? ltype->class : rtype->class;
+    type_promote_to_int(&out->type);
 
     return true;
 }
 
-// Perform math operation constant folding on ast node
-#define ASTCF_OP(opname, optoken) \
-    static void astcf_##opname(ast_t *ast) { \
-        const typeclass_t class = ast->type.type[0].class; \
+// Perform math operation constant folding on valref
+#define CF_OP(opname, optoken) \
+    static void cf_##opname(valref_t *out, valref_t *left, valref_t *right) { \
+        const typeclass_t class = out->type.type[0].class; \
         if (class == TYPE_DOUBLE || class == TYPE_FLOAT) { \
-            ast->num_literal.f = ast->left->num_literal.f optoken ast->right->num_literal.f; \
-        } else if (type_is_unsigned(*ast->type.type)) { \
-            ast->num_literal.u = ast->left->num_literal.u optoken ast->right->num_literal.u; \
+            out->literal.num.f = left->literal.num.f optoken right->literal.num.f; \
+        } else if (type_is_unsigned(*out->type.type)) { \
+            out->literal.num.u = left->literal.num.u optoken right->literal.num.u; \
         } else { \
-            ast->num_literal.i = ast->left->num_literal.i optoken ast->right->num_literal.i; \
+            out->literal.num.i = left->literal.num.i optoken right->literal.num.i; \
         } \
     }
-ASTCF_OP(add, +)
-ASTCF_OP(sub, -)
-ASTCF_OP(mul, *)
-ASTCF_OP(div, /)
+CF_OP(add, +)
+CF_OP(sub, -)
+CF_OP(mul, *)
+CF_OP(div, /)
 
 // Only perform math operation constant folding on integer ast nodes
-#define ASTCF_OP_INT(opname, optoken) \
-    static void astcf_##opname(ast_t *ast) { \
-        const typeclass_t class = ast->type.type[0].class; \
-        if (type_is_unsigned(*ast->type.type)) { \
-            ast->num_literal.u = ast->left->num_literal.u optoken ast->right->num_literal.u; \
+#define CF_OP_INT(opname, optoken) \
+    static void cf_##opname(valref_t *out, valref_t *left, valref_t *right) { \
+        const typeclass_t class = out->type.type[0].class; \
+        if (type_is_unsigned(*out->type.type)) { \
+            out->literal.num.u = left->literal.num.u optoken right->literal.num.u; \
         } else { \
-            ast->num_literal.i = ast->left->num_literal.i optoken ast->right->num_literal.i; \
+            out->literal.num.i = left->literal.num.i optoken right->literal.num.i; \
         } \
     }
-ASTCF_OP_INT(mod, %)
-ASTCF_OP_INT(bit_or, |)
-ASTCF_OP_INT(bit_and, &)
-ASTCF_OP_INT(bit_xor, ^)
-ASTCF_OP_INT(shift_l, <<)
-ASTCF_OP_INT(shift_r, >>)
+CF_OP_INT(mod, %)
+CF_OP_INT(bit_or, |)
+CF_OP_INT(bit_and, &)
+CF_OP_INT(bit_xor, ^)
+CF_OP_INT(shift_l, <<)
+CF_OP_INT(shift_r, >>)
 
-// Perform math operation constant folding on unary ast nodes
-static void astcf_neg(ast_t *ast) {
-    const typeclass_t class = ast->type.type[0].class;
+// Perform math operation constant folding on unary valref
+static void cf_neg(valref_t *var) {
+    const typeclass_t class = var->type.type[0].class;
     if (class == TYPE_DOUBLE || class == TYPE_FLOAT) {
-        ast->num_literal.f = -ast->child->num_literal.f;
-    } else if (type_is_unsigned(*ast->type.type)) {
-        ast->num_literal.u = -ast->child->num_literal.u;
+        var->literal.num.f = -var->literal.num.f;
+    } else if (type_is_unsigned(*var->type.type)) {
+        var->literal.num.u = -var->literal.num.u;
     } else {
-        ast->num_literal.i = -ast->child->num_literal.i;
+        var->literal.num.i = -var->literal.num.i;
     }
 }
-static void astcf_not(ast_t *ast) {
-    type_t *type = &ast->type.type[0];
+static void cf_not(valref_t *var) {
+    type_t *type = &var->type.type[0];
     if (type->class == TYPE_DOUBLE || type->class == TYPE_FLOAT) {
-        ast->num_literal.u = !ast->child->num_literal.f;
-    } else if (type_is_unsigned(*ast->type.type)) {
-        ast->num_literal.u = !ast->child->num_literal.u;
+        var->literal.num.u = !var->literal.num.f;
+    } else if (type_is_unsigned(*var->type.type)) {
+        var->literal.num.u = !var->literal.num.u;
     } else {
-        ast->num_literal.u = !ast->child->num_literal.i;
+        var->literal.num.u = !var->literal.num.i;
     }
     type->class = TYPE_BOOL;
 }
-static void astcf_bit_not(ast_t *ast) {
-    const typeclass_t class = ast->type.type[0].class;
-    if (type_is_unsigned(*ast->type.type)) {
-        ast->num_literal.u = ~ast->child->num_literal.u;
+static void cf_bit_not(valref_t *var) {
+    const typeclass_t class = var->type.type[0].class;
+    if (type_is_unsigned(*var->type.type)) {
+        var->literal.num.u = ~var->literal.num.u;
     } else {
-        ast->num_literal.u = ~ast->child->num_literal.i;
+        var->literal.num.u = ~var->literal.num.i;
     }
 }
 
-// Generate ast node that runs arithmetic operation on left and right hand side
+// Generate valref that runs arithmetic operation on left and right hand side
 // and perform constant folding if nessesary
-static ast_t *ast_gen_arith(cnm_t *cnm, ast_t *left) {
-    // Allocate ast node and set left offset
-    ast_t *ast = cnm_alloc(cnm, sizeof(*ast), sizeof(void *));
-    if (!ast) return NULL;
-    *ast = (ast_t){ .left = left };
-
+static bool expr_arith(cnm_t *cnm, valref_t *out, bool gencode, bool gendata, valref_t *left) {
     // Allocate ast type
-    if (!(ast->type.type = cnm_alloc(cnm, sizeof(type_t), sizeof(type_t)))) return false;
-    ast->type.size = 1;
-    ast->type.type[0] = (type_t){0};
+    if (!(out->type.type = cnm_alloc(cnm, sizeof(type_t), sizeof(type_t)))) return false;
+    out->type.size = 1;
+    out->type.type[0] = (type_t){0};
 
     // Save stack pointer for if we can constant fold, then we can destroy the
     // child nodes
@@ -2262,7 +2242,7 @@ static ast_t *ast_gen_arith(cnm_t *cnm, ast_t *left) {
     bool int_only_op = false;
 
     // Get current precedence level
-    const ast_prec_t prec = ast_rules[cnm->s.tok.type].infix_prec;
+    const prec_t prec = expr_rules[cnm->s.tok.type].infix_prec;
 
     // Set the ast node type
     switch (cnm->s.tok.type) {
