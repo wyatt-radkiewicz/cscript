@@ -1006,16 +1006,15 @@ SIMPLE_TEST(test_type_parsing7, test_errcb,  "int *(*get_int)(char x[], bool z)"
         .size = 9,
     }, false);
 })
-SIMPLE_TEST(test_type_parsing8, test_expect_errcb,  "double", {
+SIMPLE_TEST(test_type_parsing8, test_errcb,  "double", {
     token_next(cnm);
     typeref_t type = type_parse(cnm, NULL, NULL);
-    if (type_eq(type, (typeref_t){
+    return !type_eq(type, (typeref_t){
         .type = (type_t[]){
             (type_t){ .class = TYPE_DOUBLE, .isconst = true },
         },
         .size = 1,
-    }, true)) return DOFAIL();
-    return test_expect_err;
+    }, true);
 })
 
 ///////////////////////////////////////////////////////////////////////////////
