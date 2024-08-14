@@ -717,7 +717,7 @@ SIMPLE_TEST(test_type_parsing1, test_errcb,  "const char *foo", {
             (type_t){ .class = TYPE_CHAR, .isconst = true },
         },
         .size = 2,
-    })) return DOFAIL();
+    }, false)) return DOFAIL();
     return true;
 })
 SIMPLE_TEST(test_type_parsing2, test_errcb,  "typedef unsigned char u8", {
@@ -732,7 +732,7 @@ SIMPLE_TEST(test_type_parsing2, test_errcb,  "typedef unsigned char u8", {
             (type_t){ .class = TYPE_UCHAR },
         },
         .size = 1,
-    })) return DOFAIL();
+    }, false)) return DOFAIL();
     return true;
 })
 SIMPLE_TEST(test_type_parsing_char, test_errcb,  "char", {
@@ -743,7 +743,7 @@ SIMPLE_TEST(test_type_parsing_char, test_errcb,  "char", {
             (type_t){ .class = TYPE_CHAR },
         },
         .size = 1,
-    })) return DOFAIL();
+    }, false)) return DOFAIL();
     return true;
 })
 SIMPLE_TEST(test_type_parsing_uchar, test_errcb,  "unsigned char", {
@@ -754,7 +754,7 @@ SIMPLE_TEST(test_type_parsing_uchar, test_errcb,  "unsigned char", {
             (type_t){ .class = TYPE_UCHAR },
         },
         .size = 1,
-    })) return DOFAIL();
+    }, false)) return DOFAIL();
     return true;
 })
 SIMPLE_TEST(test_type_parsing_short1, test_errcb,  "short", {
@@ -765,7 +765,7 @@ SIMPLE_TEST(test_type_parsing_short1, test_errcb,  "short", {
             (type_t){ .class = TYPE_SHORT },
         },
         .size = 1,
-    })) return DOFAIL();
+    }, false)) return DOFAIL();
     return true;
 })
 SIMPLE_TEST(test_type_parsing_short2, test_errcb,  "short int", {
@@ -776,7 +776,7 @@ SIMPLE_TEST(test_type_parsing_short2, test_errcb,  "short int", {
             (type_t){ .class = TYPE_SHORT },
         },
         .size = 1,
-    })) return DOFAIL();
+    }, false)) return DOFAIL();
     return true;
 })
 SIMPLE_TEST(test_type_parsing_short3, test_expect_errcb,  "short short int", {
@@ -797,7 +797,7 @@ SIMPLE_TEST(test_type_parsing_ushort1, test_errcb,  "unsigned short", {
             (type_t){ .class = TYPE_USHORT },
         },
         .size = 1,
-    })) return DOFAIL();
+    }, false)) return DOFAIL();
     return true;
 })
 SIMPLE_TEST(test_type_parsing_ushort2, test_errcb,  "unsigned short int", {
@@ -808,7 +808,7 @@ SIMPLE_TEST(test_type_parsing_ushort2, test_errcb,  "unsigned short int", {
             (type_t){ .class = TYPE_USHORT },
         },
         .size = 1,
-    })) return DOFAIL();
+    }, false)) return DOFAIL();
     return true;
 })
 SIMPLE_TEST(test_type_parsing_ushort3, test_expect_errcb,  "unsigned unsigned short", {
@@ -824,7 +824,7 @@ SIMPLE_TEST(test_type_parsing_int, test_errcb,  "int", {
             (type_t){ .class = TYPE_INT },
         },
         .size = 1,
-    })) return DOFAIL();
+    }, false)) return DOFAIL();
     return true;
 })
 SIMPLE_TEST(test_type_parsing_uint1, test_errcb,  "unsigned int", {
@@ -835,7 +835,7 @@ SIMPLE_TEST(test_type_parsing_uint1, test_errcb,  "unsigned int", {
             (type_t){ .class = TYPE_UINT },
         },
         .size = 1,
-    })) return DOFAIL();
+    }, false)) return DOFAIL();
     return true;
 })
 SIMPLE_TEST(test_type_parsing_uint2, test_errcb,  "unsigned", {
@@ -846,7 +846,7 @@ SIMPLE_TEST(test_type_parsing_uint2, test_errcb,  "unsigned", {
             (type_t){ .class = TYPE_UINT },
         },
         .size = 1,
-    })) return DOFAIL();
+    }, false)) return DOFAIL();
     return true;
 })
 SIMPLE_TEST(test_type_parsing_uint3, test_errcb,  "const unsigned", {
@@ -857,8 +857,7 @@ SIMPLE_TEST(test_type_parsing_uint3, test_errcb,  "const unsigned", {
             (type_t){ .class = TYPE_UINT, .isconst = true },
         },
         .size = 1,
-    })) return DOFAIL();
-    if (!type.type[0].isconst) return DOFAIL();
+    }, true)) return DOFAIL();
     return true;
 })
 SIMPLE_TEST(test_type_parsing_long1, test_errcb,  "long", {
@@ -869,7 +868,7 @@ SIMPLE_TEST(test_type_parsing_long1, test_errcb,  "long", {
             (type_t){ .class = TYPE_LONG },
         },
         .size = 1,
-    })) return DOFAIL();
+    }, false)) return DOFAIL();
     return true;
 })
 SIMPLE_TEST(test_type_parsing_long2, test_errcb,  "long long", {
@@ -880,7 +879,7 @@ SIMPLE_TEST(test_type_parsing_long2, test_errcb,  "long long", {
             (type_t){ .class = TYPE_LLONG },
         },
         .size = 1,
-    })) return DOFAIL();
+    }, false)) return DOFAIL();
     return true;
 })
 SIMPLE_TEST(test_type_parsing_long3, test_errcb,  "long int", {
@@ -891,7 +890,7 @@ SIMPLE_TEST(test_type_parsing_long3, test_errcb,  "long int", {
             (type_t){ .class = TYPE_LONG },
         },
         .size = 1,
-    })) return DOFAIL();
+    }, false)) return DOFAIL();
     return true;
 })
 SIMPLE_TEST(test_type_parsing_long4, test_errcb,  "long long int", {
@@ -902,7 +901,7 @@ SIMPLE_TEST(test_type_parsing_long4, test_errcb,  "long long int", {
             (type_t){ .class = TYPE_LLONG },
         },
         .size = 1,
-    })) return DOFAIL();
+    }, false)) return DOFAIL();
     return true;
 })
 SIMPLE_TEST(test_type_parsing_ulong, test_errcb,  "unsigned long long", {
@@ -913,7 +912,7 @@ SIMPLE_TEST(test_type_parsing_ulong, test_errcb,  "unsigned long long", {
             (type_t){ .class = TYPE_ULLONG },
         },
         .size = 1,
-    })) return DOFAIL();
+    }, false)) return DOFAIL();
     return true;
 })
 SIMPLE_TEST(test_type_parsing_float, test_errcb,  "float", {
@@ -924,7 +923,7 @@ SIMPLE_TEST(test_type_parsing_float, test_errcb,  "float", {
             (type_t){ .class = TYPE_FLOAT },
         },
         .size = 1,
-    })) return DOFAIL();
+    }, false)) return DOFAIL();
     return true;
 })
 SIMPLE_TEST(test_type_parsing_double, test_errcb,  "double", {
@@ -932,10 +931,10 @@ SIMPLE_TEST(test_type_parsing_double, test_errcb,  "double", {
     typeref_t type = type_parse(cnm, NULL, NULL);
     if (!type_eq(type, (typeref_t){
         .type = (type_t[]){
-            (type_t){ .class = TYPE_DOUBLE },
+            (type_t){ .class = TYPE_DOUBLE, .isconst = true },
         },
         .size = 1,
-    })) return DOFAIL();
+    }, false)) return DOFAIL();
     return true;
 })
 SIMPLE_TEST(test_type_parsing3, test_errcb,  "const void *", {
@@ -947,7 +946,7 @@ SIMPLE_TEST(test_type_parsing3, test_errcb,  "const void *", {
             (type_t){ .class = TYPE_VOID, .isconst = true },
         },
         .size = 2,
-    })) return DOFAIL();
+    }, false)) return DOFAIL();
     return true;
 })
 SIMPLE_TEST(test_type_parsing4, test_expect_errcb,  "int [static 3]", {
@@ -967,8 +966,7 @@ SIMPLE_TEST(test_type_parsing5, test_errcb,  "const char *(* const)[][3]", {
             (type_t){ .class = TYPE_CHAR, .isconst = true },
         },
         .size = 5,
-    })) return DOFAIL();
-    if (!type.type[0].isconst) return DOFAIL();
+    }, true)) return DOFAIL();
     return true;
 })
 SIMPLE_TEST(test_type_parsing6, test_errcb,  "int *(*get_int)(char x[], bool z)", {
@@ -987,7 +985,7 @@ SIMPLE_TEST(test_type_parsing6, test_errcb,  "int *(*get_int)(char x[], bool z)"
             (type_t){ .class = TYPE_INT },
         },
         .size = 9,
-    })) return DOFAIL();
+    }, false)) return DOFAIL();
     return true;
 })
 SIMPLE_TEST(test_type_parsing7, test_errcb,  "int *(*get_int)(char x[], bool z)", {
@@ -1006,7 +1004,18 @@ SIMPLE_TEST(test_type_parsing7, test_errcb,  "int *(*get_int)(char x[], bool z)"
             (type_t){ .class = TYPE_INT },
         },
         .size = 9,
-    });
+    }, false);
+})
+SIMPLE_TEST(test_type_parsing8, test_expect_errcb,  "double", {
+    token_next(cnm);
+    typeref_t type = type_parse(cnm, NULL, NULL);
+    if (type_eq(type, (typeref_t){
+        .type = (type_t[]){
+            (type_t){ .class = TYPE_DOUBLE, .isconst = true },
+        },
+        .size = 1,
+    }, true)) return DOFAIL();
+    return test_expect_err;
 })
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -1030,7 +1039,7 @@ SIMPLE_TEST(test_typedef_parsing1, test_errcb,
             (type_t){ .class = TYPE_USER, .n = 0 },
         },
         .size = 3,
-    })) return DOFAIL();
+    }, false)) return DOFAIL();
 
     // struct foo
     userty_t *t = cnm->type.types;
@@ -1051,7 +1060,7 @@ SIMPLE_TEST(test_typedef_parsing1, test_errcb,
             (type_t){ .class = TYPE_INT },
         },
         .size = 1,
-    })) return DOFAIL();
+    }, false)) return DOFAIL();
     f = f->next;
 
     // foo::b
@@ -1063,7 +1072,7 @@ SIMPLE_TEST(test_typedef_parsing1, test_errcb,
             (type_t){ .class = TYPE_INT },
         },
         .size = 1,
-    })) return DOFAIL();
+    }, false)) return DOFAIL();
 
     return true;
 })
@@ -1082,7 +1091,7 @@ SIMPLE_TEST(test_typedef_parsing2, test_errcb,
             (type_t){ .class = TYPE_USER, .n = 0 },
         },
         .size = 1,
-    })) return DOFAIL();
+    }, false)) return DOFAIL();
 
     // struct baz
     userty_t *t = cnm->type.types;
@@ -1103,7 +1112,7 @@ SIMPLE_TEST(test_typedef_parsing2, test_errcb,
             (type_t){ .class = TYPE_INT },
         },
         .size = 1,
-    })) return DOFAIL();
+    }, false)) return DOFAIL();
     f = f->next;
 
     // foo::b
@@ -1115,7 +1124,7 @@ SIMPLE_TEST(test_typedef_parsing2, test_errcb,
             (type_t){ .class = TYPE_DOUBLE },
         },
         .size = 1,
-    })) return DOFAIL();
+    }, false)) return DOFAIL();
     f = f->next;
 
     // foo::a
@@ -1127,7 +1136,7 @@ SIMPLE_TEST(test_typedef_parsing2, test_errcb,
             (type_t){ .class = TYPE_CHAR },
         },
         .size = 1,
-    })) return DOFAIL();
+    }, false)) return DOFAIL();
 
     return true;
 })
@@ -1149,7 +1158,7 @@ SIMPLE_TEST(test_typedef_parsing3, test_errcb,
             (type_t){ .class = TYPE_USER, .n = 0 },
         },
         .size = 1,
-    })) return DOFAIL();
+    }, false)) return DOFAIL();
 
     // struct "anonymous"
     userty_t *t = cnm->type.types;
@@ -1171,7 +1180,7 @@ SIMPLE_TEST(test_typedef_parsing3, test_errcb,
             (type_t){ .class = TYPE_CHAR },
         },
         .size = 2,
-    })) return DOFAIL();
+    }, false)) return DOFAIL();
     f = f->next;
 
     // foo::b::foo
@@ -1183,7 +1192,7 @@ SIMPLE_TEST(test_typedef_parsing3, test_errcb,
             (type_t){ .class = TYPE_INT },
         },
         .size = 1,
-    })) return DOFAIL();
+    }, false)) return DOFAIL();
     f = f->next;
 
     // Goto next struct
@@ -1207,7 +1216,7 @@ SIMPLE_TEST(test_typedef_parsing3, test_errcb,
             (type_t){ .class = TYPE_CHAR },
         },
         .size = 1,
-    })) return DOFAIL();
+    }, false)) return DOFAIL();
     f = f->next;
 
     // foo::b
@@ -1219,7 +1228,7 @@ SIMPLE_TEST(test_typedef_parsing3, test_errcb,
             (type_t){ .class = TYPE_USER, .n = 1 },
         },
         .size = 1,
-    })) return DOFAIL();
+    }, false)) return DOFAIL();
     f = f->next;
 
     // foo::a
@@ -1231,7 +1240,7 @@ SIMPLE_TEST(test_typedef_parsing3, test_errcb,
             (type_t){ .class = TYPE_INT },
         },
         .size = 1,
-    })) return DOFAIL();
+    }, false)) return DOFAIL();
 
     return true;
 })
@@ -1253,7 +1262,7 @@ SIMPLE_TEST(test_typedef_parsing4, test_errcb,
             (type_t){ .class = TYPE_USER, .n = 0 },
         },
         .size = 1,
-    })) return DOFAIL();
+    }, false)) return DOFAIL();
 
     // union SNU
     userty_t *t = cnm->type.types->next;
@@ -1280,7 +1289,7 @@ SIMPLE_TEST(test_typedef_parsing5, test_errcb,
             (type_t){ .class = TYPE_USER, .n = 0 },
         },
         .size = 1,
-    })) return DOFAIL();
+    }, false)) return DOFAIL();
 
     // enum SNU
     userty_t *t = cnm->type.types;
@@ -1318,7 +1327,7 @@ SIMPLE_TEST(test_typedef_parsing6, test_errcb,
             (type_t){ .class = TYPE_USER, .n = 0 },
         },
         .size = 1,
-    })) return DOFAIL();
+    }, false)) return DOFAIL();
 
     // enum SNU
     userty_t *t = cnm->type.types;
@@ -1331,7 +1340,7 @@ SIMPLE_TEST(test_typedef_parsing6, test_errcb,
             (type_t){ .class = TYPE_UINT },
         },
         .size = 1,
-    })) return DOFAIL();
+    }, false)) return DOFAIL();
     if (!strview_eq(t->name, SV("E"))) return DOFAIL();
     if (t->typeid != 0) return DOFAIL();
 
@@ -1365,7 +1374,7 @@ SIMPLE_TEST(test_typedef_parsing7, test_errcb,
             (type_t){ .class = TYPE_USER, .n = 0 },
         },
         .size = 1,
-    })) return DOFAIL();
+    }, false)) return DOFAIL();
 
     // struct "anonymous"
     userty_t *t = cnm->type.types;
@@ -1387,7 +1396,7 @@ SIMPLE_TEST(test_typedef_parsing7, test_errcb,
             (type_t){ .class = TYPE_CHAR },
         },
         .size = 2,
-    })) return DOFAIL();
+    }, false)) return DOFAIL();
     f = f->next;
 
     // foo::b::foo
@@ -1399,7 +1408,7 @@ SIMPLE_TEST(test_typedef_parsing7, test_errcb,
             (type_t){ .class = TYPE_INT },
         },
         .size = 1,
-    })) return DOFAIL();
+    }, false)) return DOFAIL();
     f = f->next;
 
     // Goto next struct
@@ -1423,7 +1432,7 @@ SIMPLE_TEST(test_typedef_parsing7, test_errcb,
             (type_t){ .class = TYPE_CHAR },
         },
         .size = 1,
-    })) return DOFAIL();
+    }, false)) return DOFAIL();
     f = f->next;
 
     // foo::b
@@ -1435,7 +1444,7 @@ SIMPLE_TEST(test_typedef_parsing7, test_errcb,
             (type_t){ .class = TYPE_USER, .n = 1 },
         },
         .size = 1,
-    })) return DOFAIL();
+    }, false)) return DOFAIL();
     f = f->next;
 
     // foo::a
@@ -1447,7 +1456,7 @@ SIMPLE_TEST(test_typedef_parsing7, test_errcb,
             (type_t){ .class = TYPE_INT },
         },
         .size = 1,
-    })) return DOFAIL();
+    }, false)) return DOFAIL();
 
     return true;
 })
@@ -1621,6 +1630,7 @@ static test_t tests[] = {
     TEST(test_type_parsing5),
     TEST(test_type_parsing6),
     TEST(test_type_parsing7),
+    TEST(test_type_parsing8),
 
     // Type parsing tests
     TEST_PADDING,

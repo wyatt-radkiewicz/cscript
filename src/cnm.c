@@ -1041,8 +1041,9 @@ static typeinf_t typeinf_get(cnm_t *cnm, const type_t *type) {
     }
 }
 
-// Checks whether 2 type refrences are equal or not (ignoring top level qualifiers)
-static bool type_eq(const typeref_t a, const typeref_t b) {
+// Checks whether 2 type refrences are equal or not
+// if test_toplvl is set to true, then it will check top level qualifiers
+static bool type_eq(const typeref_t a, const typeref_t b, bool test_toplvl) {
     // If sizes aren't equal, can skip rest
     if (a.size != b.size) return false;
 
@@ -1051,7 +1052,7 @@ static bool type_eq(const typeref_t a, const typeref_t b) {
         if (a.type[i].class != b.type[i].class) return false;
 
         // Check constness (if not on top level)
-        if (i && a.type[i].isconst != b.type[i].isconst) return false;
+        if ((i || test_toplvl) && a.type[i].isconst != b.type[i].isconst) return false;
 
         // Check for storage qualifiers
         if (a.type[i].isstatic != b.type[i].isstatic
@@ -1070,7 +1071,7 @@ static bool type_eq(const typeref_t a, const typeref_t b) {
                 }, (typeref_t){
                     .type = b.type + i + 1,
                     .size = size,
-                })) return false;
+                }, false)) return false;
             i += size;
         }
     }
@@ -2416,8 +2417,50 @@ static void cnm_set_src(cnm_t *cnm, const char *src, const char *fname) {
     };
 }
 
+// Parse and handle a file scope declaration. When done, current cnm token will
+// point to start of next file scope declaration, end of file, or something
+// else if the file is not a proper c-script file.
+static bool parse_file_decl(cnm_t *cnm) {
+    strview_t name;
+    bool istypedef;
+    typeref_t type = type_parse(cnm, &name, &istypedef);
+    if (!type.type) return false;
+
+    // Now branch depending on what we parsed
+
+    // Create new typedef
+    if (istypedef) {
+        typedef_t *td = cnm_alloc(cnm, sizeof(typedef_t), sizeof(void *));
+        if (!td) return false;
+
+        for (typedef_t *iter = cnm->type.typedefs; iter; iter = iter->next) {
+            if (!strview_eq(iter->name, name)) continue;
+
+            //if (!type_eq())
+
+            //cnm_doerr(cnm, true, "redefinition of ");
+            return false;
+        }
+
+        *td = (typedef_t){
+            .type = type,
+            .name = name,
+            .typedef_id = cnm->type.gtypedef_id++,
+            .next = cnm->type.typedefs,
+        };
+        cnm->type.typedefs = td;
+        return true;
+    }
+
+    return true;
+}
+
 bool cnm_parse(cnm_t *cnm, const char *src, const char *fname, const int *bpts, int nbpts) {
     cnm_set_src(cnm, src, fname);
+    token_next(cnm);
+    while (cnm->s.tok.type != TOKEN_EOF) {
+        if (!parse_file_decl(cnm)) return false;
+    }
     return true;
 }
 
