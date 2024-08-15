@@ -2417,6 +2417,34 @@ static void cnm_set_src(cnm_t *cnm, const char *src, const char *fname) {
     };
 }
 
+// Parse typedef definition
+static bool parse_file_decl_typedef(cnm_t *cnm, strview_t name, typeref_t type) {
+    typedef_t *td = cnm_alloc(cnm, sizeof(typedef_t), sizeof(void *));
+    if (!td) return false;
+
+    // Find existing typedef with this name
+    for (typedef_t *iter = cnm->type.typedefs; iter; iter = iter->next) {
+        if (!strview_eq(iter->name, name)) continue;
+
+        // Don't add duplicate typedefs
+        if (type_eq(type, iter->type, true)) return true;
+
+        // Types don't match, throw error instead
+        cnm_doerr(cnm, true, "redefinition of typedef", "");
+        return false;
+    }
+
+    // Add new typedef definition
+    *td = (typedef_t){
+        .type = type,
+        .name = name,
+        .typedef_id = cnm->type.gtypedef_id++,
+        .next = cnm->type.typedefs,
+    };
+    cnm->type.typedefs = td;
+    return true;
+}
+
 // Parse and handle a file scope declaration. When done, current cnm token will
 // point to start of next file scope declaration, end of file, or something
 // else if the file is not a proper c-script file.
@@ -2427,30 +2455,7 @@ static bool parse_file_decl(cnm_t *cnm) {
     if (!type.type) return false;
 
     // Now branch depending on what we parsed
-
-    // Create new typedef
-    if (istypedef) {
-        typedef_t *td = cnm_alloc(cnm, sizeof(typedef_t), sizeof(void *));
-        if (!td) return false;
-
-        for (typedef_t *iter = cnm->type.typedefs; iter; iter = iter->next) {
-            if (!strview_eq(iter->name, name)) continue;
-
-            //if (!type_eq())
-
-            //cnm_doerr(cnm, true, "redefinition of ");
-            return false;
-        }
-
-        *td = (typedef_t){
-            .type = type,
-            .name = name,
-            .typedef_id = cnm->type.gtypedef_id++,
-            .next = cnm->type.typedefs,
-        };
-        cnm->type.typedefs = td;
-        return true;
-    }
+    if (istypedef) return parse_file_decl_typedef(cnm, name, type);
 
     return true;
 }
