@@ -1499,7 +1499,7 @@ typedef struct test_s {
 #define TEST_PADDING ((test_t){ .pfn = NULL, .name = NULL })
 
 // List of tester functions
-static test_t tests[] = {
+static test_t lexer_tests[] = {
     // Lexer Tests
     TEST(test_lexer_uninitialized),
     TEST(test_lexer_ident),
@@ -1663,10 +1663,10 @@ int main(int argc, char **argv) {
         ntests++;
         printf("%-32s ", tests[i].name);
         if (tests[i].pfn()) {
-            printf(" PASS \n");
+            printf(" \033[42m\033[1mPASS\033[0m \n");
             passed++;
         } else {
-            printf("<FAIL>\n");
+            printf("\033[41m\033[1m<FAIL>\033[0m\n");
         }
     }
 
