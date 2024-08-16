@@ -9,7 +9,7 @@ TESTER :=$(BUILD)/test
 OBJS :=$(patsubst %.c,$(BUILD)/%.o,$(SRCS))
 
 # Environment variables
-CFLAGS :=$(CFLAGS) -O0 -g -std=c99
+CFLAGS :=$(CFLAGS) -O0 -g -std=gnu99
 LDFLAGS :=$(LDFLAGS) -lm
 
 # Build the main executable

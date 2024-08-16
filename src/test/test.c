@@ -1648,7 +1648,7 @@ int main(int argc, char **argv) {
    
     test_code_size = 2048;
     test_code_area = mmap(NULL, test_code_size, PROT_EXEC | PROT_READ | PROT_WRITE,
-                     MAP_PRIVATE | MAP_ANON, -1, 0);
+                     MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
 
     int passed = 0, ntests = 0;
     for (int i = 0; i < arrlen(tests); i++) {

@@ -112,6 +112,11 @@ typedef struct typeinf_s {
     size_t align;
 } typeinf_t;
 
+// Struct used when building up type information
+typedef struct type_builder_s {
+    
+} type_builder_t;
+
 // Field of a struct.
 typedef struct field_s {
     strview_t name;
