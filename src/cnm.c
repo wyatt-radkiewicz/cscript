@@ -106,16 +106,13 @@ typedef struct typeref_s {
     size_t size;
 } typeref_t;
 
+#define typeref_isvalid(tr) ((tr).type)
+
 // Simple size and alignment info of a type at runtime
 typedef struct typeinf_s {
     size_t size;
     size_t align;
 } typeinf_t;
-
-// Struct used when building up type information
-typedef struct type_builder_s {
-    
-} type_builder_t;
 
 // Field of a struct.
 typedef struct field_s {
@@ -970,7 +967,8 @@ TOKENS
     return &cnm->s.tok;
 }
 
-static typeref_t type_parse(cnm_t *cnm, strview_t *name, bool *istypedef);
+static typeref_t type_parse(cnm_t *cnm, const type_t *base, strview_t *name);
+static bool type_parse_declspec(cnm_t *cnm, type_t *type, bool *istypedef);
 
 // Returns true if this ast node can be used in an arithmetic operation
 static bool type_is_arith(const type_t type) {
@@ -1346,36 +1344,54 @@ static bool type_parse_declspec_struct(cnm_t *cnm, type_t *type, bool *istypedef
         // static region
         uint8_t *const stack_ptr = cnm->alloc.next;
 
-        // Get the type data
-        bool istypedef;
+        // Save this because if the userty pointer changes, that means that this
+        // member is actually a new type definition, so if it has no name, don't
+        // give an error out.
         const userty_t *const old_typtr = cnm->type.types;
-        f->type = type_parse(cnm, &f->name, &istypedef);
+
+        // Get type data (base type)
+        type_t base;
+        bool istypedef;
+        if (!type_parse_declspec(cnm, &base, &istypedef)) return false;
         if (istypedef) {
             cnm_doerr(cnm, true, "can not have typedef in struct field", "");
             return false;
         }
-        if (!f->type.size) {
-            // TODO: Make error talk about undefined types as well?
-            cnm_doerr(cnm, true, "can not have 0 sized type in struct field", "");
-            return false;
-        }
-        if (!f->name.str && old_typtr == cnm->type.types) {
-            cnm_doerr(cnm, false, "declaration does not declare name", "");
-        }
 
-        // Move type data to static region
-        cnm->alloc.next = stack_ptr; // free old data
-        type_t *buf = cnm_alloc_static(cnm, sizeof(type_t) * f->type.size, sizeof(type_t));
-        if (!buf) return false;
-        memmove(buf, f->type.type, sizeof(type_t) * f->type.size); // move to new spot
-        f->type.type = buf;
+        const bool not_defined_new_type = old_typtr == cnm->type.types;
 
-        // Get offset and new struct size and alignment
-        typeinf_t inf = typeinf_get(cnm, f->type.type);
-        u->inf.size = align_size(u->inf.size, inf.align);
-        f->offs = u->inf.size;
-        u->inf.size += inf.size;
-        if (inf.align > u->inf.align) u->inf.align = inf.align;
+        // Get derived type(s) and name(s)
+        while (true) {
+            // Get the full type data
+            f->type = type_parse(cnm, &base, &f->name);
+            if (!f->type.size) {
+                // TODO: Make error talk about undefined types as well?
+                cnm_doerr(cnm, true, "can not have 0 sized type in struct field", "");
+                return false;
+            }
+            if (!f->name.str && not_defined_new_type) {
+                cnm_doerr(cnm, false, "declaration does not declare name", "");
+            }
+
+            // Move type data to static region
+            cnm->alloc.next = stack_ptr; // free old data
+            type_t *buf = cnm_alloc_static(cnm, sizeof(type_t) * f->type.size,
+                                           sizeof(type_t));
+            if (!buf) return false;
+            memmove(buf, f->type.type, sizeof(type_t) * f->type.size); // move to new spot
+            f->type.type = buf;
+
+            // Get offset and new struct size and alignment
+            typeinf_t inf = typeinf_get(cnm, f->type.type);
+            u->inf.size = align_size(u->inf.size, inf.align);
+            f->offs = u->inf.size;
+            u->inf.size += inf.size;
+            if (inf.align > u->inf.align) u->inf.align = inf.align;
+
+            // Consume ',' token
+            if (cnm->s.tok.type != TOKEN_COLON) break;
+            token_next(cnm);
+        }
 
         // Consume ';' token
         if (cnm->s.tok.type != TOKEN_SEMICOLON) {
@@ -1413,21 +1429,30 @@ static bool type_parse_declspec_enum(cnm_t *cnm, type_t *type, bool *istypedef,
         // Save pointer so we can free this type since its stored directly in enum
         uint8_t *const stack_ptr = cnm->alloc.next;
         
-        strview_t name = {0};
-        bool istypedef = false;
-        typeref_t type = type_parse(cnm, &name, &istypedef);
-
-        // Make sure they don't typedef or use names in override type
+        // Get type data (base type)
+        type_t base;
+        bool istypedef;
+        if (!type_parse_declspec(cnm, &base, &istypedef)) return false;
         if (istypedef) {
-            cnm_doerr(cnm, true, "can not have typedef as enum override type", "");
+            cnm_doerr(cnm, true, "can not have typedef in struct field", "");
             return false;
         }
+
+        // Get fully derived type
+        strview_t name;
+        typeref_t type = type_parse(cnm, &base, &name);
+
+        // Make sure they don't use names in override type or define multiple times
         if (name.str) {
             cnm_doerr(cnm, true, "can not have name for enum override type", "");
             return false;
         }
         if (type.size != 1 || !type_is_int(type.type[0])) {
             cnm_doerr(cnm, true, "enum override type must be integer like type", "");
+            return false;
+        }
+        if (cnm->s.tok.type == TOKEN_COMMA) {
+            cnm_doerr(cnm, true, "only allow 1 default override type for enums", "");
             return false;
         }
 
@@ -1519,7 +1544,7 @@ static bool type_parse_declspec_union(cnm_t *cnm, type_t *type, bool *istypedef,
     }
     if (!u) return true;
     token_next(cnm);
-    // u now points to a new struct that we must fill out the members of
+    // u now points to a new union that we must fill out the members of
 
     bool any_fields = false;
 
@@ -1530,23 +1555,33 @@ static bool type_parse_declspec_union(cnm_t *cnm, type_t *type, bool *istypedef,
         // static region
         uint8_t *const stack_ptr = cnm->alloc.next;
 
-        // Get the type data
+        // Get type data (base type)
+        type_t base;
         bool istypedef;
-        typeref_t ref = type_parse(cnm, NULL, &istypedef);
+        if (!type_parse_declspec(cnm, &base, &istypedef)) return false;
         if (istypedef) {
             cnm_doerr(cnm, true, "can not have typedef in union field", "");
             return false;
         }
-        if (!ref.size) {
-            // TODO: Make error talk about undefined types as well?
-            cnm_doerr(cnm, true, "can not have 0 sized type in union field", "");
-            return false;
-        }
 
-        // Get offset and new struct size and alignment
-        typeinf_t inf = typeinf_get(cnm, ref.type);
-        if (inf.size > u->inf.size) u->inf.size = inf.size;
-        if (inf.align > u->inf.align) u->inf.align = inf.align;
+        while (true) {
+            // Get the type data
+            typeref_t ref = type_parse(cnm, &base, NULL);
+            if (!typeref_isvalid(ref)) {
+                // TODO: Make error talk about undefined types as well?
+                cnm_doerr(cnm, true, "can not have 0 sized type in union field", "");
+                return false;
+            }
+
+            // Get offset and new struct size and alignment
+            typeinf_t inf = typeinf_get(cnm, ref.type);
+            if (inf.size > u->inf.size) u->inf.size = inf.size;
+            if (inf.align > u->inf.align) u->inf.align = inf.align;
+
+            // Consume ',' token
+            if (cnm->s.tok.type != TOKEN_COLON) break;
+            token_next(cnm);
+        }
 
         cnm->alloc.next = stack_ptr; // free old data
 
@@ -1683,8 +1718,7 @@ static bool declspec_apply_options(cnm_t *cnm, type_t *type, declspec_options_t 
 // Parses declaration specifiers for a type and store them in type
 // It may also optionally parse a struct, enum, or union definition or declaration
 // and allocate it in the static region.
-static bool type_parse_declspec(cnm_t *cnm, type_t *type, bool *istypedef,
-                                declspec_options_t *options) {
+static bool type_parse_declspec(cnm_t *cnm, type_t *type, bool *istypedef) {
     *type = (type_t){ .class = TYPE_INT };
 
     // Assume like any other compiler that a type is not a typedef
@@ -1692,13 +1726,13 @@ static bool type_parse_declspec(cnm_t *cnm, type_t *type, bool *istypedef,
 
     // Start with signed values like most C compilers
     // Since you can have multiple decl specifiers, these kind of 'accumulate'
-    *options = (declspec_options_t){0};
+    declspec_options_t options = {0};
 
     // Start consuming declaration specifiers
     bool no_keywords = true;
     declspec_parser_pfn_t parser;
     while ((parser = cnm_at_declspec(cnm))) {
-        if (!parser(cnm, type, istypedef, options)) return false;
+        if (!parser(cnm, type, istypedef, &options)) return false;
         no_keywords = false;
     }
 
@@ -1707,7 +1741,7 @@ static bool type_parse_declspec(cnm_t *cnm, type_t *type, bool *istypedef,
         return false;
     }
 
-    return true;
+    return declspec_apply_options(cnm, type, &options);
 }
 
 // Parse only qualifiers and not type specifiers for type.
@@ -1772,18 +1806,14 @@ static bool type_parse_add_ref_pointers(cnm_t *cnm, typeref_t *ref, type_t *ptrs
 
 // Helper for type_parse function that will change depending on whether or not
 // it is a function parameter
-static typeref_t type_parse_ex(cnm_t *cnm, strview_t *name, bool *istypedef, bool isparam) {
+static typeref_t type_parse_ex(cnm_t *cnm, const type_t *base,
+                               strview_t *name, bool isparam) {
     // First align the allocation area
     typeref_t ref = { .type = cnm_alloc(cnm, 0, sizeof(type_t)) };
     if (!ref.type) goto return_error;
 
     // Set to name to NULL just in case there is no name here
     if (name) *name = (strview_t){0};
-
-    // Base type that the 'derived' types refrence
-    type_t base;
-    declspec_options_t base_options;
-    if (!type_parse_declspec(cnm, &base, istypedef, &base_options)) goto return_error;
 
     // Save pointers processed and what 'group' we are on here so we can
     // parse with the correct associativity and precedence
@@ -1883,16 +1913,21 @@ static typeref_t type_parse_ex(cnm_t *cnm, strview_t *name, bool *istypedef, boo
                 if (!cnm_alloc(cnm, sizeof(type_t), 1)) goto return_error;
                 type_t *arg = ref.type + ref.size++;
                 *arg = (type_t){ .class = TYPE_FN_ARG };
-               
+              
+                // Get base type
+                type_t base;
                 bool is_arg_typedef;
-                typeref_t argref = type_parse_ex(cnm, NULL, &is_arg_typedef, true);
+                if (!type_parse_declspec(cnm, &base, &is_arg_typedef)) goto return_error;
+                if (is_arg_typedef) {
+                    cnm_doerr(cnm, true, "can not make function parameter a typedef", "");
+                    goto return_error;
+                }
+
+                // Get the full derived parameter type
+                typeref_t argref = type_parse_ex(cnm, &base, NULL, true);
                 if (!argref.type) goto return_error;
                 if (!argref.size) {
                     cnm_doerr(cnm, true, "expected function parameter", "");
-                    goto return_error;
-                }
-                if (is_arg_typedef) {
-                    cnm_doerr(cnm, true, "can not make function parameter a typedef", "");
                     goto return_error;
                 }
                 
@@ -1934,24 +1969,21 @@ static typeref_t type_parse_ex(cnm_t *cnm, strview_t *name, bool *istypedef, boo
 
     // Add the base type on
     if (!cnm_alloc(cnm, sizeof(type_t), 1)) goto return_error;
-    ref.type[ref.size++] = base;
-    if (!declspec_apply_options(cnm, ref.type + ref.size - 1, &base_options)) {
-        goto return_error;
-    }
+    ref.type[ref.size++] = *base;
     
     return ref;
 return_error:
     return (typeref_t){0};
 }
 
-// Parses a type currently pointed to in the source by the current token
-// Will store the name associated with this type optionally into name and can
-// store a boolean of whether or not the typedef keyword was used
-// Allocates information for this type on the state stack region (local)
-// Will allocate new structure info on the state stack static region (static)
-// If an error occurred, it will return a NULL, 0 sized type refrence
-static typeref_t type_parse(cnm_t *cnm, strview_t *name, bool *istypedef) {
-    return type_parse_ex(cnm, name, istypedef, false);
+// Parses the derived types of a type expression and the name, so
+// int *a[5];
+// ^   ^----  this part of the equasion.
+// +----  this is base
+// the parameter base is a pointer to 1 type_t struct that represents the
+// base type
+static typeref_t type_parse(cnm_t *cnm, const type_t *base, strview_t *name) {
+    return type_parse_ex(cnm, base, name, false);
 }
 
 // Generates code and data for the expression being parsed
@@ -2454,14 +2486,28 @@ static bool parse_file_decl_typedef(cnm_t *cnm, strview_t name, typeref_t type) 
 // point to start of next file scope declaration, end of file, or something
 // else if the file is not a proper c-script file.
 static bool parse_file_decl(cnm_t *cnm) {
-    strview_t name;
+    // Get the base type
     bool istypedef;
-    typeref_t type = type_parse(cnm, &name, &istypedef);
-    if (!type.type) return false;
+    type_t base;
+    if (!type_parse_declspec(cnm, &base, &istypedef)) return false;
 
-    // Now branch depending on what we parsed
-    if (istypedef) return parse_file_decl_typedef(cnm, name, type);
+    // Get full types by aquiring the derived type
+    while (true) {
+        // Parse the type
+        strview_t name;
+        typeref_t type = type_parse(cnm, &base, &name);
+        if (!typeref_isvalid(type)) return false;
 
+        // Now branch depending on what we parsed
+
+        if (istypedef) return parse_file_decl_typedef(cnm, name, type);
+
+        // Goto next one
+        if (cnm->s.tok.type != TOKEN_COMMA) break;
+        token_next(cnm);
+    }
+
+    // DON'T consume ';' because function definitions end in them
     return true;
 }
 

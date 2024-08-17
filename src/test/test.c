@@ -23,7 +23,7 @@ static void test_expect_errcb(int line, const char *v, const char *s) {
                               test_code_area, test_code_size, \
                               test_globals, sizeof(test_globals)); \
         cnm_set_errcb(cnm, _errcb); \
-        cnm_set_src(cnm, _src, #_name".cnm");
+        cnm_set_src(cnm, _src, #_name);
 static bool test_dofail(const char *file, int line) {
     int i = printf("\nfail at %s:%d:", file, line);
     for (; i < 34; i++) printf(" ");
@@ -706,7 +706,9 @@ SIMPLE_TEST(test_type_parsing1, test_errcb,  "const char *foo")
     token_next(cnm);
     bool istypedef;
     strview_t name;
-    typeref_t type = type_parse(cnm, &name, &istypedef);
+    type_t base;
+    if (!type_parse_declspec(cnm, &base, &istypedef)) return TESTFAIL;
+    typeref_t type = type_parse(cnm, &base, &name);
     if (istypedef) return TESTFAIL;
     if (!strview_eq(name, SV("foo"))) return TESTFAIL;
     if (!type_eq(type, (typeref_t){
@@ -722,7 +724,9 @@ SIMPLE_TEST(test_type_parsing2, test_errcb,  "typedef unsigned char u8")
     token_next(cnm);
     bool istypedef;
     strview_t name;
-    typeref_t type = type_parse(cnm, &name, &istypedef);
+    type_t base;
+    if (!type_parse_declspec(cnm, &base, &istypedef)) return TESTFAIL;
+    typeref_t type = type_parse(cnm, &base, &name);
     if (!istypedef) return TESTFAIL;
     if (!strview_eq(name, SV("u8"))) return TESTFAIL;
     if (!type_eq(type, (typeref_t){
@@ -735,7 +739,9 @@ SIMPLE_TEST(test_type_parsing2, test_errcb,  "typedef unsigned char u8")
 }
 SIMPLE_TEST(test_type_parsing_char, test_errcb,  "char")
     token_next(cnm);
-    typeref_t type = type_parse(cnm, NULL, NULL);
+    type_t base;
+    if (!type_parse_declspec(cnm, &base, NULL)) return TESTFAIL;
+    typeref_t type = type_parse(cnm, &base, NULL);
     if (!type_eq(type, (typeref_t){
         .type = (type_t[]){
             (type_t){ .class = TYPE_CHAR },
@@ -746,7 +752,9 @@ SIMPLE_TEST(test_type_parsing_char, test_errcb,  "char")
 }
 SIMPLE_TEST(test_type_parsing_uchar, test_errcb,  "unsigned char")
     token_next(cnm);
-    typeref_t type = type_parse(cnm, NULL, NULL);
+    type_t base;
+    if (!type_parse_declspec(cnm, &base, NULL)) return TESTFAIL;
+    typeref_t type = type_parse(cnm, &base, NULL);
     if (!type_eq(type, (typeref_t){
         .type = (type_t[]){
             (type_t){ .class = TYPE_UCHAR },
@@ -757,7 +765,9 @@ SIMPLE_TEST(test_type_parsing_uchar, test_errcb,  "unsigned char")
 }
 SIMPLE_TEST(test_type_parsing_short1, test_errcb,  "short")
     token_next(cnm);
-    typeref_t type = type_parse(cnm, NULL, NULL);
+    type_t base;
+    if (!type_parse_declspec(cnm, &base, NULL)) return TESTFAIL;
+    typeref_t type = type_parse(cnm, &base, NULL);
     if (!type_eq(type, (typeref_t){
         .type = (type_t[]){
             (type_t){ .class = TYPE_SHORT },
@@ -768,7 +778,9 @@ SIMPLE_TEST(test_type_parsing_short1, test_errcb,  "short")
 }
 SIMPLE_TEST(test_type_parsing_short2, test_errcb,  "short int")
     token_next(cnm);
-    typeref_t type = type_parse(cnm, NULL, NULL);
+    type_t base;
+    if (!type_parse_declspec(cnm, &base, NULL)) return TESTFAIL;
+    typeref_t type = type_parse(cnm, &base, NULL);
     if (!type_eq(type, (typeref_t){
         .type = (type_t[]){
             (type_t){ .class = TYPE_SHORT },
@@ -779,17 +791,23 @@ SIMPLE_TEST(test_type_parsing_short2, test_errcb,  "short int")
 }
 SIMPLE_TEST(test_type_parsing_short3, test_expect_errcb,  "short short int")
     token_next(cnm);
-    type_parse(cnm, NULL, NULL);
+    type_t base;
+    if (type_parse_declspec(cnm, &base, NULL)) return TESTFAIL;
+    type_parse(cnm, &base, NULL);
     return test_expect_err;
 }
 SIMPLE_TEST(test_type_parsing_short4, test_expect_errcb,  "short char")
     token_next(cnm);
-    type_parse(cnm, NULL, NULL);
+    type_t base;
+    if (type_parse_declspec(cnm, &base, NULL)) return TESTFAIL;
+    type_parse(cnm, &base, NULL);
     return test_expect_err;
 }
 SIMPLE_TEST(test_type_parsing_ushort1, test_errcb,  "unsigned short")
     token_next(cnm);
-    typeref_t type = type_parse(cnm, NULL, NULL);
+    type_t base;
+    if (!type_parse_declspec(cnm, &base, NULL)) return TESTFAIL;
+    typeref_t type = type_parse(cnm, &base, NULL);
     if (!type_eq(type, (typeref_t){
         .type = (type_t[]){
             (type_t){ .class = TYPE_USHORT },
@@ -800,7 +818,9 @@ SIMPLE_TEST(test_type_parsing_ushort1, test_errcb,  "unsigned short")
 }
 SIMPLE_TEST(test_type_parsing_ushort2, test_errcb,  "unsigned short int")
     token_next(cnm);
-    typeref_t type = type_parse(cnm, NULL, NULL);
+    type_t base;
+    if (!type_parse_declspec(cnm, &base, NULL)) return TESTFAIL;
+    typeref_t type = type_parse(cnm, &base, NULL);
     if (!type_eq(type, (typeref_t){
         .type = (type_t[]){
             (type_t){ .class = TYPE_USHORT },
@@ -811,12 +831,16 @@ SIMPLE_TEST(test_type_parsing_ushort2, test_errcb,  "unsigned short int")
 }
 SIMPLE_TEST(test_type_parsing_ushort3, test_expect_errcb,  "unsigned unsigned short")
     token_next(cnm);
-    type_parse(cnm, NULL, NULL);
+    type_t base;
+    if (type_parse_declspec(cnm, &base, NULL)) return TESTFAIL;
+    type_parse(cnm, &base, NULL);
     return test_expect_err;
 }
 SIMPLE_TEST(test_type_parsing_int, test_errcb,  "int")
     token_next(cnm);
-    typeref_t type = type_parse(cnm, NULL, NULL);
+    type_t base;
+    if (!type_parse_declspec(cnm, &base, NULL)) return TESTFAIL;
+    typeref_t type = type_parse(cnm, &base, NULL);
     if (!type_eq(type, (typeref_t){
         .type = (type_t[]){
             (type_t){ .class = TYPE_INT },
@@ -827,7 +851,9 @@ SIMPLE_TEST(test_type_parsing_int, test_errcb,  "int")
 }
 SIMPLE_TEST(test_type_parsing_uint1, test_errcb,  "unsigned int")
     token_next(cnm);
-    typeref_t type = type_parse(cnm, NULL, NULL);
+    type_t base;
+    if (!type_parse_declspec(cnm, &base, NULL)) return TESTFAIL;
+    typeref_t type = type_parse(cnm, &base, NULL);
     if (!type_eq(type, (typeref_t){
         .type = (type_t[]){
             (type_t){ .class = TYPE_UINT },
@@ -838,7 +864,9 @@ SIMPLE_TEST(test_type_parsing_uint1, test_errcb,  "unsigned int")
 }
 SIMPLE_TEST(test_type_parsing_uint2, test_errcb,  "unsigned")
     token_next(cnm);
-    typeref_t type = type_parse(cnm, NULL, NULL);
+    type_t base;
+    if (!type_parse_declspec(cnm, &base, NULL)) return TESTFAIL;
+    typeref_t type = type_parse(cnm, &base, NULL);
     if (!type_eq(type, (typeref_t){
         .type = (type_t[]){
             (type_t){ .class = TYPE_UINT },
@@ -849,7 +877,9 @@ SIMPLE_TEST(test_type_parsing_uint2, test_errcb,  "unsigned")
 }
 SIMPLE_TEST(test_type_parsing_uint3, test_errcb,  "const unsigned")
     token_next(cnm);
-    typeref_t type = type_parse(cnm, NULL, NULL);
+    type_t base;
+    if (!type_parse_declspec(cnm, &base, NULL)) return TESTFAIL;
+    typeref_t type = type_parse(cnm, &base, NULL);
     if (!type_eq(type, (typeref_t){
         .type = (type_t[]){
             (type_t){ .class = TYPE_UINT, .isconst = true },
@@ -860,7 +890,9 @@ SIMPLE_TEST(test_type_parsing_uint3, test_errcb,  "const unsigned")
 }
 SIMPLE_TEST(test_type_parsing_long1, test_errcb,  "long")
     token_next(cnm);
-    typeref_t type = type_parse(cnm, NULL, NULL);
+    type_t base;
+    if (!type_parse_declspec(cnm, &base, NULL)) return TESTFAIL;
+    typeref_t type = type_parse(cnm, &base, NULL);
     if (!type_eq(type, (typeref_t){
         .type = (type_t[]){
             (type_t){ .class = TYPE_LONG },
@@ -871,7 +903,9 @@ SIMPLE_TEST(test_type_parsing_long1, test_errcb,  "long")
 }
 SIMPLE_TEST(test_type_parsing_long2, test_errcb,  "long long")
     token_next(cnm);
-    typeref_t type = type_parse(cnm, NULL, NULL);
+    type_t base;
+    if (!type_parse_declspec(cnm, &base, NULL)) return TESTFAIL;
+    typeref_t type = type_parse(cnm, &base, NULL);
     if (!type_eq(type, (typeref_t){
         .type = (type_t[]){
             (type_t){ .class = TYPE_LLONG },
@@ -882,7 +916,9 @@ SIMPLE_TEST(test_type_parsing_long2, test_errcb,  "long long")
 }
 SIMPLE_TEST(test_type_parsing_long3, test_errcb,  "long int")
     token_next(cnm);
-    typeref_t type = type_parse(cnm, NULL, NULL);
+    type_t base;
+    if (!type_parse_declspec(cnm, &base, NULL)) return TESTFAIL;
+    typeref_t type = type_parse(cnm, &base, NULL);
     if (!type_eq(type, (typeref_t){
         .type = (type_t[]){
             (type_t){ .class = TYPE_LONG },
@@ -893,7 +929,9 @@ SIMPLE_TEST(test_type_parsing_long3, test_errcb,  "long int")
 }
 SIMPLE_TEST(test_type_parsing_long4, test_errcb,  "long long int")
     token_next(cnm);
-    typeref_t type = type_parse(cnm, NULL, NULL);
+    type_t base;
+    if (!type_parse_declspec(cnm, &base, NULL)) return TESTFAIL;
+    typeref_t type = type_parse(cnm, &base, NULL);
     if (!type_eq(type, (typeref_t){
         .type = (type_t[]){
             (type_t){ .class = TYPE_LLONG },
@@ -904,7 +942,9 @@ SIMPLE_TEST(test_type_parsing_long4, test_errcb,  "long long int")
 }
 SIMPLE_TEST(test_type_parsing_ulong, test_errcb,  "unsigned long long")
     token_next(cnm);
-    typeref_t type = type_parse(cnm, NULL, NULL);
+    type_t base;
+    if (!type_parse_declspec(cnm, &base, NULL)) return TESTFAIL;
+    typeref_t type = type_parse(cnm, &base, NULL);
     if (!type_eq(type, (typeref_t){
         .type = (type_t[]){
             (type_t){ .class = TYPE_ULLONG },
@@ -915,7 +955,9 @@ SIMPLE_TEST(test_type_parsing_ulong, test_errcb,  "unsigned long long")
 }
 SIMPLE_TEST(test_type_parsing_float, test_errcb,  "float")
     token_next(cnm);
-    typeref_t type = type_parse(cnm, NULL, NULL);
+    type_t base;
+    if (!type_parse_declspec(cnm, &base, NULL)) return TESTFAIL;
+    typeref_t type = type_parse(cnm, &base, NULL);
     if (!type_eq(type, (typeref_t){
         .type = (type_t[]){
             (type_t){ .class = TYPE_FLOAT },
@@ -926,7 +968,9 @@ SIMPLE_TEST(test_type_parsing_float, test_errcb,  "float")
 }
 SIMPLE_TEST(test_type_parsing_double, test_errcb,  "double")
     token_next(cnm);
-    typeref_t type = type_parse(cnm, NULL, NULL);
+    type_t base;
+    if (!type_parse_declspec(cnm, &base, NULL)) return TESTFAIL;
+    typeref_t type = type_parse(cnm, &base, NULL);
     if (!type_eq(type, (typeref_t){
         .type = (type_t[]){
             (type_t){ .class = TYPE_DOUBLE, .isconst = true },
@@ -937,7 +981,9 @@ SIMPLE_TEST(test_type_parsing_double, test_errcb,  "double")
 }
 SIMPLE_TEST(test_type_parsing3, test_errcb,  "const void *")
     token_next(cnm);
-    typeref_t type = type_parse(cnm, NULL, NULL);
+    type_t base;
+    if (!type_parse_declspec(cnm, &base, NULL)) return TESTFAIL;
+    typeref_t type = type_parse(cnm, &base, NULL);
     if (!type_eq(type, (typeref_t){
         .type = (type_t[]){
             (type_t){ .class = TYPE_PTR },
@@ -949,12 +995,16 @@ SIMPLE_TEST(test_type_parsing3, test_errcb,  "const void *")
 }
 SIMPLE_TEST(test_type_parsing4, test_expect_errcb,  "int [static 3]")
     token_next(cnm);
-    type_parse(cnm, NULL, NULL);
+    type_t base;
+    if (!type_parse_declspec(cnm, &base, NULL)) return TESTFAIL;
+    type_parse(cnm, &base, NULL);
     return test_expect_err;
 }
 SIMPLE_TEST(test_type_parsing5, test_errcb,  "const char *(* const)[][3]")
     token_next(cnm);
-    typeref_t type = type_parse(cnm, NULL, NULL);
+    type_t base;
+    if (!type_parse_declspec(cnm, &base, NULL)) return TESTFAIL;
+    typeref_t type = type_parse(cnm, &base, NULL);
     if (!type_eq(type, (typeref_t){
         .type = (type_t[]){
             (type_t){ .class = TYPE_PTR, .isconst = true },
@@ -969,7 +1019,9 @@ SIMPLE_TEST(test_type_parsing5, test_errcb,  "const char *(* const)[][3]")
 }
 SIMPLE_TEST(test_type_parsing6, test_errcb,  "int *(*get_int)(char x[], bool z)")
     token_next(cnm);
-    typeref_t type = type_parse(cnm, NULL, NULL);
+    type_t base;
+    if (!type_parse_declspec(cnm, &base, NULL)) return TESTFAIL;
+    typeref_t type = type_parse(cnm, &base, NULL);
     if (!type_eq(type, (typeref_t){
         .type = (type_t[]){
             (type_t){ .class = TYPE_PTR, .isconst = true },
@@ -988,7 +1040,9 @@ SIMPLE_TEST(test_type_parsing6, test_errcb,  "int *(*get_int)(char x[], bool z)"
 }
 SIMPLE_TEST(test_type_parsing7, test_errcb,  "int *(*get_int)(char x[], bool z)")
     token_next(cnm);
-    typeref_t type = type_parse(cnm, NULL, NULL);
+    type_t base;
+    if (!type_parse_declspec(cnm, &base, NULL)) return TESTFAIL;
+    typeref_t type = type_parse(cnm, &base, NULL);
     return !type_eq(type, (typeref_t){
         .type = (type_t[]){
             (type_t){ .class = TYPE_PTR, .isconst = true },
@@ -1006,7 +1060,9 @@ SIMPLE_TEST(test_type_parsing7, test_errcb,  "int *(*get_int)(char x[], bool z)"
 }
 SIMPLE_TEST(test_type_parsing8, test_errcb,  "double")
     token_next(cnm);
-    typeref_t type = type_parse(cnm, NULL, NULL);
+    type_t base;
+    if (!type_parse_declspec(cnm, &base, NULL)) return TESTFAIL;
+    typeref_t type = type_parse(cnm, &base, NULL);
     return !type_eq(type, (typeref_t){
         .type = (type_t[]){
             (type_t){ .class = TYPE_DOUBLE, .isconst = true },
@@ -1027,7 +1083,9 @@ SIMPLE_TEST(test_typedef_parsing1, test_errcb,
         "} *bar[4]\n")
     token_next(cnm);
     strview_t name;
-    typeref_t ref = type_parse(cnm, &name, NULL);
+    type_t base;
+    if (!type_parse_declspec(cnm, &base, NULL)) return TESTFAIL;
+    typeref_t ref = type_parse(cnm, &base, &name);
     if (!strview_eq(name, SV("bar"))) return TESTFAIL;
     if (!type_eq(ref, (typeref_t){
         .type = (type_t[]){
@@ -1081,7 +1139,9 @@ SIMPLE_TEST(test_typedef_parsing2, test_errcb,
         "} FSN__FHA__FZR__FEX__FGO\n")
     token_next(cnm);
     strview_t name;
-    typeref_t ref = type_parse(cnm, &name, NULL);
+    type_t base;
+    if (!type_parse_declspec(cnm, &base, NULL)) return TESTFAIL;
+    typeref_t ref = type_parse(cnm, &base, &name);
     if (!strview_eq(name, SV("FSN__FHA__FZR__FEX__FGO"))) return TESTFAIL;
     if (!type_eq(ref, (typeref_t){
         .type = (type_t[]){
@@ -1148,7 +1208,9 @@ SIMPLE_TEST(test_typedef_parsing3, test_errcb,
         "} EBE \n")
     token_next(cnm);
     strview_t name;
-    typeref_t ref = type_parse(cnm, &name, NULL);
+    type_t base;
+    if (!type_parse_declspec(cnm, &base, NULL)) return TESTFAIL;
+    typeref_t ref = type_parse(cnm, &base, &name);
     if (!strview_eq(name, SV("EBE"))) return TESTFAIL;
     if (!type_eq(ref, (typeref_t){
         .type = (type_t[]){
@@ -1252,7 +1314,9 @@ SIMPLE_TEST(test_typedef_parsing4, test_errcb,
         "} EBE \n")
     token_next(cnm);
     strview_t name;
-    typeref_t ref = type_parse(cnm, &name, NULL);
+    type_t base;
+    if (!type_parse_declspec(cnm, &base, NULL)) return TESTFAIL;
+    typeref_t ref = type_parse(cnm, &base, &name);
     if (!strview_eq(name, SV("EBE"))) return TESTFAIL;
     if (!type_eq(ref, (typeref_t){
         .type = (type_t[]){
@@ -1279,7 +1343,9 @@ SIMPLE_TEST(test_typedef_parsing5, test_errcb,
         "} subihibi \n")
     token_next(cnm);
     strview_t name;
-    typeref_t ref = type_parse(cnm, &name, NULL);
+    type_t base;
+    if (!type_parse_declspec(cnm, &base, NULL)) return TESTFAIL;
+    typeref_t ref = type_parse(cnm, &base, &name);
     if (!strview_eq(name, SV("subihibi"))) return TESTFAIL;
     if (!type_eq(ref, (typeref_t){
         .type = (type_t[]){
@@ -1317,7 +1383,9 @@ SIMPLE_TEST(test_typedef_parsing6, test_errcb,
         "} subihibi \n")
     token_next(cnm);
     strview_t name;
-    typeref_t ref = type_parse(cnm, &name, NULL);
+    type_t base;
+    if (!type_parse_declspec(cnm, &base, NULL)) return TESTFAIL;
+    typeref_t ref = type_parse(cnm, &base, &name);
     if (!strview_eq(name, SV("subihibi"))) return TESTFAIL;
     if (!type_eq(ref, (typeref_t){
         .type = (type_t[]){
@@ -1364,7 +1432,9 @@ SIMPLE_TEST(test_typedef_parsing7, test_errcb,
         "} EBE \n")
     token_next(cnm);
     strview_t name;
-    typeref_t ref = type_parse(cnm, &name, NULL);
+    type_t base;
+    if (!type_parse_declspec(cnm, &base, NULL)) return TESTFAIL;
+    typeref_t ref = type_parse(cnm, &base, &name);
     if (!strview_eq(name, SV("EBE"))) return TESTFAIL;
     if (!type_eq(ref, (typeref_t){
         .type = (type_t[]){
@@ -1461,21 +1531,27 @@ SIMPLE_TEST(test_typedef_parsing8, test_expect_errcb,
         "struct SNU {\n"
         "} EBE \n")
     token_next(cnm);
-    type_parse(cnm, NULL, NULL);
+    type_t base;
+    if (type_parse_declspec(cnm, &base, NULL)) return TESTFAIL;
+    type_parse(cnm, &base, NULL);
     return test_expect_err;
 }
 SIMPLE_TEST(test_typedef_parsing9, test_expect_errcb,
         "enum SNU {\n"
         "} EBE \n")
     token_next(cnm);
-    type_parse(cnm, NULL, NULL);
+    type_t base;
+    if (type_parse_declspec(cnm, &base, NULL)) return TESTFAIL;
+    type_parse(cnm, &base, NULL);
     return test_expect_err;
 }
 SIMPLE_TEST(test_typedef_parsing10, test_expect_errcb,
         "union SNU {\n"
         "} EBE \n")
     token_next(cnm);
-    type_parse(cnm, NULL, NULL);
+    type_t base;
+    if (type_parse_declspec(cnm, &base, NULL)) return TESTFAIL;
+    type_parse(cnm, &base, NULL);
     return test_expect_err;
 }
 
