@@ -38,16 +38,16 @@ typedef enum typeclass_e {
     TYPE_TYPEDEF,
 } typeclass_t;
 
-// Intructions in the IR refrence a what is like a linked list of GID ranges 
-// and what type the GID will be. GID is what is used to refrence SSA variables
+// Intructions in the IR refrence a what is like a linked list of UID ranges 
+// and what type the UID will be. UID is what is used to refrence SSA variables
 // in the IR, they are basically stand-ins for actual names. Only typeclass_t
 // is used here because the type of the psudo-variable here should be the POD
 // type only.
-typedef struct gidref_s {
-    unsigned len;
+typedef struct uidref_s {
+    unsigned start, len;
     typeclass_t type;
-    struct gidref_s *next;
-} gidref_t;
+    struct uidref_s *next;
+} uidref_t;
 
 #endif
 

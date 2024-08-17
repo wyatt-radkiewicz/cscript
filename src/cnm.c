@@ -13,6 +13,8 @@ typedef struct strview_s {
     size_t len;
 } strview_t;
 
+#define MAX_SCOPE_DEPTH 32
+
 // Create a string view from a string literal
 #define SV(s) ((strview_t){ .str = s, .len = sizeof(s) - 1 })
 
@@ -136,6 +138,9 @@ typedef struct userty_s {
     // Type ID assocciated with this user made type
     int typeid;
 
+    // What scope ID this type is a part of
+    int scope;
+
     // Cached size and alignment
     typeinf_t inf;
 
@@ -176,6 +181,9 @@ typedef struct typedef_s {
     typeref_t type;
     int typedef_id;
 
+    // What scope ID this type is a part of
+    int scope;
+
     // Next typedef in the typedef list
     struct typedef_s *next;
 } typedef_t;
@@ -191,19 +199,34 @@ typedef struct scope_s {
     strview_t name;
     typeref_t type;
 
-    // What instruction offset the range started at
-    unsigned range_start;
-
     // The range data associated with this scope
     // This updates to the latest range data so that it can be updated
-    gidref_t *range;
+    uidref_t *range;
 
-    // The actual GID name of the variable (last one used)
-    unsigned gid;
+    // The actual UID name of the variable (last one used)
+    unsigned uid;
+
+    // What scope is this variable apart of?
+    int scope;
 
     // The next scope refrence. This one is 'later' than that
     struct scope_s *next;
 } scope_t;
+
+// Represents functions in cscript that can be called
+typedef struct func_s {
+    // The name of the function
+    strview_t name;
+
+    // Type of the function
+    typeref_t type;
+
+    // Actual address of the code of the function
+    void *addr;
+
+    // Next function in list of funcs
+    struct func_s *next;
+} func_t;
 
 // A refrence to a variable in the current program. Since this is IR, it could
 // be on the stack or in a register so there is no associated location
@@ -224,15 +247,12 @@ typedef struct {
     // The type of the value, copy of the scope type if this is a scoped var
     typeref_t type;
 
-    // What instruction offset the range started at
-    unsigned range_start;
-
     // The range data associated with this scope
     // This updates to the latest range data so that it can be updated
-    gidref_t *range;
+    uidref_t *range;
 
-    // The actual GID name of the variable (last one used)
-    unsigned gid;
+    // The actual UID name of the variable (last one used)
+    unsigned uid;
 
     // Pointer to the actual scope data of this variable
     scope_t *scope;
@@ -300,11 +320,15 @@ struct cnm_s {
 
     // Code generation
     struct {
-        // SSA Variable 'name' next global id
-        unsigned gid;
+        // When compiling a function/arguments start at this UID id because
+        // the global variables will be under this uid
+        unsigned uid_start;
 
-        // GID refrences used in the IR
-        gidref_t *gids;
+        // SSA Variable 'name' next global id
+        unsigned uid;
+
+        // UID refrences used in the IR
+        uidref_t *uids;
     } cg;
 
     // Callbacks
@@ -321,8 +345,17 @@ struct cnm_s {
     struct {
         userty_t *types;
         typedef_t *typedefs;
-        int gid, gtypedef_id;
+        int gid, typedef_gid;
     } type;
+
+    // Functions in scope
+    func_t *funcs;
+
+    // Variables in scope
+    scope_t *vars;
+
+    // What the current scope level is (grows up)
+    int scope;
 
     struct {
         // Where the next allocation will be served (grows up)
@@ -2454,10 +2487,96 @@ static void cnm_set_src(cnm_t *cnm, const char *src, const char *fname) {
     };
 }
 
+// Parse and generate code for a function
+static bool parse_func(cnm_t *cnm, func_t *func) {
+    return true;
+}
+
+// Parse variable declaration/definition
+static bool parse_file_decl_var(cnm_t *cnm, strview_t name, typeref_t type) {
+    scope_t *var = NULL;
+
+    // Find existing variable with this name
+    for (scope_t *iter = cnm->vars; iter && iter->scope == cnm->scope; iter = iter->next) {
+        if (!strview_eq(iter->name, name)) continue;
+
+        // Don't add duplicate variables
+        if (type_eq(type, iter->type, true)) {
+            var = iter;
+            break;
+        }
+
+        // Types don't match, throw error instead
+        cnm_doerr(cnm, true, "redeclaration of function with different types", "");
+        return false;
+    }
+
+    // Generate a new scope entry for that variable
+    if (!var) {
+        if (!(var = cnm_alloc_static(cnm, sizeof(scope_t), sizeof(void *)))) return false;
+        *var = (scope_t){
+            .name = name,
+            .type = type,
+            .scope = cnm->scope,
+            .uid = cnm->cg.uid_start++,
+            .range = NULL,
+            .next = cnm->vars,
+        };
+        cnm->vars = var;
+    }
+
+    // TODO: Actually allocate the variable
+    return true;
+}
+
+// Parse function definition
+static bool parse_file_decl_func(cnm_t *cnm, strview_t name, typeref_t type) {
+    func_t *func = NULL;
+
+    // Find existing function with this name
+    for (func_t *iter = cnm->funcs; iter; iter = iter->next) {
+        if (!strview_eq(iter->name, name)) continue;
+
+        // Don't add duplicate functions
+        if (type_eq(type, iter->type, true)) {
+            func = iter;
+            break;
+        }
+
+        // Types don't match, throw error instead
+        cnm_doerr(cnm, true, "redeclaration of function with different types", "");
+        return false;
+    }
+
+    // Create a new function if there isn't already one with this name and type
+    if (!func) {
+        if (!(func = cnm_alloc_static(cnm, sizeof(func_t), sizeof(void *)))) return false;
+        *func = (func_t){
+            .next = cnm->funcs,
+            .name = name,
+            .type = type,
+            .addr = NULL,
+        };
+        cnm->funcs = func;
+    }
+
+    if (cnm->s.tok.type != TOKEN_BRACE_L) return true;
+    token_next(cnm);
+    if (func->addr) {
+        cnm_doerr(cnm, true, "redefinition of function!", "");
+        return false;
+    }
+
+    // Do function definition (code)
+    return parse_func(cnm, func);
+}
+
 // Parse typedef definition
 static bool parse_file_decl_typedef(cnm_t *cnm, strview_t name, typeref_t type) {
-    typedef_t *td = cnm_alloc(cnm, sizeof(typedef_t), sizeof(void *));
-    if (!td) return false;
+    if (!name.str) {
+        cnm_doerr(cnm, true, "can not have anonymous typedef", "");
+        return false;
+    }
 
     // Find existing typedef with this name
     for (typedef_t *iter = cnm->type.typedefs; iter; iter = iter->next) {
@@ -2472,11 +2591,14 @@ static bool parse_file_decl_typedef(cnm_t *cnm, strview_t name, typeref_t type) 
     }
 
     // Add new typedef definition
+    typedef_t *td = cnm_alloc(cnm, sizeof(typedef_t), sizeof(void *));
+    if (!td) return false;
     *td = (typedef_t){
         .type = type,
         .name = name,
-        .typedef_id = cnm->type.gtypedef_id++,
+        .typedef_id = cnm->type.typedef_gid++,
         .next = cnm->type.typedefs,
+        .scope = cnm->scope,
     };
     cnm->type.typedefs = td;
     return true;
@@ -2493,14 +2615,30 @@ static bool parse_file_decl(cnm_t *cnm) {
 
     // Get full types by aquiring the derived type
     while (true) {
+        // Hold old number of user types so that we don't post erronious warnings
+        const userty_t *const userty_old = cnm->type.types;
+
         // Parse the type
         strview_t name;
         typeref_t type = type_parse(cnm, &base, &name);
         if (!typeref_isvalid(type)) return false;
 
         // Now branch depending on what we parsed
-
-        if (istypedef) return parse_file_decl_typedef(cnm, name, type);
+        if (istypedef) {
+            // Do typedef
+            if (!parse_file_decl_typedef(cnm, name, type)) return false;
+        } else if (type.type[0].class == TYPE_FN) {
+            // Do function
+            if (!parse_file_decl_func(cnm, name, type)) return false;
+        } else if (!name.str) {
+            // Do nothing (empty declaration, that declares nothing)
+            if (userty_old == cnm->type.types) {
+                cnm_doerr(cnm, false, "declaration does not declare anything", "");
+            }
+        } else {
+            // Allocate variable
+            if (!parse_file_decl_var(cnm, name, type)) return false;
+        }
 
         // Goto next one
         if (cnm->s.tok.type != TOKEN_COMMA) break;
