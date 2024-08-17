@@ -1123,6 +1123,73 @@ SIMPLE_TEST(test_type_parsing9, test_errcb,  "int a, *b, *c[2]")
 
     return true;
 }
+GENERIC_TEST(test_type_parsing10, test_expect_errcb)
+    if (!cnm_parse(cnm, "typedef int foo_t;", "test_type_parsing10")) return TESTFAIL;
+    cnm_set_src(cnm, "foo_t foo", "test_type_parsing10");
+    token_next(cnm);
+    type_t base;
+    if (!type_parse_declspec(cnm, &base, NULL)) return TESTFAIL;
+    strview_t name;
+    typeref_t type = type_parse(cnm, &base, &name);
+    if (!type.type) return TESTFAIL;
+
+    if (!strview_eq(name, SV("foo"))) return TESTFAIL;
+    if (!type_eq(type, (typeref_t){
+        .size = 1,
+        .type = (type_t[]){
+            (type_t){ .class = TYPE_INT },
+        },
+    }, true)) return TESTFAIL;
+
+    return !test_expect_err;
+}
+GENERIC_TEST(test_type_parsing11, test_expect_errcb)
+    if (!cnm_parse(cnm, "typedef int foo_t;", "test_type_parsing11")) return TESTFAIL;
+    cnm_set_src(cnm, "unsigned foo_t *foo", "test_type_parsing11");
+    token_next(cnm);
+    type_t base;
+    if (!type_parse_declspec(cnm, &base, NULL)) return TESTFAIL;
+    typeref_t type = type_parse(cnm, &base, NULL);
+    if (!type.type) return TESTFAIL;
+
+    if (!type_eq(type, (typeref_t){
+        .size = 2,
+        .type = (type_t[]){
+            (type_t){ .class = TYPE_PTR },
+            (type_t){ .class = TYPE_UINT },
+        },
+    }, true)) return TESTFAIL;
+
+    return !test_expect_err;
+}
+GENERIC_TEST(test_type_parsing12, test_expect_errcb)
+    if (!cnm_parse(cnm, "typedef const int *foo_t;", "test_type_parsing12")) return TESTFAIL;
+    cnm_set_src(cnm, "foo_t foo[2]", "test_type_parsing12");
+    token_next(cnm);
+    type_t base;
+    if (!type_parse_declspec(cnm, &base, NULL)) return TESTFAIL;
+    typeref_t type = type_parse(cnm, &base, NULL);
+    if (!type.type) return TESTFAIL;
+
+    if (!type_eq(type, (typeref_t){
+        .size = 3,
+        .type = (type_t[]){
+            (type_t){ .class = TYPE_ARR, .n = 2 },
+            (type_t){ .class = TYPE_PTR },
+            (type_t){ .class = TYPE_INT, .isconst = true },
+        },
+    }, true)) return TESTFAIL;
+
+    return !test_expect_err;
+}
+GENERIC_TEST(test_type_parsing13, test_expect_errcb)
+    if (!cnm_parse(cnm, "typedef const int *foo_t;", "test_type_parsing13")) return TESTFAIL;
+    cnm_set_src(cnm, "unsigned foo_t foo", "test_type_parsing13");
+    token_next(cnm);
+    type_t base;
+    if (type_parse_declspec(cnm, &base, NULL)) return TESTFAIL;
+    return test_expect_err;
+}
 
 ///////////////////////////////////////////////////////////////////////////////
 //
@@ -2089,6 +2156,10 @@ static test_t tests[] = {
     TEST(test_type_parsing7),
     TEST(test_type_parsing8),
     TEST(test_type_parsing9),
+    TEST(test_type_parsing10),
+    TEST(test_type_parsing11),
+    TEST(test_type_parsing12),
+    TEST(test_type_parsing13),
 
     // Type parsing tests
     TEST_PADDING,

@@ -1022,7 +1022,7 @@ static bool type_is_arith(const type_t type) {
 
 // Returns whether or not a type is an integer type
 static bool type_is_int(const type_t type) {
-    return type.class >= TYPE_CHAR || type.class <= TYPE_ULLONG;
+    return type.class >= TYPE_CHAR && type.class <= TYPE_ULLONG;
 }
 
 // Returns whether or not a type is a floating point type
@@ -1705,8 +1705,19 @@ static declspec_parser_pfn_t cnm_at_declspec(cnm_t *cnm) {
     return NULL;
 }
 
+static typedef_t *type_get_typedef(cnm_t *cnm, const type_t *type) {
+    typedef_t *t;
+    for (t = cnm->type.typedefs; t->typedef_id != type->n; t = t->next);
+    return t;
+}
+
 // Validate state and make integers unsigned
 static bool declspec_apply_options(cnm_t *cnm, type_t *type, declspec_options_t *options) {
+    if (type->class == TYPE_TYPEDEF) {
+        type_t *newtype = type_get_typedef(cnm, type)->type.type;
+        if (type_is_arith(*newtype)) *type = *newtype;
+    }
+
     // short keyword can only be used on int type
     if (options->is_short) {
         if (type->class != TYPE_INT) {
@@ -1840,6 +1851,22 @@ static bool type_parse_add_ref_pointers(cnm_t *cnm, typeref_t *ref, type_t *ptrs
         if (!cnm_alloc(cnm, sizeof(type_t), 1)) return false;
         ref->type[ref->size++] = ptrs[--nptrs];
     }
+    return true;
+}
+
+// Expand typedefs
+static bool type_parse_append_base(cnm_t *cnm, typeref_t *type, const type_t *base) {
+    if (base->class != TYPE_TYPEDEF) {
+        if (!cnm_alloc(cnm, sizeof(type_t), 1)) return false;
+        type->type[type->size++] = *base;
+        return true;
+    }
+
+    typedef_t *t = type_get_typedef(cnm, base);
+    if (!cnm_alloc(cnm, sizeof(type_t) * t->type.size, 1)) return false;
+    memcpy(type->type + type->size, t->type.type, sizeof(type_t) * t->type.size);
+    type->size += t->type.size;
+
     return true;
 }
 
@@ -2007,8 +2034,7 @@ static typeref_t type_parse_ex(cnm_t *cnm, const type_t *base,
     type_parse_add_ref_pointers(cnm, &ref, ptrs, nptrs[0]);
 
     // Add the base type on
-    if (!cnm_alloc(cnm, sizeof(type_t), 1)) goto return_error;
-    ref.type[ref.size++] = *base;
+    if (!type_parse_append_base(cnm, &ref, base)) goto return_error;
     
     return ref;
 return_error:
