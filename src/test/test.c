@@ -10,7 +10,7 @@ static void *test_code_area;
 static size_t test_code_size;
 
 static void test_errcb(int line, const char *verbose, const char *simple) {
-    printf("\n%s", verbose);
+    fprintf(stderr, "\n%s", verbose);
 }
 static bool test_expect_err = false;
 static void test_expect_errcb(int line, const char *v, const char *s) {

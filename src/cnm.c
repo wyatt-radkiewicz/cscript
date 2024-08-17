@@ -1,4 +1,5 @@
 #include <ctype.h>
+#include <stdarg.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -209,6 +210,10 @@ typedef struct scope_s {
     // What scope is this variable apart of?
     int scope;
 
+    // Only used for global/static variables because we need to know their
+    // location at compile time, otherwise this variable is unsused
+    void *abs_addr;
+
     // The next scope refrence. This one is 'later' than that
     struct scope_s *next;
 } scope_t;
@@ -407,7 +412,7 @@ static inline bool strview_eq(const strview_t lhs, const strview_t rhs) {
 }
 
 // Print out error to the error callback in the cnm state
-static void cnm_doerr(cnm_t *cnm, bool critical, const char *desc, const char *caption) {
+static void cnm_doerr(cnm_t *cnm, bool critical, const char *desc) {
     static char buf[512];
 
     // Only increase error count if critical
@@ -421,8 +426,10 @@ static void cnm_doerr(cnm_t *cnm, bool critical, const char *desc, const char *c
                                          "%-3d|  ",
                                          critical ? "error" : "warning",
                                          desc, cnm->s.fname,
-                                         cnm->s.tok.start.row, cnm->s.tok.start.col,
+                                         cnm->s.tok.start.row,
+                                         cnm->s.tok.start.col,
                                          cnm->s.tok.start.row);
+
     // Get the source code line
     {
         const char *l = cnm->s.src;
@@ -433,12 +440,12 @@ static void cnm_doerr(cnm_t *cnm, bool critical, const char *desc, const char *c
 
     // Print source code and next line with caption
     len += snprintf(buf + len, sizeof(buf) - len, "\n   |  ");
-    if (len + cnm->s.tok.start.col + cnm->s.tok.src.len >= sizeof(buf)) goto overflow;
+    if (len + cnm->s.tok.start.col + cnm->s.tok.src.len + 2 >= sizeof(buf)) goto overflow;
     memset(buf + len, ' ', cnm->s.tok.start.col); // spaces before caption
     len += cnm->s.tok.start.col;
     memset(buf + len, critical ? '~' : '-', cnm->s.tok.src.len); // underline
     len += cnm->s.tok.src.len;
-    len += snprintf(buf + len, sizeof(buf) - len, " %s\n   |\n", caption); // caption
+    buf[len++] = '\n', buf[len++] = '\0';
 
     cnm->cb.err(cnm->s.tok.start.row, buf, desc);
     return;
@@ -459,7 +466,7 @@ static void *cnm_alloc(cnm_t *cnm, size_t size, size_t align) {
 
     // Check memory overflow
     if (cnm->alloc.next + size > cnm->alloc.curr_static) {
-        cnm_doerr(cnm, true, "ran out of region memory", "at this point in parsing");
+        cnm_doerr(cnm, true, "ran out of region memory");
         return NULL;
     }
 
@@ -478,7 +485,7 @@ static void *cnm_alloc_static(cnm_t *cnm, size_t size, size_t align) {
 
     // Check memory overflow
     if (cnm->alloc.curr_static <= cnm->alloc.next) {
-        cnm_doerr(cnm, true, "ran out of region memory", "at this point in parsing");
+        cnm_doerr(cnm, true, "ran out of region memory");
         return NULL;
     }
 
@@ -495,7 +502,7 @@ static void *cnm_alloc_global(cnm_t *cnm, size_t size, size_t align) {
 
     // Check memory overflow
     if (cnm->globals.next + size > cnm->globals.buf + cnm->globals.len) {
-        cnm_doerr(cnm, true, "ran out of globals memory", "at this point in parsing");
+        cnm_doerr(cnm, true, "ran out of globals memory");
         return NULL;
     }
 
@@ -590,7 +597,7 @@ static size_t lex_char(cnm_t *cnm, const uint8_t **str, uint8_t out[4], size_t *
                || ((*str)[nchrs] >= '0' && (*str)[nchrs] <= '9'); nchrs++);
         nchrs--;
         if (!nchrs) {
-            cnm_doerr(cnm, true, "\\x used with no following hex digits", "");
+            cnm_doerr(cnm, true, "\\x used with no following hex digits");
             goto error;
         }
         multi_byte = false;
@@ -621,7 +628,7 @@ static size_t lex_char(cnm_t *cnm, const uint8_t **str, uint8_t out[4], size_t *
         if (c >= 'a' && c <= 'f' && base == 16) {
             digit = c - 'a' + 10;
         } else if (!isdigit(c)) {
-            cnm_doerr(cnm, true, "malformed character literal", "number format invalid");
+            cnm_doerr(cnm, true, "malformed character literal char is invalid");
             goto error;
         }
         result += pow * digit;
@@ -659,7 +666,7 @@ static size_t lex_char(cnm_t *cnm, const uint8_t **str, uint8_t out[4], size_t *
     }
 
 eof_error:
-    cnm_doerr(cnm, true, "unexpected eof when parsing character literal", "here");
+    cnm_doerr(cnm, true, "unexpected eof when parsing character literal");
 error:
     cnm->s.tok.type = TOKEN_EOF;
     return 0;
@@ -679,10 +686,10 @@ static size_t lex_single_string(cnm_t *cnm, const uint8_t *src, char *buf,
     if (outncols) *outncols = 0;
     while (*src != '\"') {
         if (*src == '\0') {
-            cnm_doerr(cnm, true, "unexpected eof while parsing string", "here");
+            cnm_doerr(cnm, true, "unexpected eof while parsing string");
             goto error_out;
         } else if (*src == '\n') {
-            cnm_doerr(cnm, true, "unexpected new line while parsing string", "here");
+            cnm_doerr(cnm, true, "unexpected new line while parsing string");
             goto error_out;
         }
 
@@ -805,7 +812,7 @@ static token_t *token_char(cnm_t *cnm) {
 
     // Error out
     if (cnm->s.tok.src.str[cnm->s.tok.src.len] != '\'') {
-        cnm_doerr(cnm, true, "expected ending \' after character", "here");
+        cnm_doerr(cnm, true, "expected ending \' after character");
         cnm->s.tok.type = TOKEN_EOF;
         return &cnm->s.tok;
     }
@@ -897,8 +904,7 @@ static token_t *token_number(cnm_t *cnm) {
 
     // Check for other characters after the suffix/numbers and error if so
     if (end != cnm->s.tok.src.str + cnm->s.tok.src.len) {
-        cnm_doerr(cnm, true, "invalid number literal format.",
-                             "extra chars after digits");
+        cnm_doerr(cnm, true, "invalid number literal format, extra chars after digits");
         cnm->s.tok.type = TOKEN_EOF;
         return &cnm->s.tok;
     }
@@ -942,7 +948,7 @@ static token_t *token_next(cnm_t *cnm) {
         break;
     default:
         if (!isalpha(cnm->s.tok.src.str[0]) && cnm->s.tok.src.str[0] != '_') {
-            cnm_doerr(cnm, true, "unknown character while lexing", "here");
+            cnm_doerr(cnm, true, "unknown character while lexing");
             cnm->s.tok.type = TOKEN_EOF;
             return &cnm->s.tok;
         }
@@ -1038,7 +1044,7 @@ static bool type_is_unsigned(const type_t type) {
     }
 }
 
-static typeinf_t typeinf_get(cnm_t *cnm, const type_t *type) {
+static typeinf_t type_getinf(cnm_t *cnm, const type_t *type) {
     switch (type->class) {
     case TYPE_VOID: return (typeinf_t){ .size = 0, .align = 1 };
     case TYPE_CHAR: case TYPE_UCHAR: case TYPE_BOOL:
@@ -1062,7 +1068,7 @@ static typeinf_t typeinf_get(cnm_t *cnm, const type_t *type) {
     case TYPE_ANYREF:
         return (typeinf_t){ sizeof(cnmanyref_t), sizeof(void *) };
     case TYPE_ARR: {
-        typeinf_t inf = typeinf_get(cnm, type + 1);
+        typeinf_t inf = type_getinf(cnm, type + 1);
         inf.size *= type->n;
         return inf;
     }
@@ -1130,16 +1136,15 @@ typedef struct declspec_options_s {
 } declspec_options_t;
 
 static bool type_parse_declspec_multiple_types_err(cnm_t *cnm) {
-    cnm_doerr(cnm, true, "multiple data types in declaration specifiers", "");
+    cnm_doerr(cnm, true, "multiple data types in declaration specifiers");
     return false;
 }
 static bool type_parse_declspec_unsigned(cnm_t *cnm, type_t *type, bool *istypedef,
                                          declspec_options_t *options) {
     // Check if we've already used a signedness specifier
     if (options->set_u) {
-        if (options->is_u) cnm_doerr(cnm, true, "duplicate unsigned specifiers", "");
-        else cnm_doerr(cnm, true,
-                "conflicting signed and unsigned specifiers", "");
+        if (options->is_u) cnm_doerr(cnm, true, "duplicate unsigned specifiers");
+        else cnm_doerr(cnm, true, "conflicting signed and unsigned specifiers");
         return false;
     }
 
@@ -1196,11 +1201,11 @@ static bool type_parse_declspec_bool(cnm_t *cnm, type_t *type, bool *istypedef,
 static bool type_parse_declspec_short(cnm_t *cnm, type_t *type, bool *istypedef,
                                       declspec_options_t *options) {
     if (options->is_short) {
-        cnm_doerr(cnm, true, "duplicate 'short'", "");
+        cnm_doerr(cnm, true, "duplicate 'short'");
         return false;
     }
     if (options->n_longs) {
-        cnm_doerr(cnm, true, "conflicting 'short' and 'long' specifiers", "");
+        cnm_doerr(cnm, true, "conflicting 'short' and 'long' specifiers");
         return false;
     }
     options->is_short = true;
@@ -1210,11 +1215,11 @@ static bool type_parse_declspec_short(cnm_t *cnm, type_t *type, bool *istypedef,
 static bool type_parse_declspec_static(cnm_t *cnm, type_t *type, bool *istypedef,
                                        declspec_options_t *options) {
     if (type->isstatic) {
-        cnm_doerr(cnm, true, "duplicate 'static'", "");
+        cnm_doerr(cnm, true, "duplicate 'static'");
         return false;
     }
     if (type->isextern) {
-        cnm_doerr(cnm, true, "conflicting 'extern' and 'static' qualifiers", "");
+        cnm_doerr(cnm, true, "conflicting 'extern' and 'static' qualifiers");
         return false;
     }
     type->isstatic = true;
@@ -1225,9 +1230,8 @@ static bool type_parse_declspec_signed(cnm_t *cnm, type_t *type, bool *istypedef
                                        declspec_options_t *options) {
     // Check for multiple signedness qualifiers
     if (options->set_u) {
-        if (!options->is_u) cnm_doerr(cnm, true, "duplicate signed specifiers", "");
-        else cnm_doerr(cnm, true,
-                "conflicting signed and unsigned specifiers", "");
+        if (!options->is_u) cnm_doerr(cnm, true, "duplicate signed specifiers");
+        else cnm_doerr(cnm, true, "conflicting signed and unsigned specifiers");
         return false;
     }
 
@@ -1247,7 +1251,7 @@ static bool type_parse_declspec_char(cnm_t *cnm, type_t *type, bool *istypedef,
 static bool type_parse_declspec_const(cnm_t *cnm, type_t *type, bool *istypedef,
                                       declspec_options_t *options) {
     if (type->isconst) {
-        cnm_doerr(cnm, true, "duplicate 'const'", "");
+        cnm_doerr(cnm, true, "duplicate 'const'");
         return false;
     }
     type->isconst = true;
@@ -1257,11 +1261,11 @@ static bool type_parse_declspec_const(cnm_t *cnm, type_t *type, bool *istypedef,
 static bool type_parse_declspec_long(cnm_t *cnm, type_t *type, bool *istypedef,
                                      declspec_options_t *options) {
     if (options->n_longs == 2) {
-        cnm_doerr(cnm, true, "cnm script only supports up to long long ints", "");
+        cnm_doerr(cnm, true, "cnm script only supports up to long long ints");
         return false;
     }
     if (options->is_short) {
-        cnm_doerr(cnm, true, "conflicting 'short' and 'long' specifiers", "");
+        cnm_doerr(cnm, true, "conflicting 'short' and 'long' specifiers");
         return false;
     }
     options->n_longs++;
@@ -1271,11 +1275,11 @@ static bool type_parse_declspec_long(cnm_t *cnm, type_t *type, bool *istypedef,
 static bool type_parse_declspec_extern(cnm_t *cnm, type_t *type, bool *istypedef,
                                        declspec_options_t *options) {
     if (type->isextern) {
-        cnm_doerr(cnm, true, "duplicate 'extern'", "");
+        cnm_doerr(cnm, true, "duplicate 'extern'");
         return false;
     }
     if (type->isstatic) {
-        cnm_doerr(cnm, true, "conflicting 'extern' and 'static' qualifiers", "");
+        cnm_doerr(cnm, true, "conflicting 'extern' and 'static' qualifiers");
         return false;
     }
     type->isextern = true;
@@ -1285,7 +1289,7 @@ static bool type_parse_declspec_extern(cnm_t *cnm, type_t *type, bool *istypedef
 static bool type_parse_declspec_typedef(cnm_t *cnm, type_t *type, bool *istypedef,
                                         declspec_options_t *options) {
     if (istypedef && *istypedef) {
-        cnm_doerr(cnm, true, "duplicate 'typedef'", "");
+        cnm_doerr(cnm, true, "duplicate 'typedef'");
         return false;
     }
     if (istypedef) *istypedef = true;
@@ -1307,7 +1311,7 @@ static bool type_parse_declspec_user(cnm_t *cnm, type_t *type, bool docolon, use
     if (token_next(cnm)->type != TOKEN_IDENT
         && cnm->s.tok.type != TOKEN_BRACE_L
         && (!docolon || cnm->s.tok.type != TOKEN_COLON)) {
-        cnm_doerr(cnm, true, "expected user type identifier", "");
+        cnm_doerr(cnm, true, "expected user type identifier");
         return false;
     }
 
@@ -1347,7 +1351,7 @@ static bool type_parse_declspec_user(cnm_t *cnm, type_t *type, bool docolon, use
 parse_def:
     // If s has already been defined, then throw an error
     if (u->inf.size) {
-        cnm_doerr(cnm, true, "redefinition of type", "");
+        cnm_doerr(cnm, true, "redefinition of type");
         return false;
     }
 
@@ -1377,7 +1381,7 @@ static bool type_parse_declspec_struct(cnm_t *cnm, type_t *type, bool *istypedef
         bool istypedef;
         if (!type_parse_declspec(cnm, &base, &istypedef)) return false;
         if (istypedef) {
-            cnm_doerr(cnm, true, "can not have typedef in struct field", "");
+            cnm_doerr(cnm, true, "can not have typedef in struct field");
             return false;
         }
 
@@ -1399,11 +1403,12 @@ static bool type_parse_declspec_struct(cnm_t *cnm, type_t *type, bool *istypedef
             f->type = type_parse(cnm, &base, &f->name);
             if (!f->type.size) {
                 // TODO: Make error talk about undefined types as well?
-                cnm_doerr(cnm, true, "can not have 0 sized type in struct field", "");
+                cnm_doerr(cnm, true, "field %s can not have 0 size, it's base type might"
+                                     "also be undefined");
                 return false;
             }
             if (!f->name.str && not_defined_new_type) {
-                cnm_doerr(cnm, false, "declaration does not declare name", "");
+                cnm_doerr(cnm, false, "declaration does not declare name");
             }
 
             // Move type data to static region
@@ -1415,7 +1420,7 @@ static bool type_parse_declspec_struct(cnm_t *cnm, type_t *type, bool *istypedef
             f->type.type = buf;
 
             // Get offset and new struct size and alignment
-            typeinf_t inf = typeinf_get(cnm, f->type.type);
+            typeinf_t inf = type_getinf(cnm, f->type.type);
             u->inf.size = align_size(u->inf.size, inf.align);
             f->offs = u->inf.size;
             u->inf.size += inf.size;
@@ -1428,14 +1433,14 @@ static bool type_parse_declspec_struct(cnm_t *cnm, type_t *type, bool *istypedef
 
         // Consume ';' token
         if (cnm->s.tok.type != TOKEN_SEMICOLON) {
-            cnm_doerr(cnm, true, "expected ';' after struct member", "");
+            cnm_doerr(cnm, true, "expected ';' after struct member");
             return false;
         }
         token_next(cnm);
     }
 
     if (!s->fields) {
-        cnm_doerr(cnm, true, "can not have structure with no fields", "");
+        cnm_doerr(cnm, true, "can not have structure with no fields");
         return false;
     }
 
@@ -1467,7 +1472,7 @@ static bool type_parse_declspec_enum(cnm_t *cnm, type_t *type, bool *istypedef,
         bool istypedef;
         if (!type_parse_declspec(cnm, &base, &istypedef)) return false;
         if (istypedef) {
-            cnm_doerr(cnm, true, "can not have typedef in struct field", "");
+            cnm_doerr(cnm, true, "can not have typedef in struct field");
             return false;
         }
 
@@ -1477,15 +1482,15 @@ static bool type_parse_declspec_enum(cnm_t *cnm, type_t *type, bool *istypedef,
 
         // Make sure they don't use names in override type or define multiple times
         if (name.str) {
-            cnm_doerr(cnm, true, "can not have name for enum override type", "");
+            cnm_doerr(cnm, true, "can not have name for enum override type");
             return false;
         }
         if (type.size != 1 || !type_is_int(type.type[0])) {
-            cnm_doerr(cnm, true, "enum override type must be integer like type", "");
+            cnm_doerr(cnm, true, "enum override type must be integer like type");
             return false;
         }
         if (cnm->s.tok.type == TOKEN_COMMA) {
-            cnm_doerr(cnm, true, "only allow 1 default override type for enums", "");
+            cnm_doerr(cnm, true, "only allow 1 default override type for enums");
             return false;
         }
 
@@ -1495,7 +1500,7 @@ static bool type_parse_declspec_enum(cnm_t *cnm, type_t *type, bool *istypedef,
         // Reset stack and consume '{'
         cnm->alloc.next = stack_ptr;
         if (cnm->s.tok.type != TOKEN_BRACE_L) {
-            cnm_doerr(cnm, true, "expect enum definition after enum override type", "");
+            cnm_doerr(cnm, true, "expect enum definition after enum override type");
             return false;
         }
         token_next(cnm);
@@ -1505,7 +1510,7 @@ static bool type_parse_declspec_enum(cnm_t *cnm, type_t *type, bool *istypedef,
         token_next(cnm);
     }
 
-    u->inf = typeinf_get(cnm, &e->type);
+    u->inf = type_getinf(cnm, &e->type);
 
     // Align variant area
     if (!cnm_alloc_static(cnm, 0, sizeof(void *))) return false;
@@ -1526,7 +1531,7 @@ static bool type_parse_declspec_enum(cnm_t *cnm, type_t *type, bool *istypedef,
 
         // Make sure variant name is here
         if (cnm->s.tok.type != TOKEN_IDENT) {
-            cnm_doerr(cnm, true, "expected enum variant name", "here");
+            cnm_doerr(cnm, true, "expected enum variant name");
             return false;
         }
         v->name = cnm->s.tok.src;
@@ -1547,7 +1552,7 @@ static bool type_parse_declspec_enum(cnm_t *cnm, type_t *type, bool *istypedef,
         valref_t val;
         if (!expr_parse(cnm, &val, false, false, PREC_COND)) return false;
         if (!val.isliteral || !type_is_int(*val.type.type)) {
-            cnm_doerr(cnm, true, "expected constant int expression for variant id", "");
+            cnm_doerr(cnm, true, "expected constant int expression for variant id");
             return false;
         }
 
@@ -1562,7 +1567,7 @@ static bool type_parse_declspec_enum(cnm_t *cnm, type_t *type, bool *istypedef,
     }
 
     if (!e->nvariants) {
-        cnm_doerr(cnm, true, "can not have enum with no fields", "");
+        cnm_doerr(cnm, true, "can not have enum with no fields");
         return false;
     }
 
@@ -1593,7 +1598,7 @@ static bool type_parse_declspec_union(cnm_t *cnm, type_t *type, bool *istypedef,
         bool istypedef;
         if (!type_parse_declspec(cnm, &base, &istypedef)) return false;
         if (istypedef) {
-            cnm_doerr(cnm, true, "can not have typedef in union field", "");
+            cnm_doerr(cnm, true, "can not have typedef in union field");
             return false;
         }
 
@@ -1602,12 +1607,12 @@ static bool type_parse_declspec_union(cnm_t *cnm, type_t *type, bool *istypedef,
             typeref_t ref = type_parse(cnm, &base, NULL);
             if (!typeref_isvalid(ref)) {
                 // TODO: Make error talk about undefined types as well?
-                cnm_doerr(cnm, true, "can not have 0 sized type in union field", "");
+                cnm_doerr(cnm, true, "can not have 0 sized type in union field");
                 return false;
             }
 
             // Get offset and new struct size and alignment
-            typeinf_t inf = typeinf_get(cnm, ref.type);
+            typeinf_t inf = type_getinf(cnm, ref.type);
             if (inf.size > u->inf.size) u->inf.size = inf.size;
             if (inf.align > u->inf.align) u->inf.align = inf.align;
 
@@ -1620,7 +1625,7 @@ static bool type_parse_declspec_union(cnm_t *cnm, type_t *type, bool *istypedef,
 
         // Consume ';' token
         if (cnm->s.tok.type != TOKEN_SEMICOLON) {
-            cnm_doerr(cnm, true, "expected ';' after union field", "");
+            cnm_doerr(cnm, true, "expected ';' after union field");
             return false;
         }
         token_next(cnm);
@@ -1629,7 +1634,7 @@ static bool type_parse_declspec_union(cnm_t *cnm, type_t *type, bool *istypedef,
     }
 
     if (!any_fields) {
-        cnm_doerr(cnm, true, "can not have union with no fields", "");
+        cnm_doerr(cnm, true, "can not have union with no fields");
         return false;
     }
     
@@ -1649,7 +1654,7 @@ static bool type_parse_declspec_ident(cnm_t *cnm, type_t *type, bool *istypedef,
         return true;
     }
 
-    cnm_doerr(cnm, true, "use of unknown identifier", "");
+    cnm_doerr(cnm, true, "use of unknown identifier");
     return false;
 }
 
@@ -1704,7 +1709,7 @@ static bool declspec_apply_options(cnm_t *cnm, type_t *type, declspec_options_t 
     // short keyword can only be used on int type
     if (options->is_short) {
         if (type->class != TYPE_INT) {
-            cnm_doerr(cnm, true, "used non int type with short specifier", "");
+            cnm_doerr(cnm, true, "used non int type with short specifier");
             return false;
         }
         type->class = TYPE_SHORT;
@@ -1713,7 +1718,7 @@ static bool declspec_apply_options(cnm_t *cnm, type_t *type, declspec_options_t 
     // long keyword can only be used on int type
     if (options->n_longs) {
         if (type->class != TYPE_INT) {
-            cnm_doerr(cnm, true, "used non int type with long specifier", "");
+            cnm_doerr(cnm, true, "used non int type with long specifier");
             return false;
         }
         if (options->n_longs == 1) type->class = TYPE_LONG;
@@ -1722,13 +1727,13 @@ static bool declspec_apply_options(cnm_t *cnm, type_t *type, declspec_options_t 
 
     // Can't use signedness qualifiers on floating point types or booleans
     if (options->set_u && !type_is_int(*type)) {
-        cnm_doerr(cnm, true, "used non int type with signed specifiers", "");
+        cnm_doerr(cnm, true, "used non int type with signed specifiers");
         return false;
     }
 
     // Did we use unsigned on an already unsigned 
     if (options->set_u && type_is_unsigned(*type)) {
-        cnm_doerr(cnm, true, "used unsigned on already unsigned type", "");
+        cnm_doerr(cnm, true, "used unsigned on already unsigned type");
         return false;
     }
 
@@ -1770,7 +1775,7 @@ static bool type_parse_declspec(cnm_t *cnm, type_t *type, bool *istypedef) {
     }
 
     if (no_keywords) {
-        cnm_doerr(cnm, true, "use of undeclared identifier", "");
+        cnm_doerr(cnm, true, "use of undeclared identifier");
         return false;
     }
 
@@ -1788,27 +1793,27 @@ static bool type_parse_qual_only(cnm_t *cnm, type_t *type, bool const_only) {
     while (cnm->s.tok.type == TOKEN_IDENT) {
         if (strview_eq(cnm->s.tok.src, SV("const"))) {
             if (type->isconst) {
-                cnm_doerr(cnm, true, "duplicate 'const'", "");
+                cnm_doerr(cnm, true, "duplicate 'const'");
                 return false;
             }
             type->isconst = true;
         } else if (strview_eq(cnm->s.tok.src, SV("static"))) {
             if (type->isstatic) {
-                cnm_doerr(cnm, true, "duplicate 'static'", "");
+                cnm_doerr(cnm, true, "duplicate 'static'");
                 return false;
             }
             if (type->isextern) {
-                cnm_doerr(cnm, true, "conflicting 'extern' and 'static' qualifiers", "");
+                cnm_doerr(cnm, true, "conflicting 'extern' and 'static' qualifiers");
                 return false;
             }
             type->isstatic = true;
         } else if (strview_eq(cnm->s.tok.src, SV("extern"))) {
             if (type->isextern) {
-                cnm_doerr(cnm, true, "duplicate 'extern'", "");
+                cnm_doerr(cnm, true, "duplicate 'extern'");
                 return false;
             }
             if (type->isstatic) {
-                cnm_doerr(cnm, true, "conflicting 'extern' and 'static' qualifiers", "");
+                cnm_doerr(cnm, true, "conflicting 'extern' and 'static' qualifiers");
                 return false;
             }
             type->isextern = true;
@@ -1820,7 +1825,7 @@ static bool type_parse_qual_only(cnm_t *cnm, type_t *type, bool const_only) {
     }
 
     if (const_only && (type->isextern || type->isstatic)) {
-        cnm_doerr(cnm, true, "did not expect storage class specifiers", "");
+        cnm_doerr(cnm, true, "did not expect storage class specifiers");
         return false;
     }
 
@@ -1865,7 +1870,7 @@ static typeref_t type_parse_ex(cnm_t *cnm, const type_t *base,
             if (!type_parse_qual_only(cnm, ptr, true)) goto return_error;
         } else if (cnm->s.tok.type == TOKEN_PAREN_L) {
             if (grp + 1 >= arrlen(nptrs)) {
-                cnm_doerr(cnm, true, "too many grouping tokens in this type", "");
+                cnm_doerr(cnm, true, "too many grouping tokens in this type");
                 goto return_error;
             }
             base_ptr += nptrs[grp];
@@ -1905,19 +1910,19 @@ static typeref_t type_parse_ex(cnm_t *cnm, const type_t *base,
             valref_t val;
             if (!expr_parse(cnm, &val, false, false, PREC_FULL)) goto return_error;
             if (!val.isliteral) {
-                cnm_doerr(cnm, true, "array size must be constant integer expression", "");
+                cnm_doerr(cnm, true, "array size must be constant integer expression");
                 goto return_error;
             }
             if (!type_is_arith(*val.type.type) || type_is_fp(*val.type.type)) {
-                cnm_doerr(cnm, true, "array size is non-integer type", "");
+                cnm_doerr(cnm, true, "array size is non-integer type");
                 goto return_error;
             }
             if (!type_is_unsigned(*val.type.type) && val.literal.num.i < 0) {
-                cnm_doerr(cnm, true, "size of array is negative", "");
+                cnm_doerr(cnm, true, "size of array is negative");
                 goto return_error;
             }
             if (val.literal.num.u >= 1 << 24) {
-                cnm_doerr(cnm, true, "length of array is over max array length", "");
+                cnm_doerr(cnm, true, "length of array is over max array length");
                 goto return_error;
             }
 
@@ -1927,7 +1932,7 @@ static typeref_t type_parse_ex(cnm_t *cnm, const type_t *base,
 
             // Check for ending ']'
             if (cnm->s.tok.type != TOKEN_BRACK_R) {
-                cnm_doerr(cnm, true, "expected ']'", "");
+                cnm_doerr(cnm, true, "expected ']'");
                 goto return_error;
             }
             token_next(cnm);
@@ -1952,7 +1957,7 @@ static typeref_t type_parse_ex(cnm_t *cnm, const type_t *base,
                 bool is_arg_typedef;
                 if (!type_parse_declspec(cnm, &base, &is_arg_typedef)) goto return_error;
                 if (is_arg_typedef) {
-                    cnm_doerr(cnm, true, "can not make function parameter a typedef", "");
+                    cnm_doerr(cnm, true, "can not make function parameter a typedef");
                     goto return_error;
                 }
 
@@ -1960,7 +1965,7 @@ static typeref_t type_parse_ex(cnm_t *cnm, const type_t *base,
                 typeref_t argref = type_parse_ex(cnm, &base, NULL, true);
                 if (!argref.type) goto return_error;
                 if (!argref.size) {
-                    cnm_doerr(cnm, true, "expected function parameter", "");
+                    cnm_doerr(cnm, true, "expected function parameter");
                     goto return_error;
                 }
                 
@@ -1971,7 +1976,7 @@ static typeref_t type_parse_ex(cnm_t *cnm, const type_t *base,
                 if (cnm->s.tok.type == TOKEN_COMMA) {
                     if (token_next(cnm)->type == TOKEN_PAREN_R) {
                         cnm_doerr(cnm, true,
-                            "expected another function parameter after ,", "");
+                            "expected another function parameter after ,");
                         goto return_error;
                     }
                 }
@@ -1993,7 +1998,7 @@ static typeref_t type_parse_ex(cnm_t *cnm, const type_t *base,
     }
 
     if (grp != 0) {
-        cnm_doerr(cnm, true, "expected ')'", "");
+        cnm_doerr(cnm, true, "expected ')'");
         goto return_error;
     }
 
@@ -2024,7 +2029,7 @@ static bool expr_parse(cnm_t *cnm, valref_t *out, bool gencode, bool gendata, pr
     // Consume a prefix/unary ast node like an integer literal
     expr_rule_t *rule = &expr_rules[cnm->s.tok.type];
     if (!rule->prefix || prec > rule->prefix_prec) {
-        cnm_doerr(cnm, true, "expected expression", "not a valid start to expression");
+        cnm_doerr(cnm, true, "expected expression");
         return false;
     }
     if (!rule->prefix(cnm, out, gencode, gendata)) return false;
@@ -2052,9 +2057,9 @@ static bool expr_group(cnm_t *cnm, valref_t *out, bool gencode, bool gendata) {
 
     // Consume the ')' token
     if (cnm->s.tok.type != TOKEN_PAREN_R) {
-        cnm_doerr(cnm, true, "expected ')' after expression group", "");
+        cnm_doerr(cnm, true, "expected ')' after expression group");
         cnm->s.tok = errtok;
-        cnm_doerr(cnm, false, "", "grouping started here");
+        cnm_doerr(cnm, false, "grouping started here");
         return NULL;
     }
     token_next(cnm);
@@ -2141,7 +2146,7 @@ static bool expr_int(cnm_t *cnm, valref_t *out, bool gencode, bool gendata) {
     // Couldn't find type to fix the number, default to int
     out->type.type[0] = (type_t){ .class = TYPE_INT };
     out->literal.num.u = cnm->s.tok.i.n;
-    cnm_doerr(cnm, false, "integer constant can not fit, defaulting to int", "");
+    cnm_doerr(cnm, false, "integer constant can not fit, defaulting to int");
 
     // Goto next token for the rest of the expression
     token_next(cnm);
@@ -2335,7 +2340,7 @@ static bool expr_arith(cnm_t *cnm, valref_t *out, bool gencode, bool gendata, va
     // Make sure operands can even perform the operation we want
     if (!type_is_arith(*left->type.type) || !type_is_arith(*right.type.type)) {
         cnm->s.tok = backup;
-        cnm_doerr(cnm, true, "expect arithmetic types for both operators of operand", "");
+        cnm_doerr(cnm, true, "expect arithmetic types for both operators of operand");
         return false;
     }
 
@@ -2343,7 +2348,7 @@ static bool expr_arith(cnm_t *cnm, valref_t *out, bool gencode, bool gendata, va
     // we don't use it on floating point types
     if (int_only_op && (type_is_fp(*left->type.type) || type_is_fp(*right.type.type))) {
         cnm->s.tok = backup;
-        cnm_doerr(cnm, true, "expected integer operands for integer/bitwise operation", "");
+        cnm_doerr(cnm, true, "expected integer operands for integer/bitwise operation");
         return false;
     }
 
@@ -2406,7 +2411,7 @@ static bool expr_prefix_arith(cnm_t *cnm, valref_t *out, bool gencode, bool gend
     // Make sure we can even perform the operation we want with this type
     if (!type_is_arith(*out->type.type)) {
         cnm->s.tok = backup;
-        cnm_doerr(cnm, true, "expect arithmetic type for operand of operator", "");
+        cnm_doerr(cnm, true, "expect arithmetic type for operand of operator");
         return NULL;
     }
 
@@ -2414,7 +2419,7 @@ static bool expr_prefix_arith(cnm_t *cnm, valref_t *out, bool gencode, bool gend
     // we don't use it on floating point types
     if (int_only_op && type_is_fp(*out->type.type)) {
         cnm->s.tok = backup;
-        cnm_doerr(cnm, true, "expected integer operand for integer/bitwise operation", "");
+        cnm_doerr(cnm, true, "expected integer operand for integer/bitwise operation");
         return NULL;
     }
 
@@ -2487,6 +2492,23 @@ static void cnm_set_src(cnm_t *cnm, const char *src, const char *fname) {
     };
 }
 
+// Makes sure that a literal is allocated to the global data buffer
+static bool val_enfore_global(cnm_t *cnm, valref_t *val) {
+    if (!val->isliteral) return true;
+
+    // Move the data to the global region
+    const typeinf_t inf = type_getinf(cnm, val->type.type);
+    uint8_t *buf = cnm_alloc_global(cnm, inf.size, inf.align);
+    if (!buf) return false;
+    memcpy(buf, &val->literal, inf.size);
+
+    // Update the variable info
+    val->scope->abs_addr = cnm->globals.buf;
+    val->isliteral = false;
+
+    return true;
+}
+
 // Parse and generate code for a function
 static bool parse_func(cnm_t *cnm, func_t *func) {
     return true;
@@ -2507,7 +2529,7 @@ static bool parse_file_decl_var(cnm_t *cnm, strview_t name, typeref_t type) {
         }
 
         // Types don't match, throw error instead
-        cnm_doerr(cnm, true, "redeclaration of function with different types", "");
+        cnm_doerr(cnm, true, "redeclaration of function with different types");
         return false;
     }
 
@@ -2520,12 +2542,22 @@ static bool parse_file_decl_var(cnm_t *cnm, strview_t name, typeref_t type) {
             .scope = cnm->scope,
             .uid = cnm->cg.uid_start++,
             .range = NULL,
+            .abs_addr = NULL,
             .next = cnm->vars,
         };
         cnm->vars = var;
     }
 
-    // TODO: Actually allocate the variable
+    if (cnm->s.tok.type != TOKEN_ASSIGN) return true;
+
+    // Actually allocate the variable
+    if (var->abs_addr) {
+        cnm_doerr(cnm, true, "redefinition of variable");
+        return false;
+    }
+
+    
+
     return true;
 }
 
@@ -2544,7 +2576,7 @@ static bool parse_file_decl_func(cnm_t *cnm, strview_t name, typeref_t type) {
         }
 
         // Types don't match, throw error instead
-        cnm_doerr(cnm, true, "redeclaration of function with different types", "");
+        cnm_doerr(cnm, true, "redeclaration of function with different types");
         return false;
     }
 
@@ -2563,7 +2595,7 @@ static bool parse_file_decl_func(cnm_t *cnm, strview_t name, typeref_t type) {
     if (cnm->s.tok.type != TOKEN_BRACE_L) return true;
     token_next(cnm);
     if (func->addr) {
-        cnm_doerr(cnm, true, "redefinition of function!", "");
+        cnm_doerr(cnm, true, "redefinition of function!");
         return false;
     }
 
@@ -2574,7 +2606,7 @@ static bool parse_file_decl_func(cnm_t *cnm, strview_t name, typeref_t type) {
 // Parse typedef definition
 static bool parse_file_decl_typedef(cnm_t *cnm, strview_t name, typeref_t type) {
     if (!name.str) {
-        cnm_doerr(cnm, true, "can not have anonymous typedef", "");
+        cnm_doerr(cnm, true, "can not have anonymous typedef");
         return false;
     }
 
@@ -2586,7 +2618,7 @@ static bool parse_file_decl_typedef(cnm_t *cnm, strview_t name, typeref_t type) 
         if (type_eq(type, iter->type, true)) return true;
 
         // Types don't match, throw error instead
-        cnm_doerr(cnm, true, "redefinition of typedef", "");
+        cnm_doerr(cnm, true, "redefinition of typedef");
         return false;
     }
 
@@ -2609,7 +2641,7 @@ static bool parse_file_decl_typedef(cnm_t *cnm, strview_t name, typeref_t type) 
 // else if the file is not a proper c-script file.
 static bool parse_file_decl(cnm_t *cnm) {
     // Get the base type
-    bool istypedef;
+    bool istypedef, was_fn = false;
     type_t base;
     if (!type_parse_declspec(cnm, &base, &istypedef)) return false;
 
@@ -2629,11 +2661,12 @@ static bool parse_file_decl(cnm_t *cnm) {
             if (!parse_file_decl_typedef(cnm, name, type)) return false;
         } else if (type.type[0].class == TYPE_FN) {
             // Do function
+            was_fn = true;
             if (!parse_file_decl_func(cnm, name, type)) return false;
         } else if (!name.str) {
             // Do nothing (empty declaration, that declares nothing)
             if (userty_old == cnm->type.types) {
-                cnm_doerr(cnm, false, "declaration does not declare anything", "");
+                cnm_doerr(cnm, false, "declaration does not declare anything");
             }
         } else {
             // Allocate variable
@@ -2645,7 +2678,12 @@ static bool parse_file_decl(cnm_t *cnm) {
         token_next(cnm);
     }
 
-    // DON'T consume ';' because function definitions end in them
+    // DON'T consume ';' because function definitions don't end in them
+    if (!was_fn && cnm->s.tok.type != TOKEN_SEMICOLON) {
+        cnm_doerr(cnm, true, "expected ';'");
+        return false;
+    }
+
     return true;
 }
 
