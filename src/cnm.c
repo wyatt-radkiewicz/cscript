@@ -219,7 +219,7 @@ typedef struct scope_s {
 } scope_t;
 
 // Represents functions in cscript that can be called
-typedef struct func_s {
+struct cnm_fn_s {
     // The name of the function
     strview_t name;
 
@@ -230,8 +230,9 @@ typedef struct func_s {
     void *addr;
 
     // Next function in list of funcs
-    struct func_s *next;
-} func_t;
+    struct cnm_fn_s *next;
+};
+typedef struct cnm_fn_s func_t;
 
 // A refrence to a variable in the current program. Since this is IR, it could
 // be on the stack or in a register so there is no associated location
@@ -2493,7 +2494,7 @@ static void cnm_set_src(cnm_t *cnm, const char *src, const char *fname) {
 }
 
 // Makes sure that a literal is allocated to the global data buffer
-static bool val_enfore_global(cnm_t *cnm, valref_t *val) {
+static bool val_enforce_global(cnm_t *cnm, valref_t *val) {
     if (!val->isliteral) return true;
 
     // Move the data to the global region
@@ -2503,7 +2504,7 @@ static bool val_enfore_global(cnm_t *cnm, valref_t *val) {
     memcpy(buf, &val->literal, inf.size);
 
     // Update the variable info
-    val->scope->abs_addr = cnm->globals.buf;
+    val->scope->abs_addr = buf;
     val->isliteral = false;
 
     return true;
@@ -2549,6 +2550,7 @@ static bool parse_file_decl_var(cnm_t *cnm, strview_t name, typeref_t type) {
     }
 
     if (cnm->s.tok.type != TOKEN_ASSIGN) return true;
+    token_next(cnm);
 
     // Actually allocate the variable
     if (var->abs_addr) {
@@ -2556,7 +2558,11 @@ static bool parse_file_decl_var(cnm_t *cnm, strview_t name, typeref_t type) {
         return false;
     }
 
-    
+    // Get the contents of the variable
+    valref_t val;
+    if (!expr_parse(cnm, &val, false, true, PREC_COND)) return false;
+    val.scope = var;
+    if (!val_enforce_global(cnm, &val)) return false;
 
     return true;
 }
@@ -2683,11 +2689,12 @@ static bool parse_file_decl(cnm_t *cnm) {
         cnm_doerr(cnm, true, "expected ';'");
         return false;
     }
+    if (cnm->s.tok.type == TOKEN_SEMICOLON) token_next(cnm);
 
     return true;
 }
 
-bool cnm_parse(cnm_t *cnm, const char *src, const char *fname, const int *bpts, int nbpts) {
+bool cnm_parse(cnm_t *cnm, const char *src, const char *fname) {
     cnm_set_src(cnm, src, fname);
     token_next(cnm);
     while (cnm->s.tok.type != TOKEN_EOF) {

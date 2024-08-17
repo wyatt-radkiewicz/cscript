@@ -24,6 +24,12 @@ static void test_expect_errcb(int line, const char *v, const char *s) {
                               test_globals, sizeof(test_globals)); \
         cnm_set_errcb(cnm, _errcb); \
         cnm_set_src(cnm, _src, #_name);
+#define GENERIC_TEST(_name, _errcb) \
+    static bool _name(void) { \
+        cnm_t *cnm = cnm_init(test_region, sizeof(test_region), \
+                              test_code_area, test_code_size, \
+                              test_globals, sizeof(test_globals)); \
+        cnm_set_errcb(cnm, _errcb);
 static bool test_dofail(const char *file, int line) {
     int i = printf("\nfail at %s:%d:", file, line);
     for (; i < 34; i++) printf(" ");
@@ -1679,6 +1685,262 @@ SIMPLE_TEST(test_typedef_parsing12, test_errcb,
 
 ///////////////////////////////////////////////////////////////////////////////
 //
+// File Level Typedef Tests
+//
+///////////////////////////////////////////////////////////////////////////////
+GENERIC_TEST(test_filelvl_typedef1, test_expect_errcb)
+    if (!cnm_parse(cnm, "typedef int foo_t;", "test_filelvl_typedef1")) return TESTFAIL;
+    if (!cnm->type.typedefs) return TESTFAIL;
+    if (cnm->type.typedef_gid != 1) return TESTFAIL;
+
+    typedef_t *t = cnm->type.typedefs;
+
+    // foo_t
+    if (!strview_eq(t->name, SV("foo_t"))) return TESTFAIL;
+    if (t->scope != 0) return TESTFAIL;
+    if (t->typedef_id != 0) return TESTFAIL;
+    if (!type_eq(t->type, (typeref_t){
+        .size = 1,
+        .type = (type_t[]){
+            (type_t){ .class = TYPE_INT },
+        },
+    }, true)) return TESTFAIL;
+    if (t->next) return TESTFAIL;
+
+    return !test_expect_err;
+}
+GENERIC_TEST(test_filelvl_typedef2, test_expect_errcb)
+    if (!cnm_parse(cnm, "typedef int foo_t, *bar_t;",
+                   "test_filelvl_typedef2")) return TESTFAIL;
+    if (!cnm->type.typedefs) return TESTFAIL;
+    if (cnm->type.typedef_gid != 2) return TESTFAIL;
+
+    typedef_t *t = cnm->type.typedefs;
+
+    // bar_t
+    if (!strview_eq(t->name, SV("bar_t"))) return TESTFAIL;
+    if (t->scope != 0) return TESTFAIL;
+    if (t->typedef_id != 1) return TESTFAIL;
+    if (!type_eq(t->type, (typeref_t){
+        .size = 2,
+        .type = (type_t[]){
+            (type_t){ .class = TYPE_PTR },
+            (type_t){ .class = TYPE_INT },
+        },
+    }, true)) return TESTFAIL;
+    if (!t->next) return TESTFAIL;
+    t = t->next;
+
+    // foo_t
+    if (!strview_eq(t->name, SV("foo_t"))) return TESTFAIL;
+    if (t->typedef_id != 0) return TESTFAIL;
+    if (!type_eq(t->type, (typeref_t){
+        .size = 1,
+        .type = (type_t[]){
+            (type_t){ .class = TYPE_INT },
+        },
+    }, true)) return TESTFAIL;
+    if (t->next) return TESTFAIL;
+
+    return !test_expect_err;
+}
+GENERIC_TEST(test_filelvl_typedef3, test_expect_errcb)
+    if (!cnm_parse(cnm, "typedef int foo_t, foo_t;",
+                   "test_filelvl_typedef3")) return TESTFAIL;
+    if (!cnm->type.typedefs) return TESTFAIL;
+    if (cnm->type.typedef_gid != 1) return TESTFAIL;
+
+    typedef_t *t = cnm->type.typedefs;
+
+    // foo_t
+    if (!strview_eq(t->name, SV("foo_t"))) return TESTFAIL;
+    if (t->typedef_id != 0) return TESTFAIL;
+    if (!type_eq(t->type, (typeref_t){
+        .size = 1,
+        .type = (type_t[]){
+            (type_t){ .class = TYPE_INT },
+        },
+    }, true)) return TESTFAIL;
+    if (t->next) return TESTFAIL;
+
+    return !test_expect_err;
+}
+GENERIC_TEST(test_filelvl_typedef4, test_expect_errcb)
+    if (cnm_parse(cnm, "typedef int foo_t, *foo_t;",
+                   "test_filelvl_typedef4")) return TESTFAIL;
+    return test_expect_err;
+}
+GENERIC_TEST(test_filelvl_typedef5, test_expect_errcb)
+    if (!cnm_parse(cnm, "typedef int foo_t; typedef double bar_t;",
+                   "test_filelvl_typedef5")) return TESTFAIL;
+    if (!cnm->type.typedefs) return TESTFAIL;
+    if (cnm->type.typedef_gid != 2) return TESTFAIL;
+
+    typedef_t *t = cnm->type.typedefs;
+
+    // bar_t
+    if (!strview_eq(t->name, SV("bar_t"))) return TESTFAIL;
+    if (t->scope != 0) return TESTFAIL;
+    if (t->typedef_id != 1) return TESTFAIL;
+    if (!type_eq(t->type, (typeref_t){
+        .size = 1,
+        .type = (type_t[]){
+            (type_t){ .class = TYPE_DOUBLE },
+        },
+    }, true)) return TESTFAIL;
+    if (!t->next) return TESTFAIL;
+    t = t->next;
+
+    // foo_t
+    if (!strview_eq(t->name, SV("foo_t"))) return TESTFAIL;
+    if (t->typedef_id != 0) return TESTFAIL;
+    if (!type_eq(t->type, (typeref_t){
+        .size = 1,
+        .type = (type_t[]){
+            (type_t){ .class = TYPE_INT },
+        },
+    }, true)) return TESTFAIL;
+    if (t->next) return TESTFAIL;
+
+    return !test_expect_err;
+}
+
+///////////////////////////////////////////////////////////////////////////////
+//
+// Global Variable Parsing Tests
+//
+///////////////////////////////////////////////////////////////////////////////
+GENERIC_TEST(test_global_variable1, test_expect_errcb)
+    if (!cnm_parse(cnm, "int a;", "test_global_variable1")) return TESTFAIL;
+    scope_t *var = cnm->vars;
+    if (!var) return TESTFAIL;
+    if (cnm->cg.uid_start != 1) return TESTFAIL;
+    if (var->scope != 0) return TESTFAIL;
+    if (var->abs_addr != NULL) return TESTFAIL;
+    if (var->uid != 0) return TESTFAIL;
+    if (!strview_eq(var->name, SV("a"))) return TESTFAIL;
+    if (var->range != NULL) return TESTFAIL;
+    if (!type_eq(var->type, (typeref_t){
+        .size = 1,
+        .type = (type_t[]){
+            (type_t){ .class = TYPE_INT },
+        },
+    }, true)) return TESTFAIL;
+    if (var->next != NULL) return TESTFAIL;
+    return !test_expect_err;
+}
+GENERIC_TEST(test_global_variable2, test_expect_errcb)
+    if (!cnm_parse(cnm, "int a, *b, c[2];", "test_global_variable2")) return TESTFAIL;
+
+    if (cnm->cg.uid_start != 3) return TESTFAIL;
+
+    // c
+    scope_t *var = cnm->vars;
+    if (!var) return TESTFAIL;
+    if (var->scope != 0) return TESTFAIL;
+    if (var->abs_addr != NULL) return TESTFAIL;
+    if (var->uid != 2) return TESTFAIL;
+    if (!strview_eq(var->name, SV("c"))) return TESTFAIL;
+    if (var->range != NULL) return TESTFAIL;
+    if (!type_eq(var->type, (typeref_t){
+        .size = 2,
+        .type = (type_t[]){
+            (type_t){ .class = TYPE_ARR, .n = 2 },
+            (type_t){ .class = TYPE_INT },
+        },
+    }, true)) return TESTFAIL;
+    if (var->next == NULL) return TESTFAIL;
+    var = var->next;
+
+    // b
+    if (var->uid != 1) return TESTFAIL;
+    if (!strview_eq(var->name, SV("b"))) return TESTFAIL;
+    if (!type_eq(var->type, (typeref_t){
+        .size = 2,
+        .type = (type_t[]){
+            (type_t){ .class = TYPE_PTR },
+            (type_t){ .class = TYPE_INT },
+        },
+    }, true)) return TESTFAIL;
+    if (var->next == NULL) return TESTFAIL;
+    var = var->next;
+
+    // a
+    if (var->uid != 0) return TESTFAIL;
+    if (!strview_eq(var->name, SV("a"))) return TESTFAIL;
+    if (!type_eq(var->type, (typeref_t){
+        .size = 1,
+        .type = (type_t[]){
+            (type_t){ .class = TYPE_INT },
+        },
+    }, true)) return TESTFAIL;
+    if (var->next != NULL) return TESTFAIL;
+
+    return !test_expect_err;
+}
+GENERIC_TEST(test_global_variable3, test_expect_errcb)
+    if (!cnm_parse(cnm, "int a = 69;", "test_global_variable3")) return TESTFAIL;
+    scope_t *var = cnm->vars;
+    if (!var) return TESTFAIL;
+    if (cnm->cg.uid_start != 1) return TESTFAIL;
+    if (var->scope != 0) return TESTFAIL;
+    if (var->abs_addr != cnm->globals.buf + 0) return TESTFAIL;
+    if (var->uid != 0) return TESTFAIL;
+    if (!strview_eq(var->name, SV("a"))) return TESTFAIL;
+    if (var->range != NULL) return TESTFAIL;
+    if (!type_eq(var->type, (typeref_t){
+        .size = 1,
+        .type = (type_t[]){
+            (type_t){ .class = TYPE_INT },
+        },
+    }, true)) return TESTFAIL;
+    if (memcmp(var->abs_addr, &(int){69}, sizeof(int)) != 0) return TESTFAIL;
+    if (var->next != NULL) return TESTFAIL;
+    return !test_expect_err;
+}
+GENERIC_TEST(test_global_variable4, test_expect_errcb)
+    if (!cnm_parse(cnm, "int a = 1 << 4;", "test_global_variable4")) return TESTFAIL;
+    scope_t *var = cnm->vars;
+    if (!var) return TESTFAIL;
+    if (cnm->cg.uid_start != 1) return TESTFAIL;
+    if (var->scope != 0) return TESTFAIL;
+    if (var->abs_addr != cnm->globals.buf + 0) return TESTFAIL;
+    if (var->uid != 0) return TESTFAIL;
+    if (!strview_eq(var->name, SV("a"))) return TESTFAIL;
+    if (var->range != NULL) return TESTFAIL;
+    if (!type_eq(var->type, (typeref_t){
+        .size = 1,
+        .type = (type_t[]){
+            (type_t){ .class = TYPE_INT },
+        },
+    }, true)) return TESTFAIL;
+    if (memcmp(var->abs_addr, &(int){16}, sizeof(int)) != 0) return TESTFAIL;
+    if (var->next != NULL) return TESTFAIL;
+    return !test_expect_err;
+}
+GENERIC_TEST(test_global_variable5, test_expect_errcb)
+    if (!cnm_parse(cnm, "int a; int a;", "test_global_variable5")) return TESTFAIL;
+    return !test_expect_err;
+}
+GENERIC_TEST(test_global_variable6, test_expect_errcb)
+    if (!cnm_parse(cnm, "int a; int b;", "test_global_variable6")) return TESTFAIL;
+    return !test_expect_err;
+}
+GENERIC_TEST(test_global_variable7, test_expect_errcb)
+    if (!cnm_parse(cnm, "int;", "test_global_variable7")) return TESTFAIL;
+    return test_expect_err;
+}
+GENERIC_TEST(test_global_variable8, test_expect_errcb)
+    if (cnm_parse(cnm, "int a; char a;", "test_global_variable8")) return TESTFAIL;
+    return test_expect_err;
+}
+GENERIC_TEST(test_global_variable9, test_expect_errcb)
+    if (cnm_parse(cnm, "int a = 1; int a = 2;", "test_global_variable9")) return TESTFAIL;
+    return test_expect_err;
+}
+
+///////////////////////////////////////////////////////////////////////////////
+//
 // Tester
 //
 ///////////////////////////////////////////////////////////////////////////////
@@ -1842,6 +2104,26 @@ static test_t tests[] = {
     TEST(test_typedef_parsing10),
     TEST(test_typedef_parsing11),
     TEST(test_typedef_parsing12),
+
+    // File level typedef parsing tests
+    TEST_PADDING,
+    TEST(test_filelvl_typedef1),
+    TEST(test_filelvl_typedef2),
+    TEST(test_filelvl_typedef3),
+    TEST(test_filelvl_typedef4),
+    TEST(test_filelvl_typedef5),
+
+    // Global variable parsing tests
+    TEST_PADDING,
+    TEST(test_global_variable1),
+    TEST(test_global_variable2),
+    TEST(test_global_variable3),
+    TEST(test_global_variable4),
+    TEST(test_global_variable5),
+    TEST(test_global_variable6),
+    TEST(test_global_variable7),
+    TEST(test_global_variable8),
+    TEST(test_global_variable9),
 };
 
 int main(int argc, char **argv) {

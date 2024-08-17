@@ -61,7 +61,7 @@
 // or any other type you want:
 // > cnmref_struct_hash_entry_t get_hash_entry(int x);
 //
-// It can only handle 1 level of inderection. Anything above that will have to
+// It can only handle base types like structs or POD. Anything above that will have to
 // be a normal cnmref_t and then also have seperate script written instead of
 // using the cnm macro.
 typedef struct cnmref_s {
@@ -136,6 +136,9 @@ void cnm_set_fnaddrcb(cnm_t *cnm, cnm_fnaddr_cb_t fnaddrcb);
 // Returns false if debug mode is changed after the first part of compiled code.
 bool cnm_set_debug(cnm_t *cnm, bool debug_mode);
 
+// Returns false if debug mode is not set
+bool cnm_set_breakpoint(cnm_t *cnm, int line, bool enabled);
+
 // If the code buffer that was provided is merely a copy, this makes all
 // pointers to the code buffer when compiling be offset to point to this
 // address instead. Will return false if compiling already started.
@@ -162,7 +165,7 @@ size_t cnm_get_global_size(const cnm_t *cnm);
 bool cnm_set_structid(cnm_t *cnm, int old_type_id, int new_type_id);
 
 // Returns false when compilation or parsing failed
-bool cnm_parse(cnm_t *cnm, const char *src, const char *fname, const int *bpts, int nbpts);
+bool cnm_parse(cnm_t *cnm, const char *src, const char *fname);
 
 // Can return NULL if the function at id is just declared or if id is out of
 // bounds.
