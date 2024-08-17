@@ -1070,6 +1070,53 @@ SIMPLE_TEST(test_type_parsing8, test_errcb,  "double")
         .size = 1,
     }, true);
 }
+SIMPLE_TEST(test_type_parsing9, test_errcb,  "int a, *b, *c[2]")
+    token_next(cnm);
+    type_t base;
+    if (!type_parse_declspec(cnm, &base, NULL)) return TESTFAIL;
+    strview_t name;
+
+    // a
+    typeref_t type = type_parse(cnm, &base, &name);
+    if (!strview_eq(name, SV("a"))) return TESTFAIL;
+    if (!type_eq(type, (typeref_t){
+        .type = (type_t[]){
+            (type_t){ .class = TYPE_INT },
+        },
+        .size = 1,
+    }, false)) return TESTFAIL;
+
+    if (cnm->s.tok.type != TOKEN_COMMA) return TESTFAIL;
+    token_next(cnm);
+
+    // b
+    type = type_parse(cnm, &base, &name);
+    if (!strview_eq(name, SV("b"))) return TESTFAIL;
+    if (!type_eq(type, (typeref_t){
+        .type = (type_t[]){
+            (type_t){ .class = TYPE_PTR },
+            (type_t){ .class = TYPE_INT },
+        },
+        .size = 2,
+    }, false)) return TESTFAIL;
+
+    if (cnm->s.tok.type != TOKEN_COMMA) return TESTFAIL;
+    token_next(cnm);
+
+    // c
+    type = type_parse(cnm, &base, &name);
+    if (!strview_eq(name, SV("c"))) return TESTFAIL;
+    if (!type_eq(type, (typeref_t){
+        .type = (type_t[]){
+            (type_t){ .class = TYPE_ARR, .n = 2 },
+            (type_t){ .class = TYPE_PTR },
+            (type_t){ .class = TYPE_INT },
+        },
+        .size = 3,
+    }, false)) return TESTFAIL;
+
+    return true;
+}
 
 ///////////////////////////////////////////////////////////////////////////////
 //
@@ -1554,6 +1601,81 @@ SIMPLE_TEST(test_typedef_parsing10, test_expect_errcb,
     type_parse(cnm, &base, NULL);
     return test_expect_err;
 }
+SIMPLE_TEST(test_typedef_parsing11, test_errcb,
+        "struct foo {\n"
+        "    int a, b;\n"
+        "}\n")
+    token_next(cnm);
+    type_t base;
+    if (!type_parse_declspec(cnm, &base, NULL)) return TESTFAIL;
+    typeref_t ref = type_parse(cnm, &base, NULL);
+    if (!type_eq(ref, (typeref_t){
+        .type = (type_t[]){
+            (type_t){ .class = TYPE_USER, .n = 0 },
+        },
+        .size = 1,
+    }, false)) return TESTFAIL;
+
+    // struct foo
+    userty_t *t = cnm->type.types;
+    struct_t *s = (struct_t *)t->data;
+    if (!t) return TESTFAIL;
+    if (t->inf.size != sizeof(int) * 2) return TESTFAIL;
+    if (t->inf.align != sizeof(int)) return TESTFAIL;
+    if (!strview_eq(t->name, SV("foo"))) return TESTFAIL;
+    if (t->typeid != 0) return TESTFAIL;
+   
+    // foo::b
+    field_t *f = s->fields;
+    if (!f) return TESTFAIL;
+    if (!strview_eq(f->name, SV("b"))) return TESTFAIL;
+    if (f->offs != 4) return TESTFAIL;
+    if (!type_eq(f->type, (typeref_t){
+        .type = (type_t[]){
+            (type_t){ .class = TYPE_INT },
+        },
+        .size = 1,
+    }, false)) return TESTFAIL;
+    f = f->next;
+
+    // foo::a
+    if (!f) return TESTFAIL;
+    if (!strview_eq(f->name, SV("a"))) return TESTFAIL;
+    if (f->offs != 0) return TESTFAIL;
+    if (!type_eq(f->type, (typeref_t){
+        .type = (type_t[]){
+            (type_t){ .class = TYPE_INT },
+        },
+        .size = 1,
+    }, false)) return TESTFAIL;
+
+    return true;
+}
+SIMPLE_TEST(test_typedef_parsing12, test_errcb,
+        "union foo {\n"
+        "    int a, b;\n"
+        "}\n")
+    token_next(cnm);
+    type_t base;
+    if (!type_parse_declspec(cnm, &base, NULL)) return TESTFAIL;
+    typeref_t ref = type_parse(cnm, &base, NULL);
+    if (!type_eq(ref, (typeref_t){
+        .type = (type_t[]){
+            (type_t){ .class = TYPE_USER, .n = 0 },
+        },
+        .size = 1,
+    }, false)) return TESTFAIL;
+
+    // union foo
+    userty_t *t = cnm->type.types;
+    if (!t) return TESTFAIL;
+    if (t->inf.size != sizeof(int)) return TESTFAIL;
+    if (t->inf.align != sizeof(int)) return TESTFAIL;
+    if (!strview_eq(t->name, SV("foo"))) return TESTFAIL;
+    if (t->typeid != 0) return TESTFAIL;
+
+    return true;
+}
 
 ///////////////////////////////////////////////////////////////////////////////
 //
@@ -1704,6 +1826,7 @@ static test_t tests[] = {
     TEST(test_type_parsing6),
     TEST(test_type_parsing7),
     TEST(test_type_parsing8),
+    TEST(test_type_parsing9),
 
     // Type parsing tests
     TEST_PADDING,
@@ -1717,6 +1840,8 @@ static test_t tests[] = {
     TEST(test_typedef_parsing8),
     TEST(test_typedef_parsing9),
     TEST(test_typedef_parsing10),
+    TEST(test_typedef_parsing11),
+    TEST(test_typedef_parsing12),
 };
 
 int main(int argc, char **argv) {

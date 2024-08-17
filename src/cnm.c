@@ -1334,16 +1334,6 @@ static bool type_parse_declspec_struct(cnm_t *cnm, type_t *type, bool *istypedef
 
     // Now add members to the field
     while (cnm->s.tok.type != TOKEN_BRACE_R) {
-        // Allocate new field member and add it to the list
-        field_t *f = cnm_alloc_static(cnm, sizeof(field_t), sizeof(void *));
-        if (!f) return false;
-        f->next = s->fields;
-        s->fields = f;
-
-        // Save normal stack pointer for afterwards when we copy buffers over to
-        // static region
-        uint8_t *const stack_ptr = cnm->alloc.next;
-
         // Save this because if the userty pointer changes, that means that this
         // member is actually a new type definition, so if it has no name, don't
         // give an error out.
@@ -1362,6 +1352,16 @@ static bool type_parse_declspec_struct(cnm_t *cnm, type_t *type, bool *istypedef
 
         // Get derived type(s) and name(s)
         while (true) {
+            // Allocate new field member and add it to the list
+            field_t *f = cnm_alloc_static(cnm, sizeof(field_t), sizeof(void *));
+            if (!f) return false;
+            f->next = s->fields;
+            s->fields = f;
+
+            // Save normal stack pointer for afterwards when we copy buffers over to
+            // static region
+            uint8_t *const stack_ptr = cnm->alloc.next;
+
             // Get the full type data
             f->type = type_parse(cnm, &base, &f->name);
             if (!f->type.size) {
@@ -1389,7 +1389,7 @@ static bool type_parse_declspec_struct(cnm_t *cnm, type_t *type, bool *istypedef
             if (inf.align > u->inf.align) u->inf.align = inf.align;
 
             // Consume ',' token
-            if (cnm->s.tok.type != TOKEN_COLON) break;
+            if (cnm->s.tok.type != TOKEN_COMMA) break;
             token_next(cnm);
         }
 
@@ -1579,7 +1579,7 @@ static bool type_parse_declspec_union(cnm_t *cnm, type_t *type, bool *istypedef,
             if (inf.align > u->inf.align) u->inf.align = inf.align;
 
             // Consume ',' token
-            if (cnm->s.tok.type != TOKEN_COLON) break;
+            if (cnm->s.tok.type != TOKEN_COMMA) break;
             token_next(cnm);
         }
 
