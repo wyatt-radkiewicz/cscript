@@ -4,8 +4,17 @@
 
 #include "../cnm.c"
 
-static uint8_t test_region[2048];
-static uint8_t test_globals[2048];
+static union {
+    uint8_t data[2048];
+    void *alignment;
+} test_region_mem;
+static uint8_t *test_region = test_region_mem.data;
+static union {
+    uint8_t data[2048];
+    void *alignment;
+} test_globals_mem;
+static uint8_t *test_globals = test_globals_mem.data;
+
 static void *test_code_area;
 static size_t test_code_size;
 
@@ -19,16 +28,16 @@ static void test_expect_errcb(int line, const char *v, const char *s) {
 
 #define SIMPLE_TEST(_name, _errcb, _src) \
     static bool _name(void) { \
-        cnm_t *cnm = cnm_init(test_region, sizeof(test_region), \
+        cnm_t *cnm = cnm_init(test_region, sizeof(test_region_mem), \
                               test_code_area, test_code_size, \
-                              test_globals, sizeof(test_globals)); \
+                              test_globals, sizeof(test_globals_mem)); \
         cnm_set_errcb(cnm, _errcb); \
         cnm_set_src(cnm, _src, #_name);
 #define GENERIC_TEST(_name, _errcb) \
     static bool _name(void) { \
-        cnm_t *cnm = cnm_init(test_region, sizeof(test_region), \
+        cnm_t *cnm = cnm_init(test_region, sizeof(test_region_mem), \
                               test_code_area, test_code_size, \
-                              test_globals, sizeof(test_globals)); \
+                              test_globals, sizeof(test_globals_mem)); \
         cnm_set_errcb(cnm, _errcb);
 static bool test_dofail(const char *file, int line) {
     int i = printf("\nfail at %s:%d:", file, line);
@@ -318,9 +327,9 @@ SIMPLE_TEST(test_lexer_double7, test_expect_errcb,  "0.0asdf")
 
 #define TEST_LEXER_TOKEN(name_end, string, token_type) \
     static bool test_lexer_##name_end(void) { \
-        cnm_t *cnm = cnm_init(test_region, sizeof(test_region), \
+        cnm_t *cnm = cnm_init(test_region, sizeof(test_region_mem), \
                               test_code_area, test_code_size, \
-                              test_globals, sizeof(test_globals)); \
+                              test_globals, sizeof(test_globals_mem)); \
         cnm_set_errcb(cnm, test_errcb); \
         cnm_set_src(cnm, string, "test_lexer_"#name_end".cnm"); \
         token_next(cnm); \
