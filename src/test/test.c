@@ -714,13 +714,13 @@ SIMPLE_TEST(test_type_parsing1, test_errcb,  "const char *foo")
     strview_t name;
     type_t base;
     if (!type_parse_declspec(cnm, &base, &istypedef)) return TESTFAIL;
-    typeref_t type = type_parse(cnm, &base, &name);
+    typeref_t type = type_parse(cnm, &base, &name, false);
     if (istypedef) return TESTFAIL;
     if (!strview_eq(name, SV("foo"))) return TESTFAIL;
     if (!type_eq(type, (typeref_t){
         .type = (type_t[]){
             (type_t){ .class = TYPE_PTR },
-            (type_t){ .class = TYPE_CHAR, .isconst = true },
+            (type_t){ .class = TYPE_CHAR, .isconst = true, .n = 8 },
         },
         .size = 2,
     }, false)) return TESTFAIL;
@@ -732,12 +732,12 @@ SIMPLE_TEST(test_type_parsing2, test_errcb,  "typedef unsigned char u8")
     strview_t name;
     type_t base;
     if (!type_parse_declspec(cnm, &base, &istypedef)) return TESTFAIL;
-    typeref_t type = type_parse(cnm, &base, &name);
+    typeref_t type = type_parse(cnm, &base, &name, false);
     if (!istypedef) return TESTFAIL;
     if (!strview_eq(name, SV("u8"))) return TESTFAIL;
     if (!type_eq(type, (typeref_t){
         .type = (type_t[]){
-            (type_t){ .class = TYPE_UCHAR },
+            (type_t){ .class = TYPE_UCHAR, .n = 8 },
         },
         .size = 1,
     }, false)) return TESTFAIL;
@@ -747,10 +747,10 @@ SIMPLE_TEST(test_type_parsing_char, test_errcb,  "char")
     token_next(cnm);
     type_t base;
     if (!type_parse_declspec(cnm, &base, NULL)) return TESTFAIL;
-    typeref_t type = type_parse(cnm, &base, NULL);
+    typeref_t type = type_parse(cnm, &base, NULL, false);
     if (!type_eq(type, (typeref_t){
         .type = (type_t[]){
-            (type_t){ .class = TYPE_CHAR },
+            (type_t){ .class = TYPE_CHAR, .n = 8 },
         },
         .size = 1,
     }, false)) return TESTFAIL;
@@ -760,10 +760,10 @@ SIMPLE_TEST(test_type_parsing_uchar, test_errcb,  "unsigned char")
     token_next(cnm);
     type_t base;
     if (!type_parse_declspec(cnm, &base, NULL)) return TESTFAIL;
-    typeref_t type = type_parse(cnm, &base, NULL);
+    typeref_t type = type_parse(cnm, &base, NULL, false);
     if (!type_eq(type, (typeref_t){
         .type = (type_t[]){
-            (type_t){ .class = TYPE_UCHAR },
+            (type_t){ .class = TYPE_UCHAR, .n = 8 },
         },
         .size = 1,
     }, false)) return TESTFAIL;
@@ -773,10 +773,10 @@ SIMPLE_TEST(test_type_parsing_short1, test_errcb,  "short")
     token_next(cnm);
     type_t base;
     if (!type_parse_declspec(cnm, &base, NULL)) return TESTFAIL;
-    typeref_t type = type_parse(cnm, &base, NULL);
+    typeref_t type = type_parse(cnm, &base, NULL, false);
     if (!type_eq(type, (typeref_t){
         .type = (type_t[]){
-            (type_t){ .class = TYPE_SHORT },
+            (type_t){ .class = TYPE_SHORT, .n = 16 },
         },
         .size = 1,
     }, false)) return TESTFAIL;
@@ -786,10 +786,10 @@ SIMPLE_TEST(test_type_parsing_short2, test_errcb,  "short int")
     token_next(cnm);
     type_t base;
     if (!type_parse_declspec(cnm, &base, NULL)) return TESTFAIL;
-    typeref_t type = type_parse(cnm, &base, NULL);
+    typeref_t type = type_parse(cnm, &base, NULL, false);
     if (!type_eq(type, (typeref_t){
         .type = (type_t[]){
-            (type_t){ .class = TYPE_SHORT },
+            (type_t){ .class = TYPE_SHORT, .n = 16 },
         },
         .size = 1,
     }, false)) return TESTFAIL;
@@ -799,24 +799,24 @@ SIMPLE_TEST(test_type_parsing_short3, test_expect_errcb,  "short short int")
     token_next(cnm);
     type_t base;
     if (type_parse_declspec(cnm, &base, NULL)) return TESTFAIL;
-    type_parse(cnm, &base, NULL);
+    type_parse(cnm, &base, NULL, false);
     return test_expect_err;
 }
 SIMPLE_TEST(test_type_parsing_short4, test_expect_errcb,  "short char")
     token_next(cnm);
     type_t base;
     if (type_parse_declspec(cnm, &base, NULL)) return TESTFAIL;
-    type_parse(cnm, &base, NULL);
+    type_parse(cnm, &base, NULL, false);
     return test_expect_err;
 }
 SIMPLE_TEST(test_type_parsing_ushort1, test_errcb,  "unsigned short")
     token_next(cnm);
     type_t base;
     if (!type_parse_declspec(cnm, &base, NULL)) return TESTFAIL;
-    typeref_t type = type_parse(cnm, &base, NULL);
+    typeref_t type = type_parse(cnm, &base, NULL, false);
     if (!type_eq(type, (typeref_t){
         .type = (type_t[]){
-            (type_t){ .class = TYPE_USHORT },
+            (type_t){ .class = TYPE_USHORT, .n = 16 },
         },
         .size = 1,
     }, false)) return TESTFAIL;
@@ -826,10 +826,10 @@ SIMPLE_TEST(test_type_parsing_ushort2, test_errcb,  "unsigned short int")
     token_next(cnm);
     type_t base;
     if (!type_parse_declspec(cnm, &base, NULL)) return TESTFAIL;
-    typeref_t type = type_parse(cnm, &base, NULL);
+    typeref_t type = type_parse(cnm, &base, NULL, false);
     if (!type_eq(type, (typeref_t){
         .type = (type_t[]){
-            (type_t){ .class = TYPE_USHORT },
+            (type_t){ .class = TYPE_USHORT, .n = 16 },
         },
         .size = 1,
     }, false)) return TESTFAIL;
@@ -839,17 +839,17 @@ SIMPLE_TEST(test_type_parsing_ushort3, test_expect_errcb,  "unsigned unsigned sh
     token_next(cnm);
     type_t base;
     if (type_parse_declspec(cnm, &base, NULL)) return TESTFAIL;
-    type_parse(cnm, &base, NULL);
+    type_parse(cnm, &base, NULL, false);
     return test_expect_err;
 }
 SIMPLE_TEST(test_type_parsing_int, test_errcb,  "int")
     token_next(cnm);
     type_t base;
     if (!type_parse_declspec(cnm, &base, NULL)) return TESTFAIL;
-    typeref_t type = type_parse(cnm, &base, NULL);
+    typeref_t type = type_parse(cnm, &base, NULL, false);
     if (!type_eq(type, (typeref_t){
         .type = (type_t[]){
-            (type_t){ .class = TYPE_INT },
+            (type_t){ .class = TYPE_INT, .n = 32 },
         },
         .size = 1,
     }, false)) return TESTFAIL;
@@ -859,10 +859,10 @@ SIMPLE_TEST(test_type_parsing_uint1, test_errcb,  "unsigned int")
     token_next(cnm);
     type_t base;
     if (!type_parse_declspec(cnm, &base, NULL)) return TESTFAIL;
-    typeref_t type = type_parse(cnm, &base, NULL);
+    typeref_t type = type_parse(cnm, &base, NULL, false);
     if (!type_eq(type, (typeref_t){
         .type = (type_t[]){
-            (type_t){ .class = TYPE_UINT },
+            (type_t){ .class = TYPE_UINT, .n = 32 },
         },
         .size = 1,
     }, false)) return TESTFAIL;
@@ -872,10 +872,10 @@ SIMPLE_TEST(test_type_parsing_uint2, test_errcb,  "unsigned")
     token_next(cnm);
     type_t base;
     if (!type_parse_declspec(cnm, &base, NULL)) return TESTFAIL;
-    typeref_t type = type_parse(cnm, &base, NULL);
+    typeref_t type = type_parse(cnm, &base, NULL, false);
     if (!type_eq(type, (typeref_t){
         .type = (type_t[]){
-            (type_t){ .class = TYPE_UINT },
+            (type_t){ .class = TYPE_UINT, .n = 32 },
         },
         .size = 1,
     }, false)) return TESTFAIL;
@@ -885,10 +885,10 @@ SIMPLE_TEST(test_type_parsing_uint3, test_errcb,  "const unsigned")
     token_next(cnm);
     type_t base;
     if (!type_parse_declspec(cnm, &base, NULL)) return TESTFAIL;
-    typeref_t type = type_parse(cnm, &base, NULL);
+    typeref_t type = type_parse(cnm, &base, NULL, false);
     if (!type_eq(type, (typeref_t){
         .type = (type_t[]){
-            (type_t){ .class = TYPE_UINT, .isconst = true },
+            (type_t){ .class = TYPE_UINT, .isconst = true, .n = 32 },
         },
         .size = 1,
     }, true)) return TESTFAIL;
@@ -898,10 +898,10 @@ SIMPLE_TEST(test_type_parsing_long1, test_errcb,  "long")
     token_next(cnm);
     type_t base;
     if (!type_parse_declspec(cnm, &base, NULL)) return TESTFAIL;
-    typeref_t type = type_parse(cnm, &base, NULL);
+    typeref_t type = type_parse(cnm, &base, NULL, false);
     if (!type_eq(type, (typeref_t){
         .type = (type_t[]){
-            (type_t){ .class = TYPE_LONG },
+            (type_t){ .class = TYPE_LONG, .n = sizeof(long) * 8 },
         },
         .size = 1,
     }, false)) return TESTFAIL;
@@ -911,10 +911,10 @@ SIMPLE_TEST(test_type_parsing_long2, test_errcb,  "long long")
     token_next(cnm);
     type_t base;
     if (!type_parse_declspec(cnm, &base, NULL)) return TESTFAIL;
-    typeref_t type = type_parse(cnm, &base, NULL);
+    typeref_t type = type_parse(cnm, &base, NULL, false);
     if (!type_eq(type, (typeref_t){
         .type = (type_t[]){
-            (type_t){ .class = TYPE_LLONG },
+            (type_t){ .class = TYPE_LLONG, .n = 64 },
         },
         .size = 1,
     }, false)) return TESTFAIL;
@@ -924,10 +924,10 @@ SIMPLE_TEST(test_type_parsing_long3, test_errcb,  "long int")
     token_next(cnm);
     type_t base;
     if (!type_parse_declspec(cnm, &base, NULL)) return TESTFAIL;
-    typeref_t type = type_parse(cnm, &base, NULL);
+    typeref_t type = type_parse(cnm, &base, NULL, false);
     if (!type_eq(type, (typeref_t){
         .type = (type_t[]){
-            (type_t){ .class = TYPE_LONG },
+            (type_t){ .class = TYPE_LONG, .n = sizeof(long) * 8 },
         },
         .size = 1,
     }, false)) return TESTFAIL;
@@ -937,10 +937,10 @@ SIMPLE_TEST(test_type_parsing_long4, test_errcb,  "long long int")
     token_next(cnm);
     type_t base;
     if (!type_parse_declspec(cnm, &base, NULL)) return TESTFAIL;
-    typeref_t type = type_parse(cnm, &base, NULL);
+    typeref_t type = type_parse(cnm, &base, NULL, false);
     if (!type_eq(type, (typeref_t){
         .type = (type_t[]){
-            (type_t){ .class = TYPE_LLONG },
+            (type_t){ .class = TYPE_LLONG, .n = 64 },
         },
         .size = 1,
     }, false)) return TESTFAIL;
@@ -950,10 +950,10 @@ SIMPLE_TEST(test_type_parsing_ulong, test_errcb,  "unsigned long long")
     token_next(cnm);
     type_t base;
     if (!type_parse_declspec(cnm, &base, NULL)) return TESTFAIL;
-    typeref_t type = type_parse(cnm, &base, NULL);
+    typeref_t type = type_parse(cnm, &base, NULL, false);
     if (!type_eq(type, (typeref_t){
         .type = (type_t[]){
-            (type_t){ .class = TYPE_ULLONG },
+            (type_t){ .class = TYPE_ULLONG, .n = 64 },
         },
         .size = 1,
     }, false)) return TESTFAIL;
@@ -963,7 +963,7 @@ SIMPLE_TEST(test_type_parsing_float, test_errcb,  "float")
     token_next(cnm);
     type_t base;
     if (!type_parse_declspec(cnm, &base, NULL)) return TESTFAIL;
-    typeref_t type = type_parse(cnm, &base, NULL);
+    typeref_t type = type_parse(cnm, &base, NULL, false);
     if (!type_eq(type, (typeref_t){
         .type = (type_t[]){
             (type_t){ .class = TYPE_FLOAT },
@@ -976,7 +976,7 @@ SIMPLE_TEST(test_type_parsing_double, test_errcb,  "double")
     token_next(cnm);
     type_t base;
     if (!type_parse_declspec(cnm, &base, NULL)) return TESTFAIL;
-    typeref_t type = type_parse(cnm, &base, NULL);
+    typeref_t type = type_parse(cnm, &base, NULL, false);
     if (!type_eq(type, (typeref_t){
         .type = (type_t[]){
             (type_t){ .class = TYPE_DOUBLE, .isconst = true },
@@ -989,7 +989,7 @@ SIMPLE_TEST(test_type_parsing3, test_errcb,  "const void *")
     token_next(cnm);
     type_t base;
     if (!type_parse_declspec(cnm, &base, NULL)) return TESTFAIL;
-    typeref_t type = type_parse(cnm, &base, NULL);
+    typeref_t type = type_parse(cnm, &base, NULL, false);
     if (!type_eq(type, (typeref_t){
         .type = (type_t[]){
             (type_t){ .class = TYPE_PTR },
@@ -1003,21 +1003,21 @@ SIMPLE_TEST(test_type_parsing4, test_expect_errcb,  "int [static 3]")
     token_next(cnm);
     type_t base;
     if (!type_parse_declspec(cnm, &base, NULL)) return TESTFAIL;
-    type_parse(cnm, &base, NULL);
+    type_parse(cnm, &base, NULL, false);
     return test_expect_err;
 }
 SIMPLE_TEST(test_type_parsing5, test_errcb,  "const char *(* const)[][3]")
     token_next(cnm);
     type_t base;
     if (!type_parse_declspec(cnm, &base, NULL)) return TESTFAIL;
-    typeref_t type = type_parse(cnm, &base, NULL);
+    typeref_t type = type_parse(cnm, &base, NULL, false);
     if (!type_eq(type, (typeref_t){
         .type = (type_t[]){
             (type_t){ .class = TYPE_PTR, .isconst = true },
             (type_t){ .class = TYPE_ARR },
             (type_t){ .class = TYPE_ARR, .n = 3 },
             (type_t){ .class = TYPE_PTR },
-            (type_t){ .class = TYPE_CHAR, .isconst = true },
+            (type_t){ .class = TYPE_CHAR, .isconst = true, .n = 8 },
         },
         .size = 5,
     }, true)) return TESTFAIL;
@@ -1027,18 +1027,18 @@ SIMPLE_TEST(test_type_parsing6, test_errcb,  "int *(*get_int)(char x[], bool z)"
     token_next(cnm);
     type_t base;
     if (!type_parse_declspec(cnm, &base, NULL)) return TESTFAIL;
-    typeref_t type = type_parse(cnm, &base, NULL);
+    typeref_t type = type_parse(cnm, &base, NULL, false);
     if (!type_eq(type, (typeref_t){
         .type = (type_t[]){
             (type_t){ .class = TYPE_PTR, .isconst = true },
             (type_t){ .class = TYPE_FN, .n = 2 },
             (type_t){ .class = TYPE_FN_ARG, .n = 2 },
             (type_t){ .class = TYPE_PTR },
-            (type_t){ .class = TYPE_CHAR },
+            (type_t){ .class = TYPE_CHAR, .n = 8 },
             (type_t){ .class = TYPE_FN_ARG, .n = 1 },
             (type_t){ .class = TYPE_BOOL, .isconst = true },
             (type_t){ .class = TYPE_PTR },
-            (type_t){ .class = TYPE_INT },
+            (type_t){ .class = TYPE_INT, .n = 32 },
         },
         .size = 9,
     }, false)) return TESTFAIL;
@@ -1048,18 +1048,18 @@ SIMPLE_TEST(test_type_parsing7, test_errcb,  "int *(*get_int)(char x[], bool z)"
     token_next(cnm);
     type_t base;
     if (!type_parse_declspec(cnm, &base, NULL)) return TESTFAIL;
-    typeref_t type = type_parse(cnm, &base, NULL);
+    typeref_t type = type_parse(cnm, &base, NULL, false);
     return !type_eq(type, (typeref_t){
         .type = (type_t[]){
             (type_t){ .class = TYPE_PTR, .isconst = true },
             (type_t){ .class = TYPE_FN, .n = 2 },
             (type_t){ .class = TYPE_FN_ARG, .n = 2 },
             (type_t){ .class = TYPE_PTR },
-            (type_t){ .class = TYPE_CHAR, .isconst = true },
+            (type_t){ .class = TYPE_CHAR, .isconst = true, .n = 8 },
             (type_t){ .class = TYPE_FN_ARG, .n = 1 },
-            (type_t){ .class = TYPE_BOOL, .isconst = true },
+            (type_t){ .class = TYPE_BOOL, .isconst = true, .n = 8 },
             (type_t){ .class = TYPE_PTR, .isconst = true },
-            (type_t){ .class = TYPE_INT },
+            (type_t){ .class = TYPE_INT, .n = 32 },
         },
         .size = 9,
     }, false);
@@ -1068,7 +1068,7 @@ SIMPLE_TEST(test_type_parsing8, test_errcb,  "double")
     token_next(cnm);
     type_t base;
     if (!type_parse_declspec(cnm, &base, NULL)) return TESTFAIL;
-    typeref_t type = type_parse(cnm, &base, NULL);
+    typeref_t type = type_parse(cnm, &base, NULL, false);
     return !type_eq(type, (typeref_t){
         .type = (type_t[]){
             (type_t){ .class = TYPE_DOUBLE, .isconst = true },
@@ -1083,11 +1083,11 @@ SIMPLE_TEST(test_type_parsing9, test_errcb,  "int a, *b, *c[2]")
     strview_t name;
 
     // a
-    typeref_t type = type_parse(cnm, &base, &name);
+    typeref_t type = type_parse(cnm, &base, &name, false);
     if (!strview_eq(name, SV("a"))) return TESTFAIL;
     if (!type_eq(type, (typeref_t){
         .type = (type_t[]){
-            (type_t){ .class = TYPE_INT },
+            (type_t){ .class = TYPE_INT, .n = 32 },
         },
         .size = 1,
     }, false)) return TESTFAIL;
@@ -1096,12 +1096,12 @@ SIMPLE_TEST(test_type_parsing9, test_errcb,  "int a, *b, *c[2]")
     token_next(cnm);
 
     // b
-    type = type_parse(cnm, &base, &name);
+    type = type_parse(cnm, &base, &name, false);
     if (!strview_eq(name, SV("b"))) return TESTFAIL;
     if (!type_eq(type, (typeref_t){
         .type = (type_t[]){
             (type_t){ .class = TYPE_PTR },
-            (type_t){ .class = TYPE_INT },
+            (type_t){ .class = TYPE_INT, .n = 32 },
         },
         .size = 2,
     }, false)) return TESTFAIL;
@@ -1110,13 +1110,13 @@ SIMPLE_TEST(test_type_parsing9, test_errcb,  "int a, *b, *c[2]")
     token_next(cnm);
 
     // c
-    type = type_parse(cnm, &base, &name);
+    type = type_parse(cnm, &base, &name, false);
     if (!strview_eq(name, SV("c"))) return TESTFAIL;
     if (!type_eq(type, (typeref_t){
         .type = (type_t[]){
             (type_t){ .class = TYPE_ARR, .n = 2 },
             (type_t){ .class = TYPE_PTR },
-            (type_t){ .class = TYPE_INT },
+            (type_t){ .class = TYPE_INT, .n = 32 },
         },
         .size = 3,
     }, false)) return TESTFAIL;
@@ -1130,14 +1130,14 @@ GENERIC_TEST(test_type_parsing10, test_expect_errcb)
     type_t base;
     if (!type_parse_declspec(cnm, &base, NULL)) return TESTFAIL;
     strview_t name;
-    typeref_t type = type_parse(cnm, &base, &name);
+    typeref_t type = type_parse(cnm, &base, &name, false);
     if (!type.type) return TESTFAIL;
 
     if (!strview_eq(name, SV("foo"))) return TESTFAIL;
     if (!type_eq(type, (typeref_t){
         .size = 1,
         .type = (type_t[]){
-            (type_t){ .class = TYPE_INT },
+            (type_t){ .class = TYPE_INT, .n = 32 },
         },
     }, true)) return TESTFAIL;
 
@@ -1149,14 +1149,14 @@ GENERIC_TEST(test_type_parsing11, test_expect_errcb)
     token_next(cnm);
     type_t base;
     if (!type_parse_declspec(cnm, &base, NULL)) return TESTFAIL;
-    typeref_t type = type_parse(cnm, &base, NULL);
+    typeref_t type = type_parse(cnm, &base, NULL, false);
     if (!type.type) return TESTFAIL;
 
     if (!type_eq(type, (typeref_t){
         .size = 2,
         .type = (type_t[]){
             (type_t){ .class = TYPE_PTR },
-            (type_t){ .class = TYPE_UINT },
+            (type_t){ .class = TYPE_UINT, .n = 32 },
         },
     }, true)) return TESTFAIL;
 
@@ -1168,7 +1168,7 @@ GENERIC_TEST(test_type_parsing12, test_expect_errcb)
     token_next(cnm);
     type_t base;
     if (!type_parse_declspec(cnm, &base, NULL)) return TESTFAIL;
-    typeref_t type = type_parse(cnm, &base, NULL);
+    typeref_t type = type_parse(cnm, &base, NULL, false);
     if (!type.type) return TESTFAIL;
 
     if (!type_eq(type, (typeref_t){
@@ -1176,7 +1176,7 @@ GENERIC_TEST(test_type_parsing12, test_expect_errcb)
         .type = (type_t[]){
             (type_t){ .class = TYPE_ARR, .n = 2 },
             (type_t){ .class = TYPE_PTR },
-            (type_t){ .class = TYPE_INT, .isconst = true },
+            (type_t){ .class = TYPE_INT, .isconst = true, .n = 32 },
         },
     }, true)) return TESTFAIL;
 
@@ -1188,6 +1188,74 @@ GENERIC_TEST(test_type_parsing13, test_expect_errcb)
     token_next(cnm);
     type_t base;
     if (type_parse_declspec(cnm, &base, NULL)) return TESTFAIL;
+    return test_expect_err;
+}
+SIMPLE_TEST(test_type_parsing14, test_errcb,  "int")
+    token_next(cnm);
+    type_t base;
+    if (!type_parse_declspec(cnm, &base, NULL)) return TESTFAIL;
+    typeref_t type = type_parse(cnm, &base, NULL, true);
+    if (!type_eq(type, (typeref_t){
+        .size = 1,
+        .type = (type_t[]){
+            (type_t){ .class = TYPE_INT, .n = 32 },
+        },
+    }, true)) return TESTFAIL;
+    return true;
+}
+SIMPLE_TEST(test_type_parsing15, test_errcb,  "int : 3")
+    token_next(cnm);
+    type_t base;
+    if (!type_parse_declspec(cnm, &base, NULL)) return TESTFAIL;
+    type_parse(cnm, &base, NULL, false);
+    if (cnm->s.tok.type != TOKEN_COLON) return TESTFAIL;
+    return true;
+}
+SIMPLE_TEST(test_type_parsing16, test_errcb,  "int : 9")
+    token_next(cnm);
+    type_t base;
+    if (!type_parse_declspec(cnm, &base, NULL)) return TESTFAIL;
+    typeref_t type = type_parse(cnm, &base, NULL, true);
+    if (!type_eq(type, (typeref_t){
+        .size = 1,
+        .type = (type_t[]){
+            (type_t){ .class = TYPE_INT, .n = 9 },
+        },
+    }, true)) return TESTFAIL;
+    return true;
+}
+SIMPLE_TEST(test_type_parsing17, test_errcb,  "long long : 30 + (1 << 3)")
+    token_next(cnm);
+    type_t base;
+    if (!type_parse_declspec(cnm, &base, NULL)) return TESTFAIL;
+    typeref_t type = type_parse(cnm, &base, NULL, true);
+    if (!type_eq(type, (typeref_t){
+        .size = 1,
+        .type = (type_t[]){
+            (type_t){ .class = TYPE_LLONG, .n = 38 },
+        },
+    }, true)) return TESTFAIL;
+    return true;
+}
+SIMPLE_TEST(test_type_parsing18, test_expect_errcb,  "bool : 4")
+    token_next(cnm);
+    type_t base;
+    if (!type_parse_declspec(cnm, &base, NULL)) return TESTFAIL;
+    type_parse(cnm, &base, NULL, true);
+    return test_expect_err;
+}
+SIMPLE_TEST(test_type_parsing19, test_expect_errcb,  "char : 9")
+    token_next(cnm);
+    type_t base;
+    if (!type_parse_declspec(cnm, &base, NULL)) return TESTFAIL;
+    type_parse(cnm, &base, NULL, true);
+    return test_expect_err;
+}
+SIMPLE_TEST(test_type_parsing20, test_expect_errcb,  "double : 9")
+    token_next(cnm);
+    type_t base;
+    if (!type_parse_declspec(cnm, &base, NULL)) return TESTFAIL;
+    type_parse(cnm, &base, NULL, true);
     return test_expect_err;
 }
 
@@ -1205,7 +1273,7 @@ SIMPLE_TEST(test_typedef_parsing1, test_errcb,
     strview_t name;
     type_t base;
     if (!type_parse_declspec(cnm, &base, NULL)) return TESTFAIL;
-    typeref_t ref = type_parse(cnm, &base, &name);
+    typeref_t ref = type_parse(cnm, &base, &name, false);
     if (!strview_eq(name, SV("bar"))) return TESTFAIL;
     if (!type_eq(ref, (typeref_t){
         .type = (type_t[]){
@@ -1232,7 +1300,7 @@ SIMPLE_TEST(test_typedef_parsing1, test_errcb,
     if (f->offs != 4) return TESTFAIL;
     if (!type_eq(f->type, (typeref_t){
         .type = (type_t[]){
-            (type_t){ .class = TYPE_INT },
+            (type_t){ .class = TYPE_INT, .n = 32 },
         },
         .size = 1,
     }, false)) return TESTFAIL;
@@ -1244,7 +1312,7 @@ SIMPLE_TEST(test_typedef_parsing1, test_errcb,
     if (f->offs != 0) return TESTFAIL;
     if (!type_eq(f->type, (typeref_t){
         .type = (type_t[]){
-            (type_t){ .class = TYPE_INT },
+            (type_t){ .class = TYPE_INT, .n = 32 },
         },
         .size = 1,
     }, false)) return TESTFAIL;
@@ -1261,7 +1329,7 @@ SIMPLE_TEST(test_typedef_parsing2, test_errcb,
     strview_t name;
     type_t base;
     if (!type_parse_declspec(cnm, &base, NULL)) return TESTFAIL;
-    typeref_t ref = type_parse(cnm, &base, &name);
+    typeref_t ref = type_parse(cnm, &base, &name, false);
     if (!strview_eq(name, SV("FSN__FHA__FZR__FEX__FGO"))) return TESTFAIL;
     if (!type_eq(ref, (typeref_t){
         .type = (type_t[]){
@@ -1286,7 +1354,7 @@ SIMPLE_TEST(test_typedef_parsing2, test_errcb,
     if (f->offs != 16) return TESTFAIL;
     if (!type_eq(f->type, (typeref_t){
         .type = (type_t[]){
-            (type_t){ .class = TYPE_INT },
+            (type_t){ .class = TYPE_INT, .n = 32 },
         },
         .size = 1,
     }, false)) return TESTFAIL;
@@ -1310,7 +1378,7 @@ SIMPLE_TEST(test_typedef_parsing2, test_errcb,
     if (f->offs != 0) return TESTFAIL;
     if (!type_eq(f->type, (typeref_t){
         .type = (type_t[]){
-            (type_t){ .class = TYPE_CHAR },
+            (type_t){ .class = TYPE_CHAR, .n = 8 },
         },
         .size = 1,
     }, false)) return TESTFAIL;
@@ -1330,7 +1398,7 @@ SIMPLE_TEST(test_typedef_parsing3, test_errcb,
     strview_t name;
     type_t base;
     if (!type_parse_declspec(cnm, &base, NULL)) return TESTFAIL;
-    typeref_t ref = type_parse(cnm, &base, &name);
+    typeref_t ref = type_parse(cnm, &base, &name, false);
     if (!strview_eq(name, SV("EBE"))) return TESTFAIL;
     if (!type_eq(ref, (typeref_t){
         .type = (type_t[]){
@@ -1356,7 +1424,7 @@ SIMPLE_TEST(test_typedef_parsing3, test_errcb,
     if (!type_eq(f->type, (typeref_t){
         .type = (type_t[]){
             (type_t){ .class = TYPE_ARR, .n = 3 },
-            (type_t){ .class = TYPE_CHAR },
+            (type_t){ .class = TYPE_CHAR, .n = 8 },
         },
         .size = 2,
     }, false)) return TESTFAIL;
@@ -1368,7 +1436,7 @@ SIMPLE_TEST(test_typedef_parsing3, test_errcb,
     if (f->offs != 0) return TESTFAIL;
     if (!type_eq(f->type, (typeref_t){
         .type = (type_t[]){
-            (type_t){ .class = TYPE_INT },
+            (type_t){ .class = TYPE_INT, .n = 32 },
         },
         .size = 1,
     }, false)) return TESTFAIL;
@@ -1392,7 +1460,7 @@ SIMPLE_TEST(test_typedef_parsing3, test_errcb,
     if (f->offs != 12) return TESTFAIL;
     if (!type_eq(f->type, (typeref_t){
         .type = (type_t[]){
-            (type_t){ .class = TYPE_CHAR },
+            (type_t){ .class = TYPE_CHAR, .n = 8 },
         },
         .size = 1,
     }, false)) return TESTFAIL;
@@ -1416,7 +1484,7 @@ SIMPLE_TEST(test_typedef_parsing3, test_errcb,
     if (f->offs != 0) return TESTFAIL;
     if (!type_eq(f->type, (typeref_t){
         .type = (type_t[]){
-            (type_t){ .class = TYPE_INT },
+            (type_t){ .class = TYPE_INT, .n = 32 },
         },
         .size = 1,
     }, false)) return TESTFAIL;
@@ -1436,7 +1504,7 @@ SIMPLE_TEST(test_typedef_parsing4, test_errcb,
     strview_t name;
     type_t base;
     if (!type_parse_declspec(cnm, &base, NULL)) return TESTFAIL;
-    typeref_t ref = type_parse(cnm, &base, &name);
+    typeref_t ref = type_parse(cnm, &base, &name, false);
     if (!strview_eq(name, SV("EBE"))) return TESTFAIL;
     if (!type_eq(ref, (typeref_t){
         .type = (type_t[]){
@@ -1465,7 +1533,7 @@ SIMPLE_TEST(test_typedef_parsing5, test_errcb,
     strview_t name;
     type_t base;
     if (!type_parse_declspec(cnm, &base, NULL)) return TESTFAIL;
-    typeref_t ref = type_parse(cnm, &base, &name);
+    typeref_t ref = type_parse(cnm, &base, &name, false);
     if (!strview_eq(name, SV("subihibi"))) return TESTFAIL;
     if (!type_eq(ref, (typeref_t){
         .type = (type_t[]){
@@ -1505,7 +1573,7 @@ SIMPLE_TEST(test_typedef_parsing6, test_errcb,
     strview_t name;
     type_t base;
     if (!type_parse_declspec(cnm, &base, NULL)) return TESTFAIL;
-    typeref_t ref = type_parse(cnm, &base, &name);
+    typeref_t ref = type_parse(cnm, &base, &name, false);
     if (!strview_eq(name, SV("subihibi"))) return TESTFAIL;
     if (!type_eq(ref, (typeref_t){
         .type = (type_t[]){
@@ -1522,7 +1590,7 @@ SIMPLE_TEST(test_typedef_parsing6, test_errcb,
     if (t->inf.align != 4) return TESTFAIL;
     if (!type_eq((typeref_t){ .type = &e->type, .size = 1 }, (typeref_t){
         .type = (type_t[]){
-            (type_t){ .class = TYPE_UINT },
+            (type_t){ .class = TYPE_UINT, .n = 32 },
         },
         .size = 1,
     }, false)) return TESTFAIL;
@@ -1554,7 +1622,7 @@ SIMPLE_TEST(test_typedef_parsing7, test_errcb,
     strview_t name;
     type_t base;
     if (!type_parse_declspec(cnm, &base, NULL)) return TESTFAIL;
-    typeref_t ref = type_parse(cnm, &base, &name);
+    typeref_t ref = type_parse(cnm, &base, &name, false);
     if (!strview_eq(name, SV("EBE"))) return TESTFAIL;
     if (!type_eq(ref, (typeref_t){
         .type = (type_t[]){
@@ -1580,7 +1648,7 @@ SIMPLE_TEST(test_typedef_parsing7, test_errcb,
     if (!type_eq(f->type, (typeref_t){
         .type = (type_t[]){
             (type_t){ .class = TYPE_ARR, .n = 3 },
-            (type_t){ .class = TYPE_CHAR },
+            (type_t){ .class = TYPE_CHAR, .n = 8 },
         },
         .size = 2,
     }, false)) return TESTFAIL;
@@ -1592,7 +1660,7 @@ SIMPLE_TEST(test_typedef_parsing7, test_errcb,
     if (f->offs != 0) return TESTFAIL;
     if (!type_eq(f->type, (typeref_t){
         .type = (type_t[]){
-            (type_t){ .class = TYPE_INT },
+            (type_t){ .class = TYPE_INT, .n = 32 },
         },
         .size = 1,
     }, false)) return TESTFAIL;
@@ -1616,7 +1684,7 @@ SIMPLE_TEST(test_typedef_parsing7, test_errcb,
     if (f->offs != 12) return TESTFAIL;
     if (!type_eq(f->type, (typeref_t){
         .type = (type_t[]){
-            (type_t){ .class = TYPE_CHAR },
+            (type_t){ .class = TYPE_CHAR, .n = 8 },
         },
         .size = 1,
     }, false)) return TESTFAIL;
@@ -1640,7 +1708,7 @@ SIMPLE_TEST(test_typedef_parsing7, test_errcb,
     if (f->offs != 0) return TESTFAIL;
     if (!type_eq(f->type, (typeref_t){
         .type = (type_t[]){
-            (type_t){ .class = TYPE_INT },
+            (type_t){ .class = TYPE_INT, .n = 32 },
         },
         .size = 1,
     }, false)) return TESTFAIL;
@@ -1653,7 +1721,7 @@ SIMPLE_TEST(test_typedef_parsing8, test_expect_errcb,
     token_next(cnm);
     type_t base;
     if (type_parse_declspec(cnm, &base, NULL)) return TESTFAIL;
-    type_parse(cnm, &base, NULL);
+    type_parse(cnm, &base, NULL, false);
     return test_expect_err;
 }
 SIMPLE_TEST(test_typedef_parsing9, test_expect_errcb,
@@ -1662,7 +1730,7 @@ SIMPLE_TEST(test_typedef_parsing9, test_expect_errcb,
     token_next(cnm);
     type_t base;
     if (type_parse_declspec(cnm, &base, NULL)) return TESTFAIL;
-    type_parse(cnm, &base, NULL);
+    type_parse(cnm, &base, NULL, false);
     return test_expect_err;
 }
 SIMPLE_TEST(test_typedef_parsing10, test_expect_errcb,
@@ -1671,7 +1739,7 @@ SIMPLE_TEST(test_typedef_parsing10, test_expect_errcb,
     token_next(cnm);
     type_t base;
     if (type_parse_declspec(cnm, &base, NULL)) return TESTFAIL;
-    type_parse(cnm, &base, NULL);
+    type_parse(cnm, &base, NULL, false);
     return test_expect_err;
 }
 SIMPLE_TEST(test_typedef_parsing11, test_errcb,
@@ -1681,7 +1749,7 @@ SIMPLE_TEST(test_typedef_parsing11, test_errcb,
     token_next(cnm);
     type_t base;
     if (!type_parse_declspec(cnm, &base, NULL)) return TESTFAIL;
-    typeref_t ref = type_parse(cnm, &base, NULL);
+    typeref_t ref = type_parse(cnm, &base, NULL, false);
     if (!type_eq(ref, (typeref_t){
         .type = (type_t[]){
             (type_t){ .class = TYPE_USER, .n = 0 },
@@ -1705,7 +1773,7 @@ SIMPLE_TEST(test_typedef_parsing11, test_errcb,
     if (f->offs != 4) return TESTFAIL;
     if (!type_eq(f->type, (typeref_t){
         .type = (type_t[]){
-            (type_t){ .class = TYPE_INT },
+            (type_t){ .class = TYPE_INT, .n = 32 },
         },
         .size = 1,
     }, false)) return TESTFAIL;
@@ -1717,7 +1785,7 @@ SIMPLE_TEST(test_typedef_parsing11, test_errcb,
     if (f->offs != 0) return TESTFAIL;
     if (!type_eq(f->type, (typeref_t){
         .type = (type_t[]){
-            (type_t){ .class = TYPE_INT },
+            (type_t){ .class = TYPE_INT, .n = 32 },
         },
         .size = 1,
     }, false)) return TESTFAIL;
@@ -1731,7 +1799,7 @@ SIMPLE_TEST(test_typedef_parsing12, test_errcb,
     token_next(cnm);
     type_t base;
     if (!type_parse_declspec(cnm, &base, NULL)) return TESTFAIL;
-    typeref_t ref = type_parse(cnm, &base, NULL);
+    typeref_t ref = type_parse(cnm, &base, NULL, false);
     if (!type_eq(ref, (typeref_t){
         .type = (type_t[]){
             (type_t){ .class = TYPE_USER, .n = 0 },
@@ -1746,6 +1814,453 @@ SIMPLE_TEST(test_typedef_parsing12, test_errcb,
     if (t->inf.align != sizeof(int)) return TESTFAIL;
     if (!strview_eq(t->name, SV("foo"))) return TESTFAIL;
     if (t->typeid != 0) return TESTFAIL;
+
+    return true;
+}
+SIMPLE_TEST(test_typedef_parsing13, test_errcb,
+        "struct foo {\n"
+        "    int a : 4;\n"
+        "    int b : 24;\n"
+        "}\n")
+    token_next(cnm);
+    strview_t name;
+    type_t base;
+    if (!type_parse_declspec(cnm, &base, NULL)) return TESTFAIL;
+    typeref_t ref = type_parse(cnm, &base, &name, false);
+
+    // struct foo
+    userty_t *t = cnm->type.types;
+    struct_t *s = (struct_t *)t->data;
+    if (!t) return TESTFAIL;
+    if (t->inf.size != sizeof(int)) return TESTFAIL;
+    if (t->inf.align != sizeof(int)) return TESTFAIL;
+    if (t->typeid != 0) return TESTFAIL;
+   
+    // foo::b
+    field_t *f = s->fields;
+    if (!f) return TESTFAIL;
+    if (!strview_eq(f->name, SV("b"))) return TESTFAIL;
+    if (f->offs != 0) return TESTFAIL;
+    if (f->bit_offs != 4) return TESTFAIL;
+    if (!type_eq(f->type, (typeref_t){
+        .type = (type_t[]){
+            (type_t){ .class = TYPE_INT, .n = 24 },
+        },
+        .size = 1,
+    }, false)) return TESTFAIL;
+    f = f->next;
+
+    // foo::a
+    if (!f) return TESTFAIL;
+    if (!strview_eq(f->name, SV("a"))) return TESTFAIL;
+    if (f->offs != 0) return TESTFAIL;
+    if (f->bit_offs != 0) return TESTFAIL;
+    if (!type_eq(f->type, (typeref_t){
+        .type = (type_t[]){
+            (type_t){ .class = TYPE_INT, .n = 4 },
+        },
+        .size = 1,
+    }, false)) return TESTFAIL;
+
+    return true;
+}
+SIMPLE_TEST(test_typedef_parsing14, test_errcb,
+        "struct foo {\n"
+        "    int a : 4;\n"
+        "    int b : 20;\n"
+        "    int c : 16;\n"
+        "}\n")
+    token_next(cnm);
+    strview_t name;
+    type_t base;
+    if (!type_parse_declspec(cnm, &base, NULL)) return TESTFAIL;
+    typeref_t ref = type_parse(cnm, &base, &name, false);
+
+    // struct foo
+    userty_t *t = cnm->type.types;
+    struct_t *s = (struct_t *)t->data;
+    if (!t) return TESTFAIL;
+    if (t->inf.size != sizeof(int) * 2) return TESTFAIL;
+    if (t->inf.align != sizeof(int)) return TESTFAIL;
+    if (t->typeid != 0) return TESTFAIL;
+   
+    // foo::c
+    field_t *f = s->fields;
+    if (!f) return TESTFAIL;
+    if (!strview_eq(f->name, SV("c"))) return TESTFAIL;
+    if (f->offs != 4) return TESTFAIL;
+    if (f->bit_offs != 0) return TESTFAIL;
+    if (!type_eq(f->type, (typeref_t){
+        .type = (type_t[]){
+            (type_t){ .class = TYPE_INT, .n = 16 },
+        },
+        .size = 1,
+    }, false)) return TESTFAIL;
+    f = f->next;
+
+    // foo::b
+    if (!f) return TESTFAIL;
+    if (!strview_eq(f->name, SV("b"))) return TESTFAIL;
+    if (f->offs != 0) return TESTFAIL;
+    if (f->bit_offs != 4) return TESTFAIL;
+    if (!type_eq(f->type, (typeref_t){
+        .type = (type_t[]){
+            (type_t){ .class = TYPE_INT, .n = 20 },
+        },
+        .size = 1,
+    }, false)) return TESTFAIL;
+    f = f->next;
+
+    // foo::a
+    if (!f) return TESTFAIL;
+    if (!strview_eq(f->name, SV("a"))) return TESTFAIL;
+    if (f->offs != 0) return TESTFAIL;
+    if (f->bit_offs != 0) return TESTFAIL;
+    if (!type_eq(f->type, (typeref_t){
+        .type = (type_t[]){
+            (type_t){ .class = TYPE_INT, .n = 4 },
+        },
+        .size = 1,
+    }, false)) return TESTFAIL;
+
+    return true;
+}
+SIMPLE_TEST(test_typedef_parsing15, test_errcb,
+        "struct foo {\n"
+        "    int a : 4;\n"
+        "    unsigned int b : 24;\n"
+        "}\n")
+    token_next(cnm);
+    strview_t name;
+    type_t base;
+    if (!type_parse_declspec(cnm, &base, NULL)) return TESTFAIL;
+    typeref_t ref = type_parse(cnm, &base, &name, false);
+
+    // struct foo
+    userty_t *t = cnm->type.types;
+    struct_t *s = (struct_t *)t->data;
+    if (!t) return TESTFAIL;
+    if (t->inf.size != sizeof(int)) return TESTFAIL;
+    if (t->inf.align != sizeof(int)) return TESTFAIL;
+    if (t->typeid != 0) return TESTFAIL;
+   
+    // foo::b
+    field_t *f = s->fields;
+    if (!f) return TESTFAIL;
+    if (!strview_eq(f->name, SV("b"))) return TESTFAIL;
+    if (f->offs != 0) return TESTFAIL;
+    if (f->bit_offs != 4) return TESTFAIL;
+    if (!type_eq(f->type, (typeref_t){
+        .type = (type_t[]){
+            (type_t){ .class = TYPE_UINT, .n = 24 },
+        },
+        .size = 1,
+    }, false)) return TESTFAIL;
+    f = f->next;
+
+    // foo::a
+    if (!f) return TESTFAIL;
+    if (!strview_eq(f->name, SV("a"))) return TESTFAIL;
+    if (f->offs != 0) return TESTFAIL;
+    if (f->bit_offs != 0) return TESTFAIL;
+    if (!type_eq(f->type, (typeref_t){
+        .type = (type_t[]){
+            (type_t){ .class = TYPE_INT, .n = 4 },
+        },
+        .size = 1,
+    }, false)) return TESTFAIL;
+
+    return true;
+}
+SIMPLE_TEST(test_typedef_parsing16, test_errcb,
+        "struct foo {\n"
+        "    int a : 4;\n"
+        "    int : 0;\n"
+        "    unsigned int b : 24;\n"
+        "}\n")
+    token_next(cnm);
+    strview_t name;
+    type_t base;
+    if (!type_parse_declspec(cnm, &base, NULL)) return TESTFAIL;
+    typeref_t ref = type_parse(cnm, &base, &name, false);
+
+    // struct foo
+    userty_t *t = cnm->type.types;
+    struct_t *s = (struct_t *)t->data;
+    if (!t) return TESTFAIL;
+    if (t->inf.size != sizeof(int) * 2) return TESTFAIL;
+    if (t->inf.align != sizeof(int)) return TESTFAIL;
+    if (t->typeid != 0) return TESTFAIL;
+   
+    // foo::b
+    field_t *f = s->fields;
+    if (!f) return TESTFAIL;
+    if (!strview_eq(f->name, SV("b"))) return TESTFAIL;
+    if (f->offs != 4) return TESTFAIL;
+    if (f->bit_offs != 0) return TESTFAIL;
+    if (!type_eq(f->type, (typeref_t){
+        .type = (type_t[]){
+            (type_t){ .class = TYPE_UINT, .n = 24 },
+        },
+        .size = 1,
+    }, false)) return TESTFAIL;
+    f = f->next;
+
+    // foo::a
+    if (!f) return TESTFAIL;
+    if (!strview_eq(f->name, SV("a"))) return TESTFAIL;
+    if (f->offs != 0) return TESTFAIL;
+    if (f->bit_offs != 0) return TESTFAIL;
+    if (!type_eq(f->type, (typeref_t){
+        .type = (type_t[]){
+            (type_t){ .class = TYPE_INT, .n = 4 },
+        },
+        .size = 1,
+    }, false)) return TESTFAIL;
+
+    return true;
+}
+SIMPLE_TEST(test_typedef_parsing17, test_errcb,
+        "struct foo {\n"
+        "    char a : 4;\n"
+        "    char b : 5;\n"
+        "    int c : 23;\n"
+        "}\n")
+    token_next(cnm);
+    strview_t name;
+    type_t base;
+    if (!type_parse_declspec(cnm, &base, NULL)) return TESTFAIL;
+    typeref_t ref = type_parse(cnm, &base, &name, false);
+
+    // struct foo
+    userty_t *t = cnm->type.types;
+    struct_t *s = (struct_t *)t->data;
+    if (!t) return TESTFAIL;
+    if (t->inf.size != sizeof(int) * 2) return TESTFAIL;
+    if (t->inf.align != sizeof(int)) return TESTFAIL;
+    if (t->typeid != 0) return TESTFAIL;
+   
+    // foo::c
+    field_t *f = s->fields;
+    if (!f) return TESTFAIL;
+    if (!strview_eq(f->name, SV("c"))) return TESTFAIL;
+    if (f->offs != 4) return TESTFAIL;
+    if (f->bit_offs != 0) return TESTFAIL;
+    if (!type_eq(f->type, (typeref_t){
+        .type = (type_t[]){
+            (type_t){ .class = TYPE_INT, .n = 23 },
+        },
+        .size = 1,
+    }, false)) return TESTFAIL;
+    f = f->next;
+
+    // foo::b
+    if (!f) return TESTFAIL;
+    if (!strview_eq(f->name, SV("b"))) return TESTFAIL;
+    if (f->offs != 1) return TESTFAIL;
+    if (f->bit_offs != 0) return TESTFAIL;
+    if (!type_eq(f->type, (typeref_t){
+        .type = (type_t[]){
+            (type_t){ .class = TYPE_CHAR, .n = 5 },
+        },
+        .size = 1,
+    }, false)) return TESTFAIL;
+    f = f->next;
+
+    // foo::a
+    if (!f) return TESTFAIL;
+    if (!strview_eq(f->name, SV("a"))) return TESTFAIL;
+    if (f->offs != 0) return TESTFAIL;
+    if (f->bit_offs != 0) return TESTFAIL;
+    if (!type_eq(f->type, (typeref_t){
+        .type = (type_t[]){
+            (type_t){ .class = TYPE_CHAR, .n = 4 },
+        },
+        .size = 1,
+    }, false)) return TESTFAIL;
+
+    return true;
+}
+SIMPLE_TEST(test_typedef_parsing18, test_errcb,
+        "struct foo {\n"
+        "    char a : 3;\n"
+        "    char b : 5;\n"
+        "    short c : 8;\n"
+        "}\n")
+    token_next(cnm);
+    strview_t name;
+    type_t base;
+    if (!type_parse_declspec(cnm, &base, NULL)) return TESTFAIL;
+    typeref_t ref = type_parse(cnm, &base, &name, false);
+
+    // struct foo
+    userty_t *t = cnm->type.types;
+    struct_t *s = (struct_t *)t->data;
+    if (!t) return TESTFAIL;
+    if (t->inf.size != sizeof(short) * 2) return TESTFAIL;
+    if (t->inf.align != sizeof(short)) return TESTFAIL;
+    if (t->typeid != 0) return TESTFAIL;
+   
+    // foo::c
+    field_t *f = s->fields;
+    if (!f) return TESTFAIL;
+    if (!strview_eq(f->name, SV("c"))) return TESTFAIL;
+    if (f->offs != 2) return TESTFAIL;
+    if (f->bit_offs != 0) return TESTFAIL;
+    if (!type_eq(f->type, (typeref_t){
+        .type = (type_t[]){
+            (type_t){ .class = TYPE_SHORT, .n = 8 },
+        },
+        .size = 1,
+    }, false)) return TESTFAIL;
+    f = f->next;
+
+    // foo::b
+    if (!f) return TESTFAIL;
+    if (!strview_eq(f->name, SV("b"))) return TESTFAIL;
+    if (f->offs != 0) return TESTFAIL;
+    if (f->bit_offs != 3) return TESTFAIL;
+    if (!type_eq(f->type, (typeref_t){
+        .type = (type_t[]){
+            (type_t){ .class = TYPE_CHAR, .n = 5 },
+        },
+        .size = 1,
+    }, false)) return TESTFAIL;
+    f = f->next;
+
+    // foo::a
+    if (!f) return TESTFAIL;
+    if (!strview_eq(f->name, SV("a"))) return TESTFAIL;
+    if (f->offs != 0) return TESTFAIL;
+    if (f->bit_offs != 0) return TESTFAIL;
+    if (!type_eq(f->type, (typeref_t){
+        .type = (type_t[]){
+            (type_t){ .class = TYPE_CHAR, .n = 3 },
+        },
+        .size = 1,
+    }, false)) return TESTFAIL;
+
+    return true;
+}
+SIMPLE_TEST(test_typedef_parsing19, test_errcb,
+        "struct foo {\n"
+        "    char a : 3;\n"
+        "    char b : 5;\n"
+        "    short c;\n"
+        "}\n")
+    token_next(cnm);
+    strview_t name;
+    type_t base;
+    if (!type_parse_declspec(cnm, &base, NULL)) return TESTFAIL;
+    typeref_t ref = type_parse(cnm, &base, &name, false);
+
+    // struct foo
+    userty_t *t = cnm->type.types;
+    struct_t *s = (struct_t *)t->data;
+    if (!t) return TESTFAIL;
+    if (t->inf.size != sizeof(short) * 2) return TESTFAIL;
+    if (t->inf.align != sizeof(short)) return TESTFAIL;
+    if (t->typeid != 0) return TESTFAIL;
+   
+    // foo::c
+    field_t *f = s->fields;
+    if (!f) return TESTFAIL;
+    if (!strview_eq(f->name, SV("c"))) return TESTFAIL;
+    if (f->offs != 2) return TESTFAIL;
+    if (f->bit_offs != 0) return TESTFAIL;
+    if (!type_eq(f->type, (typeref_t){
+        .type = (type_t[]){
+            (type_t){ .class = TYPE_SHORT, .n = 16 },
+        },
+        .size = 1,
+    }, false)) return TESTFAIL;
+    f = f->next;
+
+    // foo::b
+    if (!f) return TESTFAIL;
+    if (!strview_eq(f->name, SV("b"))) return TESTFAIL;
+    if (f->offs != 0) return TESTFAIL;
+    if (f->bit_offs != 3) return TESTFAIL;
+    if (!type_eq(f->type, (typeref_t){
+        .type = (type_t[]){
+            (type_t){ .class = TYPE_CHAR, .n = 5 },
+        },
+        .size = 1,
+    }, false)) return TESTFAIL;
+    f = f->next;
+
+    // foo::a
+    if (!f) return TESTFAIL;
+    if (!strview_eq(f->name, SV("a"))) return TESTFAIL;
+    if (f->offs != 0) return TESTFAIL;
+    if (f->bit_offs != 0) return TESTFAIL;
+    if (!type_eq(f->type, (typeref_t){
+        .type = (type_t[]){
+            (type_t){ .class = TYPE_CHAR, .n = 3 },
+        },
+        .size = 1,
+    }, false)) return TESTFAIL;
+
+    return true;
+}
+SIMPLE_TEST(test_typedef_parsing20, test_errcb,
+        "struct foo {\n"
+        "    int a : 4;\n"
+        "    int b : 24;\n"
+        "    int c : 16;\n"
+        "}\n")
+    token_next(cnm);
+    strview_t name;
+    type_t base;
+    if (!type_parse_declspec(cnm, &base, NULL)) return TESTFAIL;
+    typeref_t ref = type_parse(cnm, &base, &name, false);
+
+    // struct foo
+    userty_t *t = cnm->type.types;
+    struct_t *s = (struct_t *)t->data;
+    if (!t) return TESTFAIL;
+    if (t->inf.size != sizeof(int) * 2) return TESTFAIL;
+    if (t->inf.align != sizeof(int)) return TESTFAIL;
+    if (t->typeid != 0) return TESTFAIL;
+   
+    // foo::c
+    field_t *f = s->fields;
+    if (!f) return TESTFAIL;
+    if (!strview_eq(f->name, SV("c"))) return TESTFAIL;
+    if (f->offs != 4) return TESTFAIL;
+    if (f->bit_offs != 0) return TESTFAIL;
+    if (!type_eq(f->type, (typeref_t){
+        .type = (type_t[]){
+            (type_t){ .class = TYPE_INT, .n = 16 },
+        },
+        .size = 1,
+    }, false)) return TESTFAIL;
+    f = f->next;
+
+    // foo::b
+    if (!f) return TESTFAIL;
+    if (!strview_eq(f->name, SV("b"))) return TESTFAIL;
+    if (f->offs != 0) return TESTFAIL;
+    if (f->bit_offs != 4) return TESTFAIL;
+    if (!type_eq(f->type, (typeref_t){
+        .type = (type_t[]){
+            (type_t){ .class = TYPE_INT, .n = 24 },
+        },
+        .size = 1,
+    }, false)) return TESTFAIL;
+    f = f->next;
+
+    // foo::a
+    if (!f) return TESTFAIL;
+    if (!strview_eq(f->name, SV("a"))) return TESTFAIL;
+    if (f->offs != 0) return TESTFAIL;
+    if (f->bit_offs != 0) return TESTFAIL;
+    if (!type_eq(f->type, (typeref_t){
+        .type = (type_t[]){
+            (type_t){ .class = TYPE_INT, .n = 4 },
+        },
+        .size = 1,
+    }, false)) return TESTFAIL;
 
     return true;
 }
@@ -1769,7 +2284,7 @@ GENERIC_TEST(test_filelvl_typedef1, test_expect_errcb)
     if (!type_eq(t->type, (typeref_t){
         .size = 1,
         .type = (type_t[]){
-            (type_t){ .class = TYPE_INT },
+            (type_t){ .class = TYPE_INT, .n = 32 },
         },
     }, true)) return TESTFAIL;
     if (t->next) return TESTFAIL;
@@ -1792,7 +2307,7 @@ GENERIC_TEST(test_filelvl_typedef2, test_expect_errcb)
         .size = 2,
         .type = (type_t[]){
             (type_t){ .class = TYPE_PTR },
-            (type_t){ .class = TYPE_INT },
+            (type_t){ .class = TYPE_INT, .n = 32 },
         },
     }, true)) return TESTFAIL;
     if (!t->next) return TESTFAIL;
@@ -1804,7 +2319,7 @@ GENERIC_TEST(test_filelvl_typedef2, test_expect_errcb)
     if (!type_eq(t->type, (typeref_t){
         .size = 1,
         .type = (type_t[]){
-            (type_t){ .class = TYPE_INT },
+            (type_t){ .class = TYPE_INT, .n = 32 },
         },
     }, true)) return TESTFAIL;
     if (t->next) return TESTFAIL;
@@ -1825,7 +2340,7 @@ GENERIC_TEST(test_filelvl_typedef3, test_expect_errcb)
     if (!type_eq(t->type, (typeref_t){
         .size = 1,
         .type = (type_t[]){
-            (type_t){ .class = TYPE_INT },
+            (type_t){ .class = TYPE_INT, .n = 32 },
         },
     }, true)) return TESTFAIL;
     if (t->next) return TESTFAIL;
@@ -1864,7 +2379,7 @@ GENERIC_TEST(test_filelvl_typedef5, test_expect_errcb)
     if (!type_eq(t->type, (typeref_t){
         .size = 1,
         .type = (type_t[]){
-            (type_t){ .class = TYPE_INT },
+            (type_t){ .class = TYPE_INT, .n = 32 },
         },
     }, true)) return TESTFAIL;
     if (t->next) return TESTFAIL;
@@ -1890,7 +2405,7 @@ GENERIC_TEST(test_global_variable1, test_expect_errcb)
     if (!type_eq(var->type, (typeref_t){
         .size = 1,
         .type = (type_t[]){
-            (type_t){ .class = TYPE_INT },
+            (type_t){ .class = TYPE_INT, .n = 32 },
         },
     }, true)) return TESTFAIL;
     if (var->next != NULL) return TESTFAIL;
@@ -1913,7 +2428,7 @@ GENERIC_TEST(test_global_variable2, test_expect_errcb)
         .size = 2,
         .type = (type_t[]){
             (type_t){ .class = TYPE_ARR, .n = 2 },
-            (type_t){ .class = TYPE_INT },
+            (type_t){ .class = TYPE_INT, .n = 32 },
         },
     }, true)) return TESTFAIL;
     if (var->next == NULL) return TESTFAIL;
@@ -1926,7 +2441,7 @@ GENERIC_TEST(test_global_variable2, test_expect_errcb)
         .size = 2,
         .type = (type_t[]){
             (type_t){ .class = TYPE_PTR },
-            (type_t){ .class = TYPE_INT },
+            (type_t){ .class = TYPE_INT, .n = 32 },
         },
     }, true)) return TESTFAIL;
     if (var->next == NULL) return TESTFAIL;
@@ -1938,7 +2453,7 @@ GENERIC_TEST(test_global_variable2, test_expect_errcb)
     if (!type_eq(var->type, (typeref_t){
         .size = 1,
         .type = (type_t[]){
-            (type_t){ .class = TYPE_INT },
+            (type_t){ .class = TYPE_INT, .n = 32 },
         },
     }, true)) return TESTFAIL;
     if (var->next != NULL) return TESTFAIL;
@@ -1958,7 +2473,7 @@ GENERIC_TEST(test_global_variable3, test_expect_errcb)
     if (!type_eq(var->type, (typeref_t){
         .size = 1,
         .type = (type_t[]){
-            (type_t){ .class = TYPE_INT },
+            (type_t){ .class = TYPE_INT, .n = 32 },
         },
     }, true)) return TESTFAIL;
     if (memcmp(var->abs_addr, &(int){69}, sizeof(int)) != 0) return TESTFAIL;
@@ -1978,7 +2493,7 @@ GENERIC_TEST(test_global_variable4, test_expect_errcb)
     if (!type_eq(var->type, (typeref_t){
         .size = 1,
         .type = (type_t[]){
-            (type_t){ .class = TYPE_INT },
+            (type_t){ .class = TYPE_INT, .n = 32 },
         },
     }, true)) return TESTFAIL;
     if (memcmp(var->abs_addr, &(int){16}, sizeof(int)) != 0) return TESTFAIL;
@@ -2160,6 +2675,13 @@ static test_t tests[] = {
     TEST(test_type_parsing11),
     TEST(test_type_parsing12),
     TEST(test_type_parsing13),
+    TEST(test_type_parsing14),
+    TEST(test_type_parsing15),
+    TEST(test_type_parsing16),
+    TEST(test_type_parsing17),
+    TEST(test_type_parsing18),
+    TEST(test_type_parsing19),
+    TEST(test_type_parsing20),
 
     // Type parsing tests
     TEST_PADDING,
@@ -2175,6 +2697,14 @@ static test_t tests[] = {
     TEST(test_typedef_parsing10),
     TEST(test_typedef_parsing11),
     TEST(test_typedef_parsing12),
+    TEST(test_typedef_parsing13),
+    TEST(test_typedef_parsing14),
+    TEST(test_typedef_parsing15),
+    TEST(test_typedef_parsing16),
+    TEST(test_typedef_parsing17),
+    TEST(test_typedef_parsing18),
+    TEST(test_typedef_parsing19),
+    TEST(test_typedef_parsing20),
 
     // File level typedef parsing tests
     TEST_PADDING,

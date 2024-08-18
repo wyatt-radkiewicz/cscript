@@ -120,9 +120,10 @@ typedef struct typeinf_s {
 // Field of a struct.
 typedef struct field_s {
     strview_t name;
-    size_t offs;
-    typeref_t type;
-    struct field_s *next;
+    size_t offs; // Offset from begining of struct
+    size_t bit_offs; // Used in bitfields
+    typeref_t type; // Actual base type (plus bit field width)
+    struct field_s *next; // Next field (fields are stored in reverse order)
 } field_t;
 
 typedef enum userty_class_e {
@@ -423,7 +424,6 @@ static void cnm_doerr(cnm_t *cnm, bool critical, const char *desc) {
     // Print header
     int len = snprintf(buf, sizeof(buf), "%s: %s\n"
                                          "  --> %s:%d:%d\n"
-                                         "   |\n"
                                          "%-3d|  ",
                                          critical ? "error" : "warning",
                                          desc, cnm->s.fname,
@@ -1007,7 +1007,8 @@ TOKENS
     return &cnm->s.tok;
 }
 
-static typeref_t type_parse(cnm_t *cnm, const type_t *base, strview_t *name);
+static typeref_t type_parse(cnm_t *cnm, const type_t *base,
+                            strview_t *name, bool allow_bitfields);
 static bool type_parse_declspec(cnm_t *cnm, type_t *type, bool *istypedef);
 
 // Returns true if this ast node can be used in an arithmetic operation
@@ -1082,6 +1083,11 @@ static typeinf_t type_getinf(cnm_t *cnm, const type_t *type) {
     default:
         return (typeinf_t){ .size = 0, .align = 1 };
     }
+}
+
+// Helper function
+static inline int type_default_bitwidth(cnm_t *cnm, const type_t type) {
+    return type_getinf(cnm, &type).size * 8;
 }
 
 // Checks whether 2 type refrences are equal or not
@@ -1370,6 +1376,13 @@ static bool type_parse_declspec_struct(cnm_t *cnm, type_t *type, bool *istypedef
     token_next(cnm);
     // s now points to a new struct that we must fill out the members of
 
+    // Info so that we can store bitfields correctly
+    struct {
+        typeinf_t inf; // size and alignment of current type
+        int offs; // what bit field to allocate to next
+        int byte_offs; // what byte offset this is at
+    } bit = {0};
+
     // Now add members to the field
     while (cnm->s.tok.type != TOKEN_BRACE_R) {
         // Save this because if the userty pointer changes, that means that this
@@ -1390,6 +1403,9 @@ static bool type_parse_declspec_struct(cnm_t *cnm, type_t *type, bool *istypedef
 
         // Get derived type(s) and name(s)
         while (true) {
+            // Use this so that the field can be destroyed if its a bitfield aligner
+            uint8_t *const static_stack = cnm->alloc.curr_static;
+
             // Allocate new field member and add it to the list
             field_t *f = cnm_alloc_static(cnm, sizeof(field_t), sizeof(void *));
             if (!f) return false;
@@ -1401,14 +1417,15 @@ static bool type_parse_declspec_struct(cnm_t *cnm, type_t *type, bool *istypedef
             uint8_t *const stack_ptr = cnm->alloc.next;
 
             // Get the full type data
-            f->type = type_parse(cnm, &base, &f->name);
+            f->type = type_parse(cnm, &base, &f->name, true);
             if (!f->type.size) {
                 // TODO: Make error talk about undefined types as well?
                 cnm_doerr(cnm, true, "field %s can not have 0 size, it's base type might"
                                      "also be undefined");
                 return false;
             }
-            if (!f->name.str && not_defined_new_type) {
+            if (!f->name.str && not_defined_new_type
+                && !(type_is_int(*f->type.type) && f->type.type->n == 0)) {
                 cnm_doerr(cnm, false, "declaration does not declare name");
             }
 
@@ -1422,10 +1439,51 @@ static bool type_parse_declspec_struct(cnm_t *cnm, type_t *type, bool *istypedef
 
             // Get offset and new struct size and alignment
             typeinf_t inf = type_getinf(cnm, f->type.type);
-            u->inf.size = align_size(u->inf.size, inf.align);
-            f->offs = u->inf.size;
-            u->inf.size += inf.size;
-            if (inf.align > u->inf.align) u->inf.align = inf.align;
+
+            const bool bit_overflow = type_is_int(*f->type.type)
+                && bit.offs + f->type.type->n > bit.inf.size * 8;
+
+            if (type_is_int(*f->type.type) && f->type.type->n == 0) {
+                // Align here, but don't do any size and also delete this field
+                u->inf.size = align_size(u->inf.size, inf.align);
+                if (inf.align > u->inf.align) u->inf.align = inf.align;
+                bit.inf = (typeinf_t){0};
+                bit.offs = 0;
+                bit.byte_offs = u->inf.size;
+
+                // Free the field
+                s->fields = f->next;
+                cnm->alloc.curr_static = static_stack;
+            } else if (inf.size != bit.inf.size || inf.align != bit.inf.align
+                       || bit_overflow) {
+                // Allocate new area if bitfield is for different size type or
+                // the bitfeild would overflow int boundaries
+                u->inf.size = align_size(u->inf.size, inf.align);
+                f->offs = u->inf.size;
+                bit.byte_offs = u->inf.size;
+                u->inf.size += inf.size;
+                if (inf.align > u->inf.align) u->inf.align = inf.align;
+                f->bit_offs = 0;
+
+                // Set new bitfield offset
+                if (type_is_int(*f->type.type) && f->type.type->n < inf.size * 8) {
+                    bit.inf = inf;
+                    bit.offs = f->type.type->n;
+                } else {
+                    bit.inf = (typeinf_t){0};
+                    bit.offs = 0;
+                }
+            } else {
+                // Allocate it to the same integer but in different bit position
+                f->bit_offs = bit.offs;
+                f->offs = bit.byte_offs;
+                bit.offs += f->type.type->n;
+
+                if (bit.offs >= bit.inf.size * 8) {
+                    bit.inf = (typeinf_t){0};
+                    bit.offs = 0;
+                }
+            }
 
             // Consume ',' token
             if (cnm->s.tok.type != TOKEN_COMMA) break;
@@ -1479,7 +1537,7 @@ static bool type_parse_declspec_enum(cnm_t *cnm, type_t *type, bool *istypedef,
 
         // Get fully derived type
         strview_t name;
-        typeref_t type = type_parse(cnm, &base, &name);
+        typeref_t type = type_parse(cnm, &base, &name, false);
 
         // Make sure they don't use names in override type or define multiple times
         if (name.str) {
@@ -1605,7 +1663,7 @@ static bool type_parse_declspec_union(cnm_t *cnm, type_t *type, bool *istypedef,
 
         while (true) {
             // Get the type data
-            typeref_t ref = type_parse(cnm, &base, NULL);
+            typeref_t ref = type_parse(cnm, &base, NULL, true);
             if (!typeref_isvalid(ref)) {
                 // TODO: Make error talk about undefined types as well?
                 cnm_doerr(cnm, true, "can not have 0 sized type in union field");
@@ -1791,7 +1849,12 @@ static bool type_parse_declspec(cnm_t *cnm, type_t *type, bool *istypedef) {
         return false;
     }
 
-    return declspec_apply_options(cnm, type, &options);
+    if (!declspec_apply_options(cnm, type, &options)) return false;
+
+    // Set bit width
+    if (type_is_int(*type)) type->n = type_default_bitwidth(cnm, *type);
+
+    return true;
 }
 
 // Parse only qualifiers and not type specifiers for type.
@@ -1873,7 +1936,8 @@ static bool type_parse_append_base(cnm_t *cnm, typeref_t *type, const type_t *ba
 // Helper for type_parse function that will change depending on whether or not
 // it is a function parameter
 static typeref_t type_parse_ex(cnm_t *cnm, const type_t *base,
-                               strview_t *name, bool isparam) {
+                               strview_t *name, bool isparam,
+                               bool allow_bitfields) {
     // First align the allocation area
     typeref_t ref = { .type = cnm_alloc(cnm, 0, sizeof(type_t)) };
     if (!ref.type) goto return_error;
@@ -1990,7 +2054,7 @@ static typeref_t type_parse_ex(cnm_t *cnm, const type_t *base,
                 }
 
                 // Get the full derived parameter type
-                typeref_t argref = type_parse_ex(cnm, &base, NULL, true);
+                typeref_t argref = type_parse_ex(cnm, &base, NULL, true, false);
                 if (!argref.type) goto return_error;
                 if (!argref.size) {
                     cnm_doerr(cnm, true, "expected function parameter");
@@ -2033,9 +2097,45 @@ static typeref_t type_parse_ex(cnm_t *cnm, const type_t *base,
     // Copy the pointers into the type buffer in reverse order
     type_parse_add_ref_pointers(cnm, &ref, ptrs, nptrs[0]);
 
+    type_t real_base = *base;
+
+    // Do bitfields
+    if (cnm->s.tok.type == TOKEN_COLON && allow_bitfields) {
+        if (!type_is_int(*base)) {
+            cnm_doerr(cnm, true, "bitfields must be of integer type");
+            goto return_error;
+        }
+
+        token_next(cnm);
+
+        valref_t val;
+        if (!expr_parse(cnm, &val, false, false, PREC_COND)) goto return_error;
+        if (!val.isliteral) {
+            cnm_doerr(cnm, true, "expect constant value for bitfield width");
+            goto return_error;
+        }
+        if (!type_is_int(*val.type.type)) {
+            cnm_doerr(cnm, true, "expected bitfield width to be integer");
+            goto return_error;
+        }
+        if (!type_is_unsigned(*val.type.type) && val.literal.num.i < 0) {
+            cnm_doerr(cnm, true, "bitfield width must be positive");
+            goto return_error;
+        }
+        if (val.literal.num.i == 0 && name && name->str) {
+            cnm_doerr(cnm, true, "bitfield width with 0 width");
+            goto return_error;
+        }
+        if (val.literal.num.i > (base->class == TYPE_BOOL ? 1 : base->n)) {
+            cnm_doerr(cnm, true, "bitfield width exceeds its type");
+            goto return_error;
+        }
+        real_base.n = val.literal.num.u;
+    }
+
     // Add the base type on
-    if (!type_parse_append_base(cnm, &ref, base)) goto return_error;
-    
+    if (!type_parse_append_base(cnm, &ref, &real_base)) goto return_error;
+
     return ref;
 return_error:
     return (typeref_t){0};
@@ -2047,8 +2147,9 @@ return_error:
 // +----  this is base
 // the parameter base is a pointer to 1 type_t struct that represents the
 // base type
-static typeref_t type_parse(cnm_t *cnm, const type_t *base, strview_t *name) {
-    return type_parse_ex(cnm, base, name, false);
+static typeref_t type_parse(cnm_t *cnm, const type_t *base,
+                            strview_t *name, bool allow_bitfields) {
+    return type_parse_ex(cnm, base, name, false, allow_bitfields);
 }
 
 // Generates code and data for the expression being parsed
@@ -2684,7 +2785,7 @@ static bool parse_file_decl(cnm_t *cnm) {
 
         // Parse the type
         strview_t name;
-        typeref_t type = type_parse(cnm, &base, &name);
+        typeref_t type = type_parse(cnm, &base, &name, false);
         if (!typeref_isvalid(type)) return false;
 
         // Now branch depending on what we parsed
