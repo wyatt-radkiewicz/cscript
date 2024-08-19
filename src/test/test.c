@@ -1267,6 +1267,75 @@ SIMPLE_TEST(test_type_parsing20, test_expect_errcb,  "double : 9")
     type_parse(cnm, &base, NULL, true);
     return test_expect_err;
 }
+static cnm_t *test_util_create_types1(const char *fname) {
+    cnm_t *cnm = cnm_init(test_region, sizeof(test_region_mem),
+                          test_code_area, test_code_size,
+                          test_globals, sizeof(test_globals_mem));
+    cnm_set_errcb(cnm, test_errcb);
+    return cnm_parse(cnm, "struct foo {"
+                   "    int x;"
+                   "    int y;"
+                   "};", fname) ? cnm : NULL;
+}
+// Half type parsing half typedef parsing
+static bool test_type_parsing21(void) {
+    cnm_t *cnm = test_util_create_types1("test_type_parsing21");
+    if (!cnm) return TESTFAIL;
+    cnm_set_src(cnm, "struct foo bar", "test_type_parsing21");
+    token_next(cnm);
+
+    // bar
+    type_t base;
+    strview_t name;
+    if (!type_parse_declspec(cnm, &base, NULL)) return TESTFAIL;
+    typeref_t type = type_parse(cnm, &base, &name, true);
+    if (!type.type) return TESTFAIL;
+    if (!strview_eq(name, SV("bar"))) return TESTFAIL;
+    if (!type_eq(type, (typeref_t){
+        .size = 1,
+        .type = (type_t[]){
+            (type_t){ .class = TYPE_USER, .n = 0 },
+        },
+    }, true)) return TESTFAIL;
+
+    // struct foo
+    if (!cnm->type.types) return TESTFAIL;
+    userty_t *u = cnm->type.types;
+    struct_t *s = (struct_t *)u->data;
+
+    if (!strview_eq(u->name, SV("foo"))) return TESTFAIL;
+    if (u->type != USER_STRUCT) return TESTFAIL;
+    if (u->inf.size != sizeof(int) * 2) return TESTFAIL;
+    if (u->inf.align != sizeof(int)) return TESTFAIL;
+    if (u->scope != 0) return TESTFAIL;
+    if (u->typeid != 0) return TESTFAIL;
+    if (u->next != NULL) return TESTFAIL;
+    if (!s->fields) return TESTFAIL;
+
+    // struct foo::y
+    field_t *f = s->fields;
+    if (!strview_eq(f->name, SV("y"))) return TESTFAIL;
+    if (f->offs != sizeof(int)) return TESTFAIL;
+    if (f->bit_offs != 0) return TESTFAIL;
+    if (!type_eq(f->type, (typeref_t){
+        .size = 1,
+        .type = &(type_t){ .class = TYPE_INT, .n = 32 },
+    }, true)) return TESTFAIL;
+    if (f->next == NULL) return TESTFAIL;
+
+    // struct foo::x
+    f = f->next;
+    if (!strview_eq(f->name, SV("x"))) return TESTFAIL;
+    if (f->offs != 0) return TESTFAIL;
+    if (f->bit_offs != 0) return TESTFAIL;
+    if (!type_eq(f->type, (typeref_t){
+        .size = 1,
+        .type = &(type_t){ .class = TYPE_INT, .n = 32 },
+    }, true)) return TESTFAIL;
+    if (f->next != NULL) return TESTFAIL;
+
+    return true;
+}
 
 ///////////////////////////////////////////////////////////////////////////////
 //
@@ -2691,6 +2760,7 @@ static test_t tests[] = {
     TEST(test_type_parsing18),
     TEST(test_type_parsing19),
     TEST(test_type_parsing20),
+    TEST(test_type_parsing21),
 
     // Type parsing tests
     TEST_PADDING,

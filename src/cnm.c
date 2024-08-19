@@ -2773,6 +2773,9 @@ static bool parse_file_decl_typedef(cnm_t *cnm, strview_t name, typeref_t type) 
 // point to start of next file scope declaration, end of file, or something
 // else if the file is not a proper c-script file.
 static bool parse_file_decl(cnm_t *cnm) {
+    // Hold old number of user types so that we don't post erronious warnings
+    const userty_t *const userty_old = cnm->type.types;
+
     // Get the base type
     bool istypedef, was_fn = false;
     type_t base;
@@ -2780,9 +2783,6 @@ static bool parse_file_decl(cnm_t *cnm) {
 
     // Get full types by aquiring the derived type
     while (true) {
-        // Hold old number of user types so that we don't post erronious warnings
-        const userty_t *const userty_old = cnm->type.types;
-
         // Parse the type
         strview_t name;
         typeref_t type = type_parse(cnm, &base, &name, false);
