@@ -4,16 +4,9 @@
 
 #include "../cnm.c"
 
-static union {
-    uint8_t data[2048];
-    void *alignment;
-} test_region_mem;
-static uint8_t *test_region = test_region_mem.data;
-static union {
-    uint8_t data[2048];
-    void *alignment;
-} test_globals_mem;
-static uint8_t *test_globals = test_globals_mem.data;
+static uint8_t test_region[2048];
+static uint8_t test_globals[2048];
+static uint8_t *test_globals_a4; // Aligned to 4 byte boundary
 
 static void *test_code_area;
 static size_t test_code_size;
@@ -28,16 +21,16 @@ static void test_expect_errcb(int line, const char *v, const char *s) {
 
 #define SIMPLE_TEST(_name, _errcb, _src) \
     static bool _name(void) { \
-        cnm_t *cnm = cnm_init(test_region, sizeof(test_region_mem), \
+        cnm_t *cnm = cnm_init(test_region, sizeof(test_region), \
                               test_code_area, test_code_size, \
-                              test_globals, sizeof(test_globals_mem)); \
+                              test_globals, sizeof(test_globals)); \
         cnm_set_errcb(cnm, _errcb); \
         cnm_set_src(cnm, _src, #_name);
 #define GENERIC_TEST(_name, _errcb) \
     static bool _name(void) { \
-        cnm_t *cnm = cnm_init(test_region, sizeof(test_region_mem), \
+        cnm_t *cnm = cnm_init(test_region, sizeof(test_region), \
                               test_code_area, test_code_size, \
-                              test_globals, sizeof(test_globals_mem)); \
+                              test_globals, sizeof(test_globals)); \
         cnm_set_errcb(cnm, _errcb);
 static bool test_dofail(const char *file, int line) {
     int i = printf("\nfail at %s:%d:", file, line);
@@ -350,9 +343,9 @@ SIMPLE_TEST(test_lexer_double7, test_expect_errcb,  "0.0asdf")
 
 #define TEST_LEXER_TOKEN(name_end, string, token_type) \
     static bool test_lexer_##name_end(void) { \
-        cnm_t *cnm = cnm_init(test_region, sizeof(test_region_mem), \
+        cnm_t *cnm = cnm_init(test_region, sizeof(test_region), \
                               test_code_area, test_code_size, \
-                              test_globals, sizeof(test_globals_mem)); \
+                              test_globals, sizeof(test_globals)); \
         cnm_set_errcb(cnm, test_errcb); \
         cnm_set_src(cnm, string, "test_lexer_"#name_end".cnm"); \
         token_next(cnm); \
@@ -732,6 +725,15 @@ SIMPLE_TEST(test_expr_constant_folding25, test_errcb,  "-(5 + 10) * 2 + 60 >> 2"
     if (!val.isliteral) return TESTFAIL;
     if (val.type.type[0].class != TYPE_INT) return TESTFAIL;
     if (val.literal.i != (-(5 + 10) * 2 + 60) >> 2) return TESTFAIL;
+    return true;
+}
+SIMPLE_TEST(test_expr_constant_folding26, test_errcb,  "1 + 'a'")
+    token_next(cnm);
+    valref_t val;
+    if (!expr_parse(cnm, &val, false, false, PREC_FULL)) return TESTFAIL;
+    if (!val.isliteral) return TESTFAIL;
+    if (val.type.type[0].class != TYPE_INT) return TESTFAIL;
+    if (val.literal.i != 'b') return TESTFAIL;
     return true;
 }
 
@@ -1291,9 +1293,9 @@ SIMPLE_TEST(test_type_parsing20, test_expect_errcb,  "double : 9")
     return test_expect_err;
 }
 static cnm_t *test_util_create_types1(const char *fname) {
-    cnm_t *cnm = cnm_init(test_region, sizeof(test_region_mem),
+    cnm_t *cnm = cnm_init(test_region, sizeof(test_region),
                           test_code_area, test_code_size,
-                          test_globals, sizeof(test_globals_mem));
+                          test_globals, sizeof(test_globals));
     cnm_set_errcb(cnm, test_errcb);
     return cnm_parse(cnm,
                    "struct foo {"
@@ -2599,7 +2601,7 @@ GENERIC_TEST(test_global_variable3, test_expect_errcb)
     if (!var) return TESTFAIL;
     if (cnm->cg.uid_start != 1) return TESTFAIL;
     if (var->scope != 0) return TESTFAIL;
-    if (var->abs_addr != cnm->globals.buf + 0) return TESTFAIL;
+    if (var->abs_addr != test_globals_a4 + 0) return TESTFAIL;
     if (var->uid != 0) return TESTFAIL;
     if (!strview_eq(var->name, SV("a"))) return TESTFAIL;
     if (var->range != NULL) return TESTFAIL;
@@ -2619,7 +2621,7 @@ GENERIC_TEST(test_global_variable4, test_expect_errcb)
     if (!var) return TESTFAIL;
     if (cnm->cg.uid_start != 1) return TESTFAIL;
     if (var->scope != 0) return TESTFAIL;
-    if (var->abs_addr != cnm->globals.buf + 0) return TESTFAIL;
+    if (var->abs_addr != test_globals_a4 + 0) return TESTFAIL;
     if (var->uid != 0) return TESTFAIL;
     if (!strview_eq(var->name, SV("a"))) return TESTFAIL;
     if (var->range != NULL) return TESTFAIL;
@@ -2776,6 +2778,7 @@ static test_t tests[] = {
     TEST(test_expr_constant_folding23),
     TEST(test_expr_constant_folding24),
     TEST(test_expr_constant_folding25),
+    TEST(test_expr_constant_folding26),
 
     // Type parsing tests
     TEST_PADDING,
@@ -2869,6 +2872,8 @@ int main(int argc, char **argv) {
     test_code_size = 2048;
     test_code_area = mmap(NULL, test_code_size, PROT_EXEC | PROT_READ | PROT_WRITE,
                      MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+
+    test_globals_a4 = (uint8_t *)align_size((size_t)test_globals, 4);
 
     int passed = 0, ntests = 0;
     for (int i = 0; i < arrlen(tests); i++) {

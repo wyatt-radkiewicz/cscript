@@ -2282,14 +2282,23 @@ static bool expr_group(cnm_t *cnm, valref_t *out, bool gencode, bool gendata) {
 
 // Create a literal value valref for a character token
 static bool expr_char(cnm_t *cnm, valref_t *out, bool gencode, bool gendata) {
-    *out = (valref_t){ .isliteral = true };
+    *out = (valref_t){ .isliteral = true, .type.size = 1 };
 
     // Allocate and initialize type
     if (!(out->type.type = cnm_alloc(cnm, sizeof(type_t), sizeof(type_t)))) return false;
-    *out->type.type = (type_t){ .class = TYPE_CHAR, .n = 8 };
-    out->type.size = 1;
+    if (cnm->s.tok.suffix[0] == 'u') {
+        *out->type.type = (type_t){ .class = TYPE_UCHAR, .n = 8 };
+    } else if (cnm->s.tok.suffix[0] == 'U') {
+        *out->type.type = (type_t){ .class = TYPE_UINT, .n = 32 };
+    } else {
+        *out->type.type = (type_t){ .class = TYPE_INT, .n = 32 };
+    }
 
+    // Set char
+    out->literal.c = cnm->s.tok.c;
 
+    // Goto next token for rest of expression
+    token_next(cnm);
 
     return true;
 }
