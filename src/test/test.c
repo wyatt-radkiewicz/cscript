@@ -77,17 +77,19 @@ SIMPLE_TEST(test_lexer_string1, test_errcb, "\"hello \"")
     if (cnm->s.tok.start.col != 1) return TESTFAIL;
     if (cnm->s.tok.end.row != 1) return TESTFAIL;
     if (cnm->s.tok.end.col != 9) return TESTFAIL;
+    if (strcmp(cnm->s.tok.suffix, "") != 0) return TESTFAIL;
     if (!strview_eq(cnm->s.tok.src, SV("\"hello \""))) return TESTFAIL;
     if (strcmp(cnm->s.tok.s, "hello ") != 0) return TESTFAIL;
     return true;
 }
-SIMPLE_TEST(test_lexer_string2, test_errcb, "\"hello \"  \"world\"")
+SIMPLE_TEST(test_lexer_string2, test_errcb, "u8\"hello \"  \"world\"")
     token_next(cnm);
     if (cnm->s.tok.type != TOKEN_STRING) return TESTFAIL;
     if (cnm->s.tok.start.row != 1) return TESTFAIL;
     if (cnm->s.tok.start.col != 1) return TESTFAIL;
     if (cnm->s.tok.end.row != 1) return TESTFAIL;
-    if (cnm->s.tok.end.col != 18) return TESTFAIL;
+    if (cnm->s.tok.end.col != 20) return TESTFAIL;
+    if (strcmp(cnm->s.tok.suffix, "u8") != 0) return TESTFAIL;
     if (!strview_eq(cnm->s.tok.src, SV("\"hello \"  \"world\""))) return TESTFAIL;
     if (strcmp(cnm->s.tok.s, "hello world") != 0) return TESTFAIL;
     return true;
@@ -101,6 +103,7 @@ SIMPLE_TEST(test_lexer_string3, test_errcb,
     if (cnm->s.tok.start.col != 1) return TESTFAIL;
     if (cnm->s.tok.end.row != 2) return TESTFAIL;
     if (cnm->s.tok.end.col != 10) return TESTFAIL;
+    if (strcmp(cnm->s.tok.suffix, "") != 0) return TESTFAIL;
     if (!strview_eq(cnm->s.tok.src, SV("\"hello \"\n  \"world\""))) return TESTFAIL;
     if (strcmp(cnm->s.tok.s, "hello world") != 0) return TESTFAIL;
     return true;
@@ -116,26 +119,43 @@ SIMPLE_TEST(test_lexer_string4, test_errcb, "\"hello \\\"world\"")
     if (strcmp(cnm->s.tok.s, "hello \"world") != 0) return TESTFAIL;
     return true;
 }
-SIMPLE_TEST(test_lexer_string5, test_errcb,  "\"hello \\u263A world\"")
+SIMPLE_TEST(test_lexer_string5, test_errcb,  "u8\"hello \\u263A world\"")
     token_next(cnm);
     if (cnm->s.tok.type != TOKEN_STRING) return TESTFAIL;
     if (cnm->s.tok.start.row != 1) return TESTFAIL;
     if (cnm->s.tok.start.col != 1) return TESTFAIL;
     if (cnm->s.tok.end.row != 1) return TESTFAIL;
-    if (cnm->s.tok.end.col != 21) return TESTFAIL;
+    if (cnm->s.tok.end.col != 23) return TESTFAIL;
+    if (strcmp(cnm->s.tok.suffix, "u8") != 0) return TESTFAIL;
     if (!strview_eq(cnm->s.tok.src, SV("\"hello \\u263A world\""))) return TESTFAIL;
     if (strcmp(cnm->s.tok.s, "hello ☺ world") != 0) return TESTFAIL;
     return true;
 }
-SIMPLE_TEST(test_lexer_string6, test_errcb,  "\"hello ☺ world\"")
+SIMPLE_TEST(test_lexer_string6, test_errcb,  "u8\"hello ☺ world\"")
     token_next(cnm);
     if (cnm->s.tok.type != TOKEN_STRING) return TESTFAIL;
     if (cnm->s.tok.start.row != 1) return TESTFAIL;
     if (cnm->s.tok.start.col != 1) return TESTFAIL;
     if (cnm->s.tok.end.row != 1) return TESTFAIL;
-    if (cnm->s.tok.end.col != 16) return TESTFAIL;
+    if (cnm->s.tok.end.col != 18) return TESTFAIL;
+    if (strcmp(cnm->s.tok.suffix, "u8") != 0) return TESTFAIL;
     if (!strview_eq(cnm->s.tok.src, SV("\"hello ☺ world\""))) return TESTFAIL;
     if (strcmp(cnm->s.tok.s, "hello ☺ world") != 0) return TESTFAIL;
+    return true;
+}
+SIMPLE_TEST(test_lexer_string7, test_errcb,  "U\"abc\"")
+    token_next(cnm);
+    if (cnm->s.tok.type != TOKEN_STRING) return TESTFAIL;
+    if (cnm->s.tok.start.row != 1) return TESTFAIL;
+    if (cnm->s.tok.start.col != 1) return TESTFAIL;
+    if (cnm->s.tok.end.row != 1) return TESTFAIL;
+    if (cnm->s.tok.end.col != 7) return TESTFAIL;
+    if (strcmp(cnm->s.tok.suffix, "U") != 0) return TESTFAIL;
+    if (!strview_eq(cnm->s.tok.src, SV("\"abc\""))) return TESTFAIL;
+    if (((uint32_t *)cnm->s.tok.s)[0] != 'a') return TESTFAIL;
+    if (((uint32_t *)cnm->s.tok.s)[1] != 'b') return TESTFAIL;
+    if (((uint32_t *)cnm->s.tok.s)[2] != 'c') return TESTFAIL;
+    if (((uint32_t *)cnm->s.tok.s)[3] != '\0') return TESTFAIL;
     return true;
 }
 SIMPLE_TEST(test_lexer_char1, test_errcb,  "'h'")
@@ -145,28 +165,31 @@ SIMPLE_TEST(test_lexer_char1, test_errcb,  "'h'")
     if (cnm->s.tok.start.col != 1) return TESTFAIL;
     if (cnm->s.tok.end.row != 1) return TESTFAIL;
     if (cnm->s.tok.end.col != 4) return TESTFAIL;
+    if (strcmp(cnm->s.tok.suffix, "") != 0) return TESTFAIL;
     if (!strview_eq(cnm->s.tok.src, SV("'h'"))) return TESTFAIL;
     if (cnm->s.tok.c != 'h') return TESTFAIL;
     return true;
 }
-SIMPLE_TEST(test_lexer_char2, test_errcb,  "'\\x41'")
+SIMPLE_TEST(test_lexer_char2, test_errcb,  "u8'\\x41'")
     token_next(cnm);
     if (cnm->s.tok.type != TOKEN_CHAR) return TESTFAIL;
     if (cnm->s.tok.start.row != 1) return TESTFAIL;
     if (cnm->s.tok.start.col != 1) return TESTFAIL;
     if (cnm->s.tok.end.row != 1) return TESTFAIL;
-    if (cnm->s.tok.end.col != 7) return TESTFAIL;
+    if (cnm->s.tok.end.col != 9) return TESTFAIL;
+    if (strcmp(cnm->s.tok.suffix, "u8") != 0) return TESTFAIL;
     if (!strview_eq(cnm->s.tok.src, SV("'\\x41'"))) return TESTFAIL;
     if (cnm->s.tok.c != 'A') return TESTFAIL;
     return true;
 }
-SIMPLE_TEST(test_lexer_char3, test_errcb,  "'☺'")
+SIMPLE_TEST(test_lexer_char3, test_errcb,  "U'☺'")
     token_next(cnm);
     if (cnm->s.tok.type != TOKEN_CHAR) return TESTFAIL;
     if (cnm->s.tok.start.row != 1) return TESTFAIL;
     if (cnm->s.tok.start.col != 1) return TESTFAIL;
     if (cnm->s.tok.end.row != 1) return TESTFAIL;
-    if (cnm->s.tok.end.col != 4) return TESTFAIL;
+    if (cnm->s.tok.end.col != 5) return TESTFAIL;
+    if (strcmp(cnm->s.tok.suffix, "U") != 0) return TESTFAIL;
     if (!strview_eq(cnm->s.tok.src, SV("'☺'"))) return TESTFAIL;
     if (cnm->s.tok.c != 0x263A) return TESTFAIL;
     return true;
@@ -185,7 +208,7 @@ SIMPLE_TEST(test_lexer_int1, test_errcb,  "120")
     if (!strview_eq(cnm->s.tok.src, SV("120"))) return TESTFAIL;
     if (cnm->s.tok.i.base != 10) return TESTFAIL;
     if (cnm->s.tok.i.n != 120) return TESTFAIL;
-    if (strcmp(cnm->s.tok.i.suffix, "") != 0) return TESTFAIL;
+    if (strcmp(cnm->s.tok.suffix, "") != 0) return TESTFAIL;
     return true;
 }
 SIMPLE_TEST(test_lexer_int2, test_errcb,  "69U")
@@ -198,7 +221,7 @@ SIMPLE_TEST(test_lexer_int2, test_errcb,  "69U")
     if (!strview_eq(cnm->s.tok.src, SV("69U"))) return TESTFAIL;
     if (cnm->s.tok.i.base != 10) return TESTFAIL;
     if (cnm->s.tok.i.n != 69) return TESTFAIL;
-    if (strcmp(cnm->s.tok.i.suffix, "u") != 0) return TESTFAIL;
+    if (strcmp(cnm->s.tok.suffix, "u") != 0) return TESTFAIL;
     return true;
 }
 SIMPLE_TEST(test_lexer_int3, test_errcb,  "420ulL")
@@ -211,7 +234,7 @@ SIMPLE_TEST(test_lexer_int3, test_errcb,  "420ulL")
     if (!strview_eq(cnm->s.tok.src, SV("420ulL"))) return TESTFAIL;
     if (cnm->s.tok.i.base != 10) return TESTFAIL;
     if (cnm->s.tok.i.n != 420) return TESTFAIL;
-    if (strcmp(cnm->s.tok.i.suffix, "ull") != 0) return TESTFAIL;
+    if (strcmp(cnm->s.tok.suffix, "ull") != 0) return TESTFAIL;
     return true;
 }
 SIMPLE_TEST(test_lexer_int4, test_errcb,  "0xFF")
@@ -224,7 +247,7 @@ SIMPLE_TEST(test_lexer_int4, test_errcb,  "0xFF")
     if (!strview_eq(cnm->s.tok.src, SV("0xFF"))) return TESTFAIL;
     if (cnm->s.tok.i.base != 16) return TESTFAIL;
     if (cnm->s.tok.i.n != 255) return TESTFAIL;
-    if (strcmp(cnm->s.tok.i.suffix, "") != 0) return TESTFAIL;
+    if (strcmp(cnm->s.tok.suffix, "") != 0) return TESTFAIL;
     return true;
 }
 SIMPLE_TEST(test_lexer_int5, test_expect_errcb,  "0xxF")
@@ -245,7 +268,7 @@ SIMPLE_TEST(test_lexer_int7, test_errcb,  "0b1101")
     if (!strview_eq(cnm->s.tok.src, SV("0b1101"))) return TESTFAIL;
     if (cnm->s.tok.i.base != 2) return TESTFAIL;
     if (cnm->s.tok.i.n != 13) return TESTFAIL;
-    if (strcmp(cnm->s.tok.i.suffix, "") != 0) return TESTFAIL;
+    if (strcmp(cnm->s.tok.suffix, "") != 0) return TESTFAIL;
     return true;
 }
 SIMPLE_TEST(test_lexer_double1, test_errcb,  "0.0")
@@ -256,8 +279,8 @@ SIMPLE_TEST(test_lexer_double1, test_errcb,  "0.0")
     if (cnm->s.tok.end.row != 1) return TESTFAIL;
     if (cnm->s.tok.end.col != 4) return TESTFAIL;
     if (!strview_eq(cnm->s.tok.src, SV("0.0"))) return TESTFAIL;
-    if (cnm->s.tok.f.n != 0.0) return TESTFAIL;
-    if (strcmp(cnm->s.tok.f.suffix, "") != 0) return TESTFAIL;
+    if (cnm->s.tok.f != 0.0) return TESTFAIL;
+    if (strcmp(cnm->s.tok.suffix, "") != 0) return TESTFAIL;
     return true;
 }
 SIMPLE_TEST(test_lexer_double2, test_errcb,  "0.5")
@@ -268,8 +291,8 @@ SIMPLE_TEST(test_lexer_double2, test_errcb,  "0.5")
     if (cnm->s.tok.end.row != 1) return TESTFAIL;
     if (cnm->s.tok.end.col != 4) return TESTFAIL;
     if (!strview_eq(cnm->s.tok.src, SV("0.5"))) return TESTFAIL;
-    if (cnm->s.tok.f.n != 0.5) return TESTFAIL;
-    if (strcmp(cnm->s.tok.f.suffix, "") != 0) return TESTFAIL;
+    if (cnm->s.tok.f != 0.5) return TESTFAIL;
+    if (strcmp(cnm->s.tok.suffix, "") != 0) return TESTFAIL;
     return true;
 }
 SIMPLE_TEST(test_lexer_double3, test_errcb,  "420.69")
@@ -280,8 +303,8 @@ SIMPLE_TEST(test_lexer_double3, test_errcb,  "420.69")
     if (cnm->s.tok.end.row != 1) return TESTFAIL;
     if (cnm->s.tok.end.col != 7) return TESTFAIL;
     if (!strview_eq(cnm->s.tok.src, SV("420.69"))) return TESTFAIL;
-    if (cnm->s.tok.f.n != 420.69) return TESTFAIL;
-    if (strcmp(cnm->s.tok.f.suffix, "") != 0) return TESTFAIL;
+    if (cnm->s.tok.f != 420.69) return TESTFAIL;
+    if (strcmp(cnm->s.tok.suffix, "") != 0) return TESTFAIL;
     return true;
 }
 SIMPLE_TEST(test_lexer_double4, test_errcb,  "420.69f")
@@ -292,8 +315,8 @@ SIMPLE_TEST(test_lexer_double4, test_errcb,  "420.69f")
     if (cnm->s.tok.end.row != 1) return TESTFAIL;
     if (cnm->s.tok.end.col != 8) return TESTFAIL;
     if (!strview_eq(cnm->s.tok.src, SV("420.69f"))) return TESTFAIL;
-    if (cnm->s.tok.f.n != 420.69) return TESTFAIL;
-    if (strcmp(cnm->s.tok.f.suffix, "f") != 0) return TESTFAIL;
+    if (cnm->s.tok.f != 420.69) return TESTFAIL;
+    if (strcmp(cnm->s.tok.suffix, "f") != 0) return TESTFAIL;
     return true;
 }
 SIMPLE_TEST(test_lexer_double5, test_errcb,  "42.")
@@ -304,8 +327,8 @@ SIMPLE_TEST(test_lexer_double5, test_errcb,  "42.")
     if (cnm->s.tok.end.row != 1) return TESTFAIL;
     if (cnm->s.tok.end.col != 4) return TESTFAIL;
     if (!strview_eq(cnm->s.tok.src, SV("42."))) return TESTFAIL;
-    if (cnm->s.tok.f.n != 42.0) return TESTFAIL;
-    if (strcmp(cnm->s.tok.f.suffix, "") != 0) return TESTFAIL;
+    if (cnm->s.tok.f != 42.0) return TESTFAIL;
+    if (strcmp(cnm->s.tok.suffix, "") != 0) return TESTFAIL;
     return true;
 }
 SIMPLE_TEST(test_lexer_double6, test_errcb,  "42.f")
@@ -316,8 +339,8 @@ SIMPLE_TEST(test_lexer_double6, test_errcb,  "42.f")
     if (cnm->s.tok.end.row != 1) return TESTFAIL;
     if (cnm->s.tok.end.col != 5) return TESTFAIL;
     if (!strview_eq(cnm->s.tok.src, SV("42.f"))) return TESTFAIL;
-    if (cnm->s.tok.f.n != 42.0) return TESTFAIL;
-    if (strcmp(cnm->s.tok.f.suffix, "f") != 0) return TESTFAIL;
+    if (cnm->s.tok.f != 42.0) return TESTFAIL;
+    if (strcmp(cnm->s.tok.suffix, "f") != 0) return TESTFAIL;
     return true;
 }
 SIMPLE_TEST(test_lexer_double7, test_expect_errcb,  "0.0asdf")
@@ -498,7 +521,7 @@ SIMPLE_TEST(test_expr_constant_folding1, test_errcb,  "5")
     if (!val.isliteral) return TESTFAIL;
     if (val.type.type[0].class != TYPE_INT) return TESTFAIL;
     if (val.type.size != 1) return TESTFAIL;
-    if (val.literal.num.i != 5) return TESTFAIL;
+    if (val.literal.i != 5) return TESTFAIL;
     return true;
 }
 SIMPLE_TEST(test_expr_constant_folding2, test_errcb,  "5.0")
@@ -507,7 +530,7 @@ SIMPLE_TEST(test_expr_constant_folding2, test_errcb,  "5.0")
     if (!expr_parse(cnm, &val, false, false, PREC_FULL)) return TESTFAIL;
     if (!val.isliteral) return TESTFAIL;
     if (val.type.type[0].class != TYPE_DOUBLE) return TESTFAIL;
-    if (val.literal.num.f != 5.0) return TESTFAIL;
+    if (val.literal.f != 5.0) return TESTFAIL;
     return true;
 }
 SIMPLE_TEST(test_expr_constant_folding3, test_errcb,  "5000000000")
@@ -516,7 +539,7 @@ SIMPLE_TEST(test_expr_constant_folding3, test_errcb,  "5000000000")
     if (!expr_parse(cnm, &val, false, false, PREC_FULL)) return TESTFAIL;
     if (!val.isliteral) return TESTFAIL;
     if (val.type.type[0].class != TYPE_LONG) return TESTFAIL;
-    if (val.literal.num.i != 5000000000) return TESTFAIL;
+    if (val.literal.i != 5000000000) return TESTFAIL;
     return true;
 }
 SIMPLE_TEST(test_expr_constant_folding4, test_errcb,  "5u")
@@ -525,7 +548,7 @@ SIMPLE_TEST(test_expr_constant_folding4, test_errcb,  "5u")
     if (!expr_parse(cnm, &val, false, false, PREC_FULL)) return TESTFAIL;
     if (!val.isliteral) return TESTFAIL;
     if (val.type.type[0].class != TYPE_UINT) return TESTFAIL;
-    if (val.literal.num.u != 5) return TESTFAIL;
+    if (val.literal.u != 5) return TESTFAIL;
     return true;
 }
 SIMPLE_TEST(test_expr_constant_folding5, test_errcb,  "9223372036854775809ull")
@@ -534,7 +557,7 @@ SIMPLE_TEST(test_expr_constant_folding5, test_errcb,  "9223372036854775809ull")
     if (!expr_parse(cnm, &val, false, false, PREC_FULL)) return TESTFAIL;
     if (!val.isliteral) return TESTFAIL;
     if (val.type.type[0].class != TYPE_ULLONG) return TESTFAIL;
-    if (val.literal.num.u != 9223372036854775809ull) return TESTFAIL;
+    if (val.literal.u != 9223372036854775809ull) return TESTFAIL;
     return true;
 }
 SIMPLE_TEST(test_expr_constant_folding6, test_expect_errcb,  "9223372036854775809")
@@ -549,7 +572,7 @@ SIMPLE_TEST(test_expr_constant_folding7, test_errcb,  "92ull")
     if (!expr_parse(cnm, &val, false, false, PREC_FULL)) return TESTFAIL;
     if (!val.isliteral) return TESTFAIL;
     if (val.type.type[0].class != TYPE_ULLONG) return TESTFAIL;
-    if (val.literal.num.u != 92ull) return TESTFAIL;
+    if (val.literal.u != 92ull) return TESTFAIL;
     return true;
 }
 SIMPLE_TEST(test_expr_constant_folding8, test_errcb,  "5 + 5")
@@ -558,7 +581,7 @@ SIMPLE_TEST(test_expr_constant_folding8, test_errcb,  "5 + 5")
     if (!expr_parse(cnm, &val, false, false, PREC_FULL)) return TESTFAIL;
     if (!val.isliteral) return TESTFAIL;
     if (val.type.type[0].class != TYPE_INT) return TESTFAIL;
-    if (val.literal.num.i != 10) return TESTFAIL;
+    if (val.literal.i != 10) return TESTFAIL;
     return true;
 }
 SIMPLE_TEST(test_expr_constant_folding9, test_errcb,  "5 * 5 + 3")
@@ -567,7 +590,7 @@ SIMPLE_TEST(test_expr_constant_folding9, test_errcb,  "5 * 5 + 3")
     if (!expr_parse(cnm, &val, false, false, PREC_FULL)) return TESTFAIL;
     if (!val.isliteral) return TESTFAIL;
     if (val.type.type[0].class != TYPE_INT) return TESTFAIL;
-    if (val.literal.num.i != 28) return TESTFAIL;
+    if (val.literal.i != 28) return TESTFAIL;
     return true;
 }
 SIMPLE_TEST(test_expr_constant_folding10, test_errcb,  "5 + 5 * 3")
@@ -576,7 +599,7 @@ SIMPLE_TEST(test_expr_constant_folding10, test_errcb,  "5 + 5 * 3")
     if (!expr_parse(cnm, &val, false, false, PREC_FULL)) return TESTFAIL;
     if (!val.isliteral) return TESTFAIL;
     if (val.type.type[0].class != TYPE_INT) return TESTFAIL;
-    if (val.literal.num.i != 20) return TESTFAIL;
+    if (val.literal.i != 20) return TESTFAIL;
     return true;
 }
 SIMPLE_TEST(test_expr_constant_folding11, test_errcb,  "5ul + 30.0")
@@ -585,7 +608,7 @@ SIMPLE_TEST(test_expr_constant_folding11, test_errcb,  "5ul + 30.0")
     if (!expr_parse(cnm, &val, false, false, PREC_FULL)) return TESTFAIL;
     if (!val.isliteral) return TESTFAIL;
     if (val.type.type[0].class != TYPE_DOUBLE) return TESTFAIL;
-    if (val.literal.num.f != 35) return TESTFAIL;
+    if (val.literal.f != 35) return TESTFAIL;
     return true;
 }
 SIMPLE_TEST(test_expr_constant_folding12, test_errcb,  "10 / 3.0")
@@ -594,7 +617,7 @@ SIMPLE_TEST(test_expr_constant_folding12, test_errcb,  "10 / 3.0")
     if (!expr_parse(cnm, &val, false, false, PREC_FULL)) return TESTFAIL;
     if (!val.isliteral) return TESTFAIL;
     if (val.type.type[0].class != TYPE_DOUBLE) return TESTFAIL;
-    if (val.literal.num.f != 10.0 / 3.0) return TESTFAIL;
+    if (val.literal.f != 10.0 / 3.0) return TESTFAIL;
     return true;
 }
 SIMPLE_TEST(test_expr_constant_folding13, test_errcb,  "10 / 3")
@@ -603,7 +626,7 @@ SIMPLE_TEST(test_expr_constant_folding13, test_errcb,  "10 / 3")
     if (!expr_parse(cnm, &val, false, false, PREC_FULL)) return TESTFAIL;
     if (!val.isliteral) return TESTFAIL;
     if (val.type.type[0].class != TYPE_INT) return TESTFAIL;
-    if (val.literal.num.i != 10 / 3) return TESTFAIL;
+    if (val.literal.i != 10 / 3) return TESTFAIL;
     return true;
 }
 SIMPLE_TEST(test_expr_constant_folding14, test_errcb,  "10ul * 12")
@@ -612,7 +635,7 @@ SIMPLE_TEST(test_expr_constant_folding14, test_errcb,  "10ul * 12")
     if (!expr_parse(cnm, &val, false, false, PREC_FULL)) return TESTFAIL;
     if (!val.isliteral) return TESTFAIL;
     if (val.type.type[0].class != TYPE_ULONG) return TESTFAIL;
-    if (val.literal.num.u != 120) return TESTFAIL;
+    if (val.literal.u != 120) return TESTFAIL;
     return true;
 }
 SIMPLE_TEST(test_expr_constant_folding15, test_errcb,  "3 - 9 * 2l")
@@ -621,7 +644,7 @@ SIMPLE_TEST(test_expr_constant_folding15, test_errcb,  "3 - 9 * 2l")
     if (!expr_parse(cnm, &val, false, false, PREC_FULL)) return TESTFAIL;
     if (!val.isliteral) return TESTFAIL;
     if (val.type.type[0].class != TYPE_LONG) return TESTFAIL;
-    if (val.literal.num.i != -15) return TESTFAIL;
+    if (val.literal.i != -15) return TESTFAIL;
     return true;
 }
 SIMPLE_TEST(test_expr_constant_folding16, test_errcb,  "-8")
@@ -630,7 +653,7 @@ SIMPLE_TEST(test_expr_constant_folding16, test_errcb,  "-8")
     if (!expr_parse(cnm, &val, false, false, PREC_FULL)) return TESTFAIL;
     if (!val.isliteral) return TESTFAIL;
     if (val.type.type[0].class != TYPE_INT) return TESTFAIL;
-    if (val.literal.num.i != -8) return TESTFAIL;
+    if (val.literal.i != -8) return TESTFAIL;
     return true;
 }
 SIMPLE_TEST(test_expr_constant_folding17, test_errcb,  "(-8)")
@@ -639,7 +662,7 @@ SIMPLE_TEST(test_expr_constant_folding17, test_errcb,  "(-8)")
     if (!expr_parse(cnm, &val, false, false, PREC_FULL)) return TESTFAIL;
     if (!val.isliteral) return TESTFAIL;
     if (val.type.type[0].class != TYPE_INT) return TESTFAIL;
-    if (val.literal.num.i != -8) return TESTFAIL;
+    if (val.literal.i != -8) return TESTFAIL;
     return true;
 }
 SIMPLE_TEST(test_expr_constant_folding18, test_errcb,  "-(0x8)")
@@ -648,7 +671,7 @@ SIMPLE_TEST(test_expr_constant_folding18, test_errcb,  "-(0x8)")
     if (!expr_parse(cnm, &val, false, false, PREC_FULL)) return TESTFAIL;
     if (!val.isliteral) return TESTFAIL;
     if (val.type.type[0].class != TYPE_INT) return TESTFAIL;
-    if (val.literal.num.i != -8) return TESTFAIL;
+    if (val.literal.i != -8) return TESTFAIL;
     return true;
 }
 SIMPLE_TEST(test_expr_constant_folding19, test_errcb,  "~0x8u")
@@ -657,7 +680,7 @@ SIMPLE_TEST(test_expr_constant_folding19, test_errcb,  "~0x8u")
     if (!expr_parse(cnm, &val, false, false, PREC_FULL)) return TESTFAIL;
     if (!val.isliteral) return TESTFAIL;
     if (val.type.type[0].class != TYPE_UINT) return TESTFAIL;
-    if (val.literal.num.u != ~0x8u) return TESTFAIL;
+    if (val.literal.u != ~0x8u) return TESTFAIL;
     return true;
 }
 SIMPLE_TEST(test_expr_constant_folding20, test_expect_errcb,  "~(1 + 0.9)")
@@ -672,7 +695,7 @@ SIMPLE_TEST(test_expr_constant_folding21, test_errcb,  "!1")
     if (!expr_parse(cnm, &val, false, false, PREC_FULL)) return TESTFAIL;
     if (!val.isliteral) return TESTFAIL;
     if (val.type.type[0].class != TYPE_BOOL) return TESTFAIL;
-    if (val.literal.num.u != false) return TESTFAIL;
+    if (val.literal.u != false) return TESTFAIL;
     return true;
 }
 SIMPLE_TEST(test_expr_constant_folding22, test_errcb,  "!0.0")
@@ -681,7 +704,7 @@ SIMPLE_TEST(test_expr_constant_folding22, test_errcb,  "!0.0")
     if (!expr_parse(cnm, &val, false, false, PREC_FULL)) return TESTFAIL;
     if (!val.isliteral) return TESTFAIL;
     if (val.type.type[0].class != TYPE_BOOL) return TESTFAIL;
-    if (val.literal.num.u != true) return TESTFAIL;
+    if (val.literal.u != true) return TESTFAIL;
     return true;
 }
 SIMPLE_TEST(test_expr_constant_folding23, test_errcb,  "1 << 4")
@@ -690,7 +713,7 @@ SIMPLE_TEST(test_expr_constant_folding23, test_errcb,  "1 << 4")
     if (!expr_parse(cnm, &val, false, false, PREC_FULL)) return TESTFAIL;
     if (!val.isliteral) return TESTFAIL;
     if (val.type.type[0].class != TYPE_INT) return TESTFAIL;
-    if (val.literal.num.i != 16) return TESTFAIL;
+    if (val.literal.i != 16) return TESTFAIL;
     return true;
 }
 SIMPLE_TEST(test_expr_constant_folding24, test_errcb,  "0xff | 0xff << 8")
@@ -699,7 +722,7 @@ SIMPLE_TEST(test_expr_constant_folding24, test_errcb,  "0xff | 0xff << 8")
     if (!expr_parse(cnm, &val, false, false, PREC_FULL)) return TESTFAIL;
     if (!val.isliteral) return TESTFAIL;
     if (val.type.type[0].class != TYPE_INT) return TESTFAIL;
-    if (val.literal.num.i != 0xffff) return TESTFAIL;
+    if (val.literal.i != 0xffff) return TESTFAIL;
     return true;
 }
 SIMPLE_TEST(test_expr_constant_folding25, test_errcb,  "-(5 + 10) * 2 + 60 >> 2")
@@ -708,7 +731,7 @@ SIMPLE_TEST(test_expr_constant_folding25, test_errcb,  "-(5 + 10) * 2 + 60 >> 2"
     if (!expr_parse(cnm, &val, false, false, PREC_FULL)) return TESTFAIL;
     if (!val.isliteral) return TESTFAIL;
     if (val.type.type[0].class != TYPE_INT) return TESTFAIL;
-    if (val.literal.num.i != (-(5 + 10) * 2 + 60) >> 2) return TESTFAIL;
+    if (val.literal.i != (-(5 + 10) * 2 + 60) >> 2) return TESTFAIL;
     return true;
 }
 
@@ -2659,6 +2682,7 @@ static test_t tests[] = {
     TEST(test_lexer_string4),
     TEST(test_lexer_string5),
     TEST(test_lexer_string6),
+    TEST(test_lexer_string7),
     TEST(test_lexer_char1),
     TEST(test_lexer_char2),
     TEST(test_lexer_char3),

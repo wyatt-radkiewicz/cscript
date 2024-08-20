@@ -80,15 +80,14 @@ typedef struct token_s {
         char *s; // TOKEN_STRING
         uint32_t c; // TOKEN_CHAR
         struct {
-            char suffix[4];
             int base;
             uintmax_t n;
         } i; // TOKEN_INT
-        struct {
-            char suffix[4];
-            double n;
-        } f; // TOKEN_DOUBLE
+        double f; // TOKEN_DOUBLE
     };
+
+    // Suffix for data token type
+    char suffix[4];
 } token_t;
 
 typedef struct type_s {
@@ -242,13 +241,10 @@ typedef struct {
     // If this type also has the literal data associated with it
     bool isliteral;
     union {
-        union {
-            uintmax_t u;
-            intmax_t i;
-            double f;
-        } num;
-        char *str;
-        uint32_t chr;
+        uintmax_t u;
+        intmax_t i;
+        double f;
+        uint32_t c;
     } literal;
 
     // The type of the value, copy of the scope type if this is a scoped var
@@ -383,6 +379,7 @@ struct cnm_s {
 
 static bool expr_parse(cnm_t *cnm, valref_t *out, bool gencode, bool gendata, prec_t prec);
 
+static expr_parse_prefix_t expr_char;
 static expr_parse_prefix_t expr_int;
 static expr_parse_prefix_t expr_double;
 static expr_parse_infix_t expr_arith;
@@ -392,6 +389,7 @@ static expr_parse_prefix_t expr_group;
 static expr_rule_t expr_rules[TOKEN_MAX] = {
     [TOKEN_PAREN_L] = { .prefix_prec = PREC_FACTOR, .prefix = expr_group },
     [TOKEN_INT] = { .prefix_prec = PREC_FACTOR, .prefix = expr_int },
+    [TOKEN_CHAR] = { .prefix_prec = PREC_FACTOR, .prefix = expr_char },
     [TOKEN_DOUBLE] = { .prefix_prec = PREC_FACTOR, .prefix = expr_double },
     [TOKEN_PLUS] = { .infix_prec = PREC_ADDI, .infix = expr_arith },
     [TOKEN_MINUS] = { .infix_prec = PREC_ADDI, .infix = expr_arith,
@@ -528,6 +526,16 @@ static token_t *token_ident(cnm_t *cnm) {
     return &cnm->s.tok;
 }
 
+// Checks a uint32_t to see if its in the range of a utf32
+static bool token_utf32_validation(uint32_t cp) {
+    return cp < 0xD800 || cp >= 0xE000 && cp < 0x110000;
+}
+
+// Checks a uint8_t to see if its in the range of a single utf8 code point
+static bool token_utf8_single_validation(uint8_t cp) {
+    return cp < 0x80;
+}
+
 // Lex a single character/escape code
 // Returns how big the character is in bytes
 // Will advance the string pointer to the next character
@@ -638,6 +646,12 @@ static size_t lex_char(cnm_t *cnm, const uint8_t **str, uint8_t out[4], size_t *
     *str += nchrs;
     if (nsrc_cols) *nsrc_cols += nchrs;
 
+    if (!token_utf32_validation(result)) {
+        cnm_doerr(cnm, true, "malformed character literal. "
+                             "Does not exist in utf32 codespace");
+        goto error;
+    }
+
     // UTF8 codepoints
     if (multi_byte) {
         // UTF8 format (from u32 to bytes)
@@ -673,6 +687,34 @@ error:
     return 0;
 }
 
+// Set the token's string value (which is a uint32_t)
+// Convert from UTF8 to codepoint
+static bool utf8_buf_to_utf32(cnm_t *cnm, uint8_t buf[4], uint32_t *out) {
+    *out = 0;
+    if ((buf[0] & 0x80) == 0x00) {
+        *out = buf[0];
+    } else if ((buf[0] & 0xE0) == 0xC0) {
+        *out |= (buf[0] & 0x1F) << 6;
+        *out |= buf[1] & 0x3F;
+    } else if ((buf[0] & 0xF0) == 0xE0) {
+        *out |= (buf[0] & 0x0F) << 12;
+        *out |= (buf[1] & 0x3F) << 6;
+        *out |= buf[2] & 0x3F;
+    } else if ((buf[0] & 0xF8) == 0xF0) {
+        *out |= (buf[0] & 0x07) << 18;
+        *out |= (buf[1] & 0x3F) << 12;
+        *out |= (buf[2] & 0x3F) << 6;
+        *out |= buf[3] & 0x3F;
+    }
+
+    if (!token_utf32_validation(*out)) {
+        cnm_doerr(cnm, true, "malformed character literal, invalid utf32");
+        return false;
+    }
+
+    return true;
+}
+
 // Lexes a single string so only the hello" part of "hello""world" 
 // The src pointer should point to the start of the contents of the string
 // Returns the length of the source of the string (including final " char)
@@ -697,8 +739,24 @@ static size_t lex_single_string(cnm_t *cnm, const uint8_t *src, char *buf,
         size_t ncols, char_len = lex_char(cnm, &src, char_buf, &ncols);
         if (outncols) *outncols += ncols;
         if (!char_len) goto error_out;
-        if (buf) memcpy(buf + len, char_buf, char_len);
-        len += char_len;
+
+        // Validate single-byte character strings
+        if (cnm->s.tok.suffix[0] == '\0' && char_len > 1) {
+            cnm_doerr(cnm, true, "character code point can not fit in normal string");
+            goto error_out;
+        }
+
+        if (cnm->s.tok.suffix[0] == 'U') {
+            // Handle utf-32
+            uint32_t c;
+            if (!utf8_buf_to_utf32(cnm, char_buf, &c)) goto error_out;
+            if (buf) memcpy(buf + len, &c, sizeof(c));
+            len += 4;
+        } else {
+            // Handle single byte or utf-8 encodings
+            if (buf) memcpy(buf + len, char_buf, char_len);
+            len += char_len;
+        }
     }
     src++;
 
@@ -711,9 +769,18 @@ error_out:
     return 0;
 }
 
+// Move the token's src parameter and end and string start to after the prefix
+static void token_eat_literal_prefix(cnm_t *cnm) {
+    const unsigned len = strlen(cnm->s.tok.suffix);
+    cnm->s.tok.end.col += len;
+    cnm->s.tok.src.str += len;
+}
+
 // Parses a string token and automatically concatinates them
 // this implies that the resultant token might span over multiple lines
 static token_t *token_string(cnm_t *cnm) {
+    token_eat_literal_prefix(cnm);
+
     size_t buflen = 0;
     const uint8_t *const start = (const uint8_t *)cnm->s.tok.src.str;
     const uint8_t *curr = start;
@@ -757,10 +824,10 @@ static token_t *token_string(cnm_t *cnm) {
     cnm->s.tok.src.len = len_backup;
 
     // Allocate space for the null terminator
-    ++buflen;
+    buflen += cnm->s.tok.suffix[0] == 'U' ? 4 : 1;
 
     // Allocate space for the string
-    char *buf = cnm_alloc_global(cnm, buflen, 1);
+    char *buf = cnm_alloc_global(cnm, buflen, cnm->s.tok.suffix[0] == 'U' ? 4 : 1);
     if (!buf) goto error_scenario;
     size_t bufloc = 0;
 
@@ -774,7 +841,8 @@ static token_t *token_string(cnm_t *cnm) {
         bufloc += len;
         while (isspace(*curr)) ++curr;
     } while (*curr == '\"');
-    buf[bufloc] = '\0';
+    if (cnm->s.tok.suffix[0] == 'U') memset(buf + bufloc, 0, 4);
+    else buf[bufloc] = '\0';
     
     // Test to see if there is already a string with these contents
     for (const strent_t *ent = cnm->strs; ent; ent = ent->next) {
@@ -802,6 +870,8 @@ error_scenario:
 
 // Parse a single character token
 static token_t *token_char(cnm_t *cnm) {
+    token_eat_literal_prefix(cnm);
+
     uint8_t buf[4];
     const uint8_t *c = (const uint8_t *)cnm->s.tok.src.str + 1;
     size_t ncols;
@@ -820,23 +890,14 @@ static token_t *token_char(cnm_t *cnm) {
     cnm->s.tok.src.len++;
     cnm->s.tok.end.col += ncols + 2;
 
-    // Set the token's string value (which is a uint32_t)
-    // Convert from UTF8 to codepoint
-    cnm->s.tok.c = 0;
-    if ((buf[0] & 0x80) == 0x00) {
-        cnm->s.tok.c = buf[0];
-    } else if ((buf[0] & 0xE0) == 0xC0) {
-        cnm->s.tok.c |= (buf[0] & 0x1F) << 6;
-        cnm->s.tok.c |= buf[1] & 0x3F;
-    } else if ((buf[0] & 0xF0) == 0xE0) {
-        cnm->s.tok.c |= (buf[0] & 0x0F) << 12;
-        cnm->s.tok.c |= (buf[1] & 0x3F) << 6;
-        cnm->s.tok.c |= buf[2] & 0x3F;
-    } else if ((buf[0] & 0xF8) == 0xF0) {
-        cnm->s.tok.c |= (buf[0] & 0x07) << 18;
-        cnm->s.tok.c |= (buf[1] & 0x3F) << 12;
-        cnm->s.tok.c |= (buf[2] & 0x3F) << 6;
-        cnm->s.tok.c |= buf[3] & 0x3F;
+    if (!utf8_buf_to_utf32(cnm, buf, &cnm->s.tok.c)) return false;
+
+    if (cnm->s.tok.suffix[0] == 'u' && !token_utf8_single_validation(cnm->s.tok.c)) {
+        // single utf8 byte
+        cnm_doerr(cnm, true, "character literal goes over single utf8 byte");
+    } else if (cnm->s.tok.suffix[0] == '\0' && cnm->s.tok.c > 0xff) {
+        // Throw warning that this normal char literal is above 1-byte big
+        cnm_doerr(cnm, false, "normal character literal is above range of 1 byte");
     }
 
 error:
@@ -873,33 +934,33 @@ static token_t *token_number(cnm_t *cnm) {
                                    &end, cnm->s.tok.i.base);
 
         // Get suffix
-        cnm->s.tok.i.suffix[suffix_len] = '\0';
+        cnm->s.tok.suffix[suffix_len] = '\0';
 
         // Look for optional 'u'
         if (tolower(*end) == 'u') {
-            cnm->s.tok.i.suffix[suffix_len++] = 'u';
-            cnm->s.tok.i.suffix[suffix_len] = '\0';
+            cnm->s.tok.suffix[suffix_len++] = 'u';
+            cnm->s.tok.suffix[suffix_len] = '\0';
             end++;
         }
         
         // Look for optional 2 l's
         for (int i = 0; i < 2; i++) {
             if (tolower(*end) == 'l') {
-                cnm->s.tok.i.suffix[suffix_len++] = 'l';
-                cnm->s.tok.i.suffix[suffix_len] = '\0';
+                cnm->s.tok.suffix[suffix_len++] = 'l';
+                cnm->s.tok.suffix[suffix_len] = '\0';
                 end++;
             }
         }
     } else {
-        cnm->s.tok.f.n = strtod(cnm->s.tok.src.str, &end);
+        cnm->s.tok.f = strtod(cnm->s.tok.src.str, &end);
 
         // Look for optional 'f'
         if (tolower(*end) == 'f') {
-            cnm->s.tok.i.suffix[0] = 'f';
-            cnm->s.tok.f.suffix[1] = '\0';
+            cnm->s.tok.suffix[0] = 'f';
+            cnm->s.tok.suffix[1] = '\0';
             end++;
         } else {
-            cnm->s.tok.f.suffix[0] = '\0';
+            cnm->s.tok.suffix[0] = '\0';
         }
     }
 
@@ -948,11 +1009,35 @@ static token_t *token_next(cnm_t *cnm) {
         cnm->s.tok.src.len = 0;
         break;
     default:
+        // Unknown character
         if (!isalpha(cnm->s.tok.src.str[0]) && cnm->s.tok.src.str[0] != '_') {
             cnm_doerr(cnm, true, "unknown character while lexing");
             cnm->s.tok.type = TOKEN_EOF;
             return &cnm->s.tok;
         }
+
+        // Prefix strings/characters
+        if (cnm->s.tok.src.str[0] == 'u' && cnm->s.tok.src.str[1] == '8') {
+            cnm->s.tok.suffix[0] = 'u';
+            cnm->s.tok.suffix[1] = '8';
+            cnm->s.tok.suffix[2] = '\0';
+            if (cnm->s.tok.src.str[2] == '"') {
+                return token_string(cnm);
+            } else if (cnm->s.tok.src.str[2] == '\'') {
+                return token_char(cnm);
+            }
+        } else if (cnm->s.tok.src.str[0] == 'U') {
+            cnm->s.tok.suffix[0] = 'U';
+            cnm->s.tok.suffix[1] = '\0';
+            if (cnm->s.tok.src.str[1] == '"') {
+                return token_string(cnm);
+            } else if (cnm->s.tok.src.str[1] == '\'') {
+                return token_char(cnm);
+            }
+        }
+
+        // Identifiers
+        cnm->s.tok.suffix[0] = '\0';
         return token_ident(cnm);
 
     // Simple tokens
@@ -1616,8 +1701,8 @@ static bool type_parse_declspec_enum(cnm_t *cnm, type_t *type, bool *istypedef,
         }
 
         // Set number
-        if (type_is_unsigned(*val.type.type)) variant_id.u = val.literal.num.u;
-        else variant_id.i = val.literal.num.i;
+        if (type_is_unsigned(*val.type.type)) variant_id.u = val.literal.u;
+        else variant_id.i = val.literal.i;
         if (type_is_unsigned(e->type)) v->id.u = variant_id.u++;
         else v->id.i = variant_id.i++;
 
@@ -2009,17 +2094,17 @@ static typeref_t type_parse_ex(cnm_t *cnm, const type_t *base,
                 cnm_doerr(cnm, true, "array size is non-integer type");
                 goto return_error;
             }
-            if (!type_is_unsigned(*val.type.type) && val.literal.num.i < 0) {
+            if (!type_is_unsigned(*val.type.type) && val.literal.i < 0) {
                 cnm_doerr(cnm, true, "size of array is negative");
                 goto return_error;
             }
-            if (val.literal.num.u >= 1 << 24) {
+            if (val.literal.u >= 1 << 24) {
                 cnm_doerr(cnm, true, "length of array is over max array length");
                 goto return_error;
             }
 
             // Set array size and free ast nodes
-            type->n = val.literal.num.u;
+            type->n = val.literal.u;
             cnm->alloc.next = stack_ptr;
 
             // Check for ending ']'
@@ -2118,19 +2203,19 @@ static typeref_t type_parse_ex(cnm_t *cnm, const type_t *base,
             cnm_doerr(cnm, true, "expected bitfield width to be integer");
             goto return_error;
         }
-        if (!type_is_unsigned(*val.type.type) && val.literal.num.i < 0) {
+        if (!type_is_unsigned(*val.type.type) && val.literal.i < 0) {
             cnm_doerr(cnm, true, "bitfield width must be positive");
             goto return_error;
         }
-        if (val.literal.num.i == 0 && name && name->str) {
+        if (val.literal.i == 0 && name && name->str) {
             cnm_doerr(cnm, true, "bitfield width with 0 width");
             goto return_error;
         }
-        if (val.literal.num.i > (base->class == TYPE_BOOL ? 1 : base->n)) {
+        if (val.literal.i > (base->class == TYPE_BOOL ? 1 : base->n)) {
             cnm_doerr(cnm, true, "bitfield width exceeds its type");
             goto return_error;
         }
-        real_base.n = val.literal.num.u;
+        real_base.n = val.literal.u;
     }
 
     // Add the base type on
@@ -2195,6 +2280,20 @@ static bool expr_group(cnm_t *cnm, valref_t *out, bool gencode, bool gendata) {
     return true;
 }
 
+// Create a literal value valref for a character token
+static bool expr_char(cnm_t *cnm, valref_t *out, bool gencode, bool gendata) {
+    *out = (valref_t){ .isliteral = true };
+
+    // Allocate and initialize type
+    if (!(out->type.type = cnm_alloc(cnm, sizeof(type_t), sizeof(type_t)))) return false;
+    *out->type.type = (type_t){ .class = TYPE_CHAR, .n = 8 };
+    out->type.size = 1;
+
+
+
+    return true;
+}
+
 // Create a literal value valref for the integer
 static bool expr_int(cnm_t *cnm, valref_t *out, bool gencode, bool gendata) {
     *out = (valref_t){ .isliteral = true };
@@ -2205,65 +2304,65 @@ static bool expr_int(cnm_t *cnm, valref_t *out, bool gencode, bool gendata) {
 
     // Get minimum allowed type by suffix
     typeclass_t mintype = TYPE_INT;
-    if (cnm->s.tok.i.suffix[0] == 'u') {
+    if (cnm->s.tok.suffix[0] == 'u') {
         mintype = TYPE_UINT;
-        if (cnm->s.tok.i.suffix[1] == 'l') {
+        if (cnm->s.tok.suffix[1] == 'l') {
             mintype = TYPE_ULONG;
-            if (cnm->s.tok.i.suffix[2] == 'l') {
+            if (cnm->s.tok.suffix[2] == 'l') {
                 mintype = TYPE_ULLONG;
             }
         }
-    } else if (cnm->s.tok.i.suffix[0] == 'l') {
+    } else if (cnm->s.tok.suffix[0] == 'l') {
         mintype = TYPE_LONG;
-        if (cnm->s.tok.i.suffix[1] == 'l') {
+        if (cnm->s.tok.suffix[1] == 'l') {
             mintype = TYPE_LLONG;
         }
     }
 
-    const bool allow_u = cnm->s.tok.i.suffix[0] == 'u' || cnm->s.tok.i.base != 10;
+    const bool allow_u = cnm->s.tok.suffix[0] == 'u' || cnm->s.tok.i.base != 10;
 
     // Find smallest type that can represent the number and is bigger than the
     // minimum allowed type
     switch (mintype) {
     case TYPE_INT:
-        if (cnm->s.tok.i.n <= INT_MAX && cnm->s.tok.i.suffix[0] != 'u') {
+        if (cnm->s.tok.i.n <= INT_MAX && cnm->s.tok.suffix[0] != 'u') {
             out->type.type[0] = (type_t){ .class = TYPE_INT };
-            out->literal.num.i = cnm->s.tok.i.n;
+            out->literal.i = cnm->s.tok.i.n;
             token_next(cnm); // Continue to next part in expression
             return true;
         }
     case TYPE_UINT:
         if (cnm->s.tok.i.n <= UINT_MAX && allow_u) {
             out->type.type[0] = (type_t){ .class = TYPE_UINT };
-            out->literal.num.u = cnm->s.tok.i.n;
+            out->literal.u = cnm->s.tok.i.n;
             token_next(cnm); // Continue to next part in expression
             return true;
         }
     case TYPE_LONG:
-        if (cnm->s.tok.i.n <= LONG_MAX && cnm->s.tok.i.suffix[0] != 'u') {
+        if (cnm->s.tok.i.n <= LONG_MAX && cnm->s.tok.suffix[0] != 'u') {
             out->type.type[0] = (type_t){ .class = TYPE_LONG };
-            out->literal.num.i = cnm->s.tok.i.n;
+            out->literal.i = cnm->s.tok.i.n;
             token_next(cnm); // Continue to next part in expression
             return true;
         }
     case TYPE_ULONG:
         if (cnm->s.tok.i.n <= ULONG_MAX && allow_u) {
             out->type.type[0] = (type_t){ .class = TYPE_ULONG };
-            out->literal.num.u = cnm->s.tok.i.n;
+            out->literal.u = cnm->s.tok.i.n;
             token_next(cnm); // Continue to next part in expression
             return true;
         }
     case TYPE_LLONG:
-        if (cnm->s.tok.i.n <= LLONG_MAX && cnm->s.tok.i.suffix[0] != 'u') {
+        if (cnm->s.tok.i.n <= LLONG_MAX && cnm->s.tok.suffix[0] != 'u') {
             out->type.type[0] = (type_t){ .class = TYPE_LLONG };
-            out->literal.num.i = cnm->s.tok.i.n;
+            out->literal.i = cnm->s.tok.i.n;
             token_next(cnm); // Continue to next part in expression
             return true;
         }
     case TYPE_ULLONG:
         if (allow_u) {
             out->type.type[0] = (type_t){ .class = TYPE_ULLONG };
-            out->literal.num.u = cnm->s.tok.i.n;
+            out->literal.u = cnm->s.tok.i.n;
             token_next(cnm); // Continue to next part in expression
             return true;
         }
@@ -2273,7 +2372,7 @@ static bool expr_int(cnm_t *cnm, valref_t *out, bool gencode, bool gendata) {
 
     // Couldn't find type to fix the number, default to int
     out->type.type[0] = (type_t){ .class = TYPE_INT };
-    out->literal.num.u = cnm->s.tok.i.n;
+    out->literal.u = cnm->s.tok.i.n;
     cnm_doerr(cnm, false, "integer constant can not fit, defaulting to int");
 
     // Goto next token for the rest of the expression
@@ -2286,14 +2385,14 @@ static bool expr_int(cnm_t *cnm, valref_t *out, bool gencode, bool gendata) {
 static bool expr_double(cnm_t *cnm, valref_t *out, bool gencode, bool gendata) {
     *out = (valref_t){
         .isliteral = true,
-        .literal.num.f = cnm->s.tok.f.n,
+        .literal.f = cnm->s.tok.f,
     };
 
     // Allocate ast type
     if (!(out->type.type = cnm_alloc(cnm, sizeof(type_t), sizeof(type_t)))) return false;
     out->type.size = 1;
     out->type.type[0] = (type_t){
-        .class = cnm->s.tok.f.suffix[0] == 'f' ? TYPE_FLOAT : TYPE_DOUBLE,
+        .class = cnm->s.tok.suffix[0] == 'f' ? TYPE_FLOAT : TYPE_DOUBLE,
     };
 
     // Goto next token for the rest of the expression
@@ -2318,35 +2417,35 @@ static void cf_cast_arith(valref_t *val, typeref_t cast_to) {
 
     // Convert to or convert from and to float types
     if (to->class == TYPE_BOOL) {
-        if (fp_from) val->literal.num.u = !!val->literal.num.f;
-        else val->literal.num.u = !!val->literal.num.u;
+        if (fp_from) val->literal.u = !!val->literal.f;
+        else val->literal.u = !!val->literal.u;
     } else if (fp_to && !fp_from) {
-        val->literal.num.f = u_from ? val->literal.num.u : val->literal.num.i;
+        val->literal.f = u_from ? val->literal.u : val->literal.i;
     } else if (!fp_to && fp_from) {
-        if (u_from) val->literal.num.u = val->literal.num.f;
-        else val->literal.num.i = val->literal.num.f;
+        if (u_from) val->literal.u = val->literal.f;
+        else val->literal.i = val->literal.f;
     }
 
 enforce_width:
     if (to->class == TYPE_FLOAT) {
-        val->literal.num.f = (float)val->literal.num.f;
+        val->literal.f = (float)val->literal.f;
         return;
     } else if (to->class == TYPE_DOUBLE) {
         return;
     } else if (to->class == TYPE_BOOL) {
-        val->literal.num.u = !!val->literal.num.u;
+        val->literal.u = !!val->literal.u;
         return;
     }
 
     // Cap the integer to the bit width of what it is
-    if (!type_is_unsigned(*cast_to.type) && val->literal.num.i < 0) return;
+    if (!type_is_unsigned(*cast_to.type) && val->literal.i < 0) return;
     switch (to->class) {
     case TYPE_UCHAR:
-        val->literal.num.u &= 0xFF;
+        val->literal.u &= 0xFF;
     case TYPE_USHORT:
-        val->literal.num.u &= 0xFFFF;
+        val->literal.u &= 0xFFFF;
     case TYPE_UINT:
-        val->literal.num.u &= 0xFFFFFFFF;
+        val->literal.u &= 0xFFFFFFFF;
     default:
         break;
     }
@@ -2370,11 +2469,11 @@ static bool set_arith_type(cnm_t *cnm, valref_t *out, valref_t *left, valref_t *
     static void cf_##opname(valref_t *out, valref_t *left, valref_t *right) { \
         const typeclass_t class = out->type.type[0].class; \
         if (class == TYPE_DOUBLE || class == TYPE_FLOAT) { \
-            out->literal.num.f = left->literal.num.f optoken right->literal.num.f; \
+            out->literal.f = left->literal.f optoken right->literal.f; \
         } else if (type_is_unsigned(*out->type.type)) { \
-            out->literal.num.u = left->literal.num.u optoken right->literal.num.u; \
+            out->literal.u = left->literal.u optoken right->literal.u; \
         } else { \
-            out->literal.num.i = left->literal.num.i optoken right->literal.num.i; \
+            out->literal.i = left->literal.i optoken right->literal.i; \
         } \
     }
 CF_OP(add, +)
@@ -2387,9 +2486,9 @@ CF_OP(div, /)
     static void cf_##opname(valref_t *out, valref_t *left, valref_t *right) { \
         const typeclass_t class = out->type.type[0].class; \
         if (type_is_unsigned(*out->type.type)) { \
-            out->literal.num.u = left->literal.num.u optoken right->literal.num.u; \
+            out->literal.u = left->literal.u optoken right->literal.u; \
         } else { \
-            out->literal.num.i = left->literal.num.i optoken right->literal.num.i; \
+            out->literal.i = left->literal.i optoken right->literal.i; \
         } \
     }
 CF_OP_INT(mod, %)
@@ -2403,30 +2502,30 @@ CF_OP_INT(shift_r, >>)
 static void cf_neg(valref_t *var) {
     const typeclass_t class = var->type.type[0].class;
     if (class == TYPE_DOUBLE || class == TYPE_FLOAT) {
-        var->literal.num.f = -var->literal.num.f;
+        var->literal.f = -var->literal.f;
     } else if (type_is_unsigned(*var->type.type)) {
-        var->literal.num.u = -var->literal.num.u;
+        var->literal.u = -var->literal.u;
     } else {
-        var->literal.num.i = -var->literal.num.i;
+        var->literal.i = -var->literal.i;
     }
 }
 static void cf_not(valref_t *var) {
     type_t *type = &var->type.type[0];
     if (type->class == TYPE_DOUBLE || type->class == TYPE_FLOAT) {
-        var->literal.num.u = !var->literal.num.f;
+        var->literal.u = !var->literal.f;
     } else if (type_is_unsigned(*var->type.type)) {
-        var->literal.num.u = !var->literal.num.u;
+        var->literal.u = !var->literal.u;
     } else {
-        var->literal.num.u = !var->literal.num.i;
+        var->literal.u = !var->literal.i;
     }
     type->class = TYPE_BOOL;
 }
 static void cf_bit_not(valref_t *var) {
     const typeclass_t class = var->type.type[0].class;
     if (type_is_unsigned(*var->type.type)) {
-        var->literal.num.u = ~var->literal.num.u;
+        var->literal.u = ~var->literal.u;
     } else {
-        var->literal.num.u = ~var->literal.num.i;
+        var->literal.u = ~var->literal.i;
     }
 }
 
