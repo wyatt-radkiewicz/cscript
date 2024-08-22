@@ -7,6 +7,7 @@
 static uint8_t test_region[2048];
 static uint8_t test_globals[2048];
 static uint8_t *test_globals_a4; // Aligned to 4 byte boundary
+static uint8_t *test_globals_a8; // Aligned to 4 byte boundary
 
 static void *test_code_area;
 static size_t test_code_size;
@@ -2655,6 +2656,78 @@ GENERIC_TEST(test_global_variable9, test_expect_errcb)
     if (cnm_parse(cnm, "int a = 1; int a = 2;", "test_global_variable9")) return TESTFAIL;
     return test_expect_err;
 }
+GENERIC_TEST(test_global_variable10, test_expect_errcb)
+    if (!cnm_parse(cnm, "const char *str = \"hello world\";",
+                        "test_global_variable10")) return TESTFAIL;
+    scope_t *var = cnm->vars;
+    if (!var) return TESTFAIL;
+    if (cnm->cg.uid_start != 1) return TESTFAIL;
+    if (var->scope != 0) return TESTFAIL;
+    if (var->abs_addr != test_globals_a8 + 16) return TESTFAIL;
+    if (var->uid != 0) return TESTFAIL;
+    if (!strview_eq(var->name, SV("str"))) return TESTFAIL;
+    if (var->range != NULL) return TESTFAIL;
+    if (!type_eq(var->type, (typeref_t){
+        .size = 2,
+        .type = (type_t[]){
+            (type_t){ .class = TYPE_PTR },
+            (type_t){ .class = TYPE_CHAR, .n = 8, .isconst = true },
+        },
+    }, true)) return TESTFAIL;
+    if (memcmp(var->abs_addr, &(void *){*(void **)var->abs_addr},
+               sizeof(void *)) != 0) return TESTFAIL;
+    if (var->next != NULL) return TESTFAIL;
+    return !test_expect_err;
+}
+GENERIC_TEST(test_global_variable11, test_expect_errcb)
+    if (!cnm_parse(cnm, "unsigned long long x = 3.4;",
+                        "test_global_variable11")) return TESTFAIL;
+    scope_t *var = cnm->vars;
+    if (!var) return TESTFAIL;
+    if (cnm->cg.uid_start != 1) return TESTFAIL;
+    if (var->scope != 0) return TESTFAIL;
+    if (var->abs_addr != test_globals_a8 + 0) return TESTFAIL;
+    if (var->uid != 0) return TESTFAIL;
+    if (!strview_eq(var->name, SV("x"))) return TESTFAIL;
+    if (var->range != NULL) return TESTFAIL;
+    if (!type_eq(var->type, (typeref_t){
+        .size = 1,
+        .type = (type_t[]){
+            (type_t){ .class = TYPE_ULLONG, .n = 64 },
+        },
+    }, true)) return TESTFAIL;
+    if (memcmp(var->abs_addr, &(unsigned long long){3},
+               sizeof(unsigned long long)) != 0) return TESTFAIL;
+    if (var->next != NULL) return TESTFAIL;
+    return !test_expect_err;
+}
+GENERIC_TEST(test_global_variable12, test_expect_errcb)
+    if (cnm_parse(cnm, "int *p = 3.4;",
+                        "test_global_variable12")) return TESTFAIL;
+    return test_expect_err;
+}
+GENERIC_TEST(test_global_variable13, test_expect_errcb)
+    if (!cnm_parse(cnm, "void *p = (void *)1234;",
+                        "test_global_variable13")) return TESTFAIL;
+    scope_t *var = cnm->vars;
+    if (!var) return TESTFAIL;
+    if (cnm->cg.uid_start != 1) return TESTFAIL;
+    if (var->scope != 0) return TESTFAIL;
+    if (var->abs_addr != test_globals_a8 + 0) return TESTFAIL;
+    if (var->uid != 0) return TESTFAIL;
+    if (!strview_eq(var->name, SV("p"))) return TESTFAIL;
+    if (var->range != NULL) return TESTFAIL;
+    if (!type_eq(var->type, (typeref_t){
+        .size = 2,
+        .type = (type_t[]){
+            (type_t){ .class = TYPE_PTR },
+            (type_t){ .class = TYPE_VOID },
+        },
+    }, true)) return TESTFAIL;
+    if (memcmp(var->abs_addr, &(void *){(void *)1234}, sizeof(void *)) != 0) return TESTFAIL;
+    if (var->next != NULL) return TESTFAIL;
+    return !test_expect_err;
+}
 
 ///////////////////////////////////////////////////////////////////////////////
 //
@@ -2864,6 +2937,10 @@ static test_t tests[] = {
     TEST(test_global_variable7),
     TEST(test_global_variable8),
     TEST(test_global_variable9),
+    TEST(test_global_variable10),
+    TEST(test_global_variable11),
+    TEST(test_global_variable12),
+    TEST(test_global_variable13),
 };
 
 int main(int argc, char **argv) {
@@ -2874,6 +2951,7 @@ int main(int argc, char **argv) {
                      MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
 
     test_globals_a4 = (uint8_t *)align_size((size_t)test_globals, 4);
+    test_globals_a8 = (uint8_t *)align_size((size_t)test_globals, 8);
 
     int passed = 0, ntests = 0;
     for (int i = 0; i < arrlen(tests); i++) {

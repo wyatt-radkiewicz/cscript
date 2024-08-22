@@ -241,10 +241,14 @@ typedef struct {
     // If this type also has the literal data associated with it
     bool isliteral;
     union {
+        // Integer constants
         uintmax_t u;
         intmax_t i;
         double f;
         uint32_t c;
+
+        // Address to global data if it is a global variable
+        void *addr;
     } literal;
 
     // The type of the value, copy of the scope type if this is a scoped var
@@ -380,6 +384,7 @@ struct cnm_s {
 static bool expr_parse(cnm_t *cnm, valref_t *out, bool gencode, bool gendata, prec_t prec);
 
 static expr_parse_prefix_t expr_char;
+static expr_parse_prefix_t expr_str;
 static expr_parse_prefix_t expr_int;
 static expr_parse_prefix_t expr_double;
 static expr_parse_infix_t expr_arith;
@@ -390,6 +395,7 @@ static expr_rule_t expr_rules[TOKEN_MAX] = {
     [TOKEN_PAREN_L] = { .prefix_prec = PREC_FACTOR, .prefix = expr_group },
     [TOKEN_INT] = { .prefix_prec = PREC_FACTOR, .prefix = expr_int },
     [TOKEN_CHAR] = { .prefix_prec = PREC_FACTOR, .prefix = expr_char },
+    [TOKEN_STRING] = { .prefix_prec = PREC_FACTOR, .prefix = expr_str },
     [TOKEN_DOUBLE] = { .prefix_prec = PREC_FACTOR, .prefix = expr_double },
     [TOKEN_PLUS] = { .infix_prec = PREC_ADDI, .infix = expr_arith },
     [TOKEN_MINUS] = { .infix_prec = PREC_ADDI, .infix = expr_arith,
@@ -1131,6 +1137,17 @@ static bool type_is_unsigned(const type_t type) {
     }
 }
 
+static bool type_is_pod(const type_t type) {
+    switch (type.class) {
+    case TYPE_UCHAR: case TYPE_USHORT: case TYPE_UINT: case TYPE_ULONG: case TYPE_ULLONG:
+    case TYPE_CHAR: case TYPE_SHORT: case TYPE_INT: case TYPE_LONG: case TYPE_LLONG:
+    case TYPE_FLOAT: case TYPE_DOUBLE: case TYPE_PTR: case TYPE_BOOL:
+        return true;
+    default:
+        return false;
+    }
+}
+
 static typeinf_t type_getinf(cnm_t *cnm, const type_t *type) {
     switch (type->class) {
     case TYPE_VOID: return (typeinf_t){ .size = 0, .align = 1 };
@@ -1216,7 +1233,10 @@ static bool type_eq(const typeref_t a, const typeref_t b, bool test_toplvl) {
 // Promotes a type to atleast type of int. Behavior is undefined if the type is
 // not already an arithmetic type
 static inline void type_promote_to_int(typeref_t *ref) {
-    if (ref->type[0].class < TYPE_INT) ref->type[0].class = TYPE_INT;
+    if (ref->type[0].class < TYPE_INT) {
+        ref->type[0].class = TYPE_INT;
+        ref->type[0].n = 32;
+    }
 }
 
 // Helper struct for type_parse_declspec
@@ -1504,7 +1524,6 @@ static bool type_parse_declspec_struct(cnm_t *cnm, type_t *type, bool *istypedef
             // Get the full type data
             f->type = type_parse(cnm, &base, &f->name, true);
             if (!f->type.size) {
-                // TODO: Make error talk about undefined types as well?
                 cnm_doerr(cnm, true, "field %s can not have 0 size, it's base type might"
                                      "also be undefined");
                 return false;
@@ -1750,7 +1769,6 @@ static bool type_parse_declspec_union(cnm_t *cnm, type_t *type, bool *istypedef,
             // Get the type data
             typeref_t ref = type_parse(cnm, &base, NULL, true);
             if (!typeref_isvalid(ref)) {
-                // TODO: Make error talk about undefined types as well?
                 cnm_doerr(cnm, true, "can not have 0 sized type in union field");
                 return false;
             }
@@ -2259,12 +2277,117 @@ static bool expr_parse(cnm_t *cnm, valref_t *out, bool gencode, bool gendata, pr
     return true;
 }
 
+// Constant fold cast an valref to the to type
+static bool valref_cast_literal(cnm_t *cnm, valref_t *val, typeref_t cast_to) {
+    type_t *from = val->type.type, *to = cast_to.type;
+
+    if (!type_is_pod(*from) || !type_is_pod(*to)) {
+        cnm_doerr(cnm, true, "can only do casting between pod data types");
+        return false;
+    }
+
+    // Cache information about from and to types
+    const bool fp_to = type_is_fp(*cast_to.type), fp_from = type_is_fp(*val->type.type),
+        u_from = type_is_unsigned(*val->type.type) || val->type.type->class == TYPE_PTR;
+
+    val->type = cast_to;
+
+    // Convert to or convert from and to float types
+    if (to->class == TYPE_BOOL) {
+        if (fp_from) val->literal.u = !!val->literal.f;
+        else val->literal.u = !!val->literal.u;
+    } else if (fp_to && !fp_from) {
+        val->literal.f = u_from ? val->literal.u : val->literal.i;
+    } else if (!fp_to && fp_from) {
+        if (u_from) val->literal.u = val->literal.f;
+        else val->literal.i = val->literal.f;
+    }
+
+enforce_width:
+    if (to->class == TYPE_FLOAT) {
+        val->literal.f = (float)val->literal.f;
+        return true;
+    } else if (to->class == TYPE_DOUBLE || to->class == TYPE_PTR
+        || to->class == TYPE_LONG || to->class == TYPE_LLONG
+        || to->class == TYPE_ULONG || to->class == TYPE_ULLONG) {
+        return true;
+    } else if (to->class == TYPE_BOOL) {
+        val->literal.u = !!val->literal.u;
+        return true;
+    }
+
+    // Cap the integer to the bit width of what it is
+    switch (to->class) {
+    case TYPE_CHAR: val->literal.i = (intmax_t)(char)val->literal.i; break;
+    case TYPE_SHORT: val->literal.i = (intmax_t)(short)val->literal.i; break;
+    case TYPE_INT: val->literal.i = (intmax_t)(int)val->literal.i; break;
+    case TYPE_UCHAR: val->literal.u &= 0xFF; break;
+    case TYPE_USHORT: val->literal.u &= 0xFFFF; break;
+    case TYPE_UINT: val->literal.u &= 0xFFFFFFFF; break;
+    default: break;
+    }
+
+    return true;
+}
+
+// Generate code to cast the type and value of val to the type of to
+static bool valref_cast_runtime(cnm_t *cnm, valref_t *val, const typeref_t to) {
+    // TODO: Emit byte code to cast value
+    return false;
+}
+
+// Cast val to 'to'
+static bool valref_cast(cnm_t *cnm, valref_t *val, const typeref_t to, bool gencode) {
+    if (val->isliteral) {
+        if (!valref_cast_literal(cnm, val, to)) return false;
+    } else if (gencode) {
+        if (!valref_cast_runtime(cnm, val, to)) return false;
+    }
+    return true;
+}
+
+// Cast something, with token pointing to right after '(' in cast expr
+static bool expr_cast(cnm_t *cnm, valref_t *out, bool gencode, bool gendata) {
+    // Get the type to cast to first
+    type_t base;
+    bool istypedef;
+    if (!type_parse_declspec(cnm, &base, &istypedef)) return false;
+    if (istypedef) {
+        cnm_doerr(cnm, true, "Can not declare typedef in cast expression.");
+        return false;
+    }
+    strview_t name;
+    typeref_t type = type_parse(cnm, &base, &name, false);
+    if (!type.type) return false;
+    if (name.str) {
+        cnm_doerr(cnm, true, "Can not give type a identifier in cast expression");
+        return false;
+    }
+
+    // Make sure there is the ending parenthesis
+    if (cnm->s.tok.type != TOKEN_PAREN_R) {
+        return false;
+    }
+    token_next(cnm);
+
+    // Now parse the expression
+    if (!expr_parse(cnm, out, gencode, gendata, PREC_PREFIX)) return false;
+
+    // Now cast out to the type
+    if (!valref_cast(cnm, out, type, gencode)) return false;
+
+    return true;
+}
+
 // Group together operations into one group inbetween parentheses
 static bool expr_group(cnm_t *cnm, valref_t *out, bool gencode, bool gendata) {
     // Consume the '(' token
     const token_t errtok = cnm->s.tok;
     token_next(cnm);
-    
+   
+    // This might also be a cast operator so watch out
+    if (cnm_at_declspec(cnm)) return expr_cast(cnm, out, gencode, gendata);
+
     // Get the inner grouping
     if (!expr_parse(cnm, out, gencode, gendata, PREC_FULL)) return false;
 
@@ -2275,6 +2398,31 @@ static bool expr_group(cnm_t *cnm, valref_t *out, bool gencode, bool gendata) {
         cnm_doerr(cnm, false, "grouping started here");
         return NULL;
     }
+    token_next(cnm);
+
+    return true;
+}
+
+// Create a literal value valref for a string token
+static bool expr_str(cnm_t *cnm, valref_t *out, bool gencode, bool gendata) {
+    *out = (valref_t){ .isliteral = true, .type.size = 2 };
+
+    // Allocate and initialize type
+    if (!(out->type.type = cnm_alloc(cnm, sizeof(type_t) * 2, sizeof(type_t)))) return false;
+    if (cnm->s.tok.suffix[0] == 'u') {
+        out->type.type[0] = (type_t){ .class = TYPE_PTR };
+        out->type.type[1] = (type_t){ .class = TYPE_UCHAR, .n = 8, .isconst = true };
+    } else if (cnm->s.tok.suffix[0] == 'U') {
+        out->type.type[0] = (type_t){ .class = TYPE_PTR };
+        out->type.type[1] = (type_t){ .class = TYPE_UINT, .n = 32, .isconst = true };
+    } else {
+        out->type.type[0] = (type_t){ .class = TYPE_PTR };
+        out->type.type[1] = (type_t){ .class = TYPE_CHAR, .n = 8, .isconst = true };
+    }
+
+    // Set the pointer
+    out->literal.addr = cnm->s.tok.s;
+
     token_next(cnm);
 
     return true;
@@ -2335,42 +2483,42 @@ static bool expr_int(cnm_t *cnm, valref_t *out, bool gencode, bool gendata) {
     switch (mintype) {
     case TYPE_INT:
         if (cnm->s.tok.i.n <= INT_MAX && cnm->s.tok.suffix[0] != 'u') {
-            out->type.type[0] = (type_t){ .class = TYPE_INT };
+            out->type.type[0] = (type_t){ .class = TYPE_INT, .n = 32 };
             out->literal.i = cnm->s.tok.i.n;
             token_next(cnm); // Continue to next part in expression
             return true;
         }
     case TYPE_UINT:
         if (cnm->s.tok.i.n <= UINT_MAX && allow_u) {
-            out->type.type[0] = (type_t){ .class = TYPE_UINT };
+            out->type.type[0] = (type_t){ .class = TYPE_UINT, .n = 32 };
             out->literal.u = cnm->s.tok.i.n;
             token_next(cnm); // Continue to next part in expression
             return true;
         }
     case TYPE_LONG:
         if (cnm->s.tok.i.n <= LONG_MAX && cnm->s.tok.suffix[0] != 'u') {
-            out->type.type[0] = (type_t){ .class = TYPE_LONG };
+            out->type.type[0] = (type_t){ .class = TYPE_LONG, .n = 64 };
             out->literal.i = cnm->s.tok.i.n;
             token_next(cnm); // Continue to next part in expression
             return true;
         }
     case TYPE_ULONG:
         if (cnm->s.tok.i.n <= ULONG_MAX && allow_u) {
-            out->type.type[0] = (type_t){ .class = TYPE_ULONG };
+            out->type.type[0] = (type_t){ .class = TYPE_ULONG, .n = 64 };
             out->literal.u = cnm->s.tok.i.n;
             token_next(cnm); // Continue to next part in expression
             return true;
         }
     case TYPE_LLONG:
         if (cnm->s.tok.i.n <= LLONG_MAX && cnm->s.tok.suffix[0] != 'u') {
-            out->type.type[0] = (type_t){ .class = TYPE_LLONG };
+            out->type.type[0] = (type_t){ .class = TYPE_LLONG, .n = 64 };
             out->literal.i = cnm->s.tok.i.n;
             token_next(cnm); // Continue to next part in expression
             return true;
         }
     case TYPE_ULLONG:
         if (allow_u) {
-            out->type.type[0] = (type_t){ .class = TYPE_ULLONG };
+            out->type.type[0] = (type_t){ .class = TYPE_ULLONG, .n = 64 };
             out->literal.u = cnm->s.tok.i.n;
             token_next(cnm); // Continue to next part in expression
             return true;
@@ -2380,7 +2528,7 @@ static bool expr_int(cnm_t *cnm, valref_t *out, bool gencode, bool gendata) {
     }
 
     // Couldn't find type to fix the number, default to int
-    out->type.type[0] = (type_t){ .class = TYPE_INT };
+    out->type.type[0] = (type_t){ .class = TYPE_INT, .n = 32 };
     out->literal.u = cnm->s.tok.i.n;
     cnm_doerr(cnm, false, "integer constant can not fit, defaulting to int");
 
@@ -2410,56 +2558,6 @@ static bool expr_double(cnm_t *cnm, valref_t *out, bool gencode, bool gendata) {
     return true;
 }
 
-// Constant fold cast an valref to the to type
-static void cf_cast_arith(valref_t *val, typeref_t cast_to) {
-    type_t *from = val->type.type, *to = cast_to.type;
-
-    // Cache information about from and to types
-    const bool fp_to = type_is_fp(*cast_to.type), fp_from = type_is_fp(*val->type.type),
-        u_from = type_is_unsigned(*val->type.type);
-
-    // If the types are already equal, skip to type enforcing
-    if (from->class == to->class) goto enforce_width;
-
-    // Convert type information
-    from->class = to->class;
-
-    // Convert to or convert from and to float types
-    if (to->class == TYPE_BOOL) {
-        if (fp_from) val->literal.u = !!val->literal.f;
-        else val->literal.u = !!val->literal.u;
-    } else if (fp_to && !fp_from) {
-        val->literal.f = u_from ? val->literal.u : val->literal.i;
-    } else if (!fp_to && fp_from) {
-        if (u_from) val->literal.u = val->literal.f;
-        else val->literal.i = val->literal.f;
-    }
-
-enforce_width:
-    if (to->class == TYPE_FLOAT) {
-        val->literal.f = (float)val->literal.f;
-        return;
-    } else if (to->class == TYPE_DOUBLE) {
-        return;
-    } else if (to->class == TYPE_BOOL) {
-        val->literal.u = !!val->literal.u;
-        return;
-    }
-
-    // Cap the integer to the bit width of what it is
-    if (!type_is_unsigned(*cast_to.type) && val->literal.i < 0) return;
-    switch (to->class) {
-    case TYPE_UCHAR:
-        val->literal.u &= 0xFF;
-    case TYPE_USHORT:
-        val->literal.u &= 0xFFFF;
-    case TYPE_UINT:
-        val->literal.u &= 0xFFFFFFFF;
-    default:
-        break;
-    }
-}
-
 // Helper function to set the type of an arithmetic valref
 static bool set_arith_type(cnm_t *cnm, valref_t *out, valref_t *left, valref_t *right) {
     type_t *ltype = left->type.type, *rtype = right->type.type;
@@ -2467,6 +2565,7 @@ static bool set_arith_type(cnm_t *cnm, valref_t *out, valref_t *left, valref_t *
     // Binary arithmetic conversion ranks. Ranks have been built into the
     // enum definition of types
     // see https://en.cppreference.com/w/c/language/conversion for more
+    out->type.type[0].n = ltype->class > rtype->class ? ltype->n : rtype->n;
     out->type.type[0].class = ltype->class > rtype->class ? ltype->class : rtype->class;
     type_promote_to_int(&out->type);
 
@@ -2590,8 +2689,8 @@ static bool expr_arith(cnm_t *cnm, valref_t *out, bool gencode, bool gendata, va
 
     // Get the new type and convert both sides at compile time if we can
     if (!set_arith_type(cnm, out, left, &right)) return false;
-    if (left->isliteral) cf_cast_arith(left, out->type);
-    if (right.isliteral) cf_cast_arith(&right, out->type);
+    if (left->isliteral) valref_cast_literal(cnm, left, out->type);
+    if (right.isliteral) valref_cast_literal(cnm, &right, out->type);
 
     // Start constant propogation if we can
     if (!left->isliteral || !right.isliteral) return true;
@@ -2614,7 +2713,7 @@ static bool expr_arith(cnm_t *cnm, valref_t *out, bool gencode, bool gendata, va
     }
     
     // Enforce bit width and class
-    cf_cast_arith(out, out->type);
+    valref_cast_literal(cnm, out, out->type);
     out->isliteral = true;
     return true;
 }
@@ -2678,7 +2777,7 @@ static bool expr_prefix_arith(cnm_t *cnm, valref_t *out, bool gencode, bool gend
     }
     
     // Enforce bit width and class
-    cf_cast_arith(out, out->type);
+    valref_cast_literal(cnm, out, out->type);
     return true;
 }
 
@@ -2796,6 +2895,17 @@ static bool parse_file_decl_var(cnm_t *cnm, strview_t name, typeref_t type) {
     // Get the contents of the variable
     valref_t val;
     if (!expr_parse(cnm, &val, false, true, PREC_COND)) return false;
+   
+    // Implicity cast arithmetic types (int -> long, double -> int, etc)
+    if (type_is_arith(val.type.type[0]) && type_is_arith(type.type[0])
+        && !valref_cast_literal(cnm, &val, type)) return false;
+
+    // Make sure types match
+    if (!type_eq(val.type, type, false)) {
+        cnm_doerr(cnm, true, "initializing variable with expression of different type");
+        return false;
+    }
+
     val.scope = var;
     if (!val_enforce_global(cnm, &val)) return false;
 
