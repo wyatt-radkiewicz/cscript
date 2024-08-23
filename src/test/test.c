@@ -511,7 +511,7 @@ SIMPLE_TEST(test_lexer_token_location, test_errcb,
 SIMPLE_TEST(test_expr_constant_folding1, test_errcb,  "5")
     token_next(cnm);
     valref_t val;
-    if (!expr_parse(cnm, &val, false, false, PREC_FULL)) return TESTFAIL;
+    if (!expr_parse(cnm, &val, false, false, PREC_FULL, NULL)) return TESTFAIL;
     if (!val.isliteral) return TESTFAIL;
     if (val.type.type[0].class != TYPE_INT) return TESTFAIL;
     if (val.type.size != 1) return TESTFAIL;
@@ -521,7 +521,7 @@ SIMPLE_TEST(test_expr_constant_folding1, test_errcb,  "5")
 SIMPLE_TEST(test_expr_constant_folding2, test_errcb,  "5.0")
     token_next(cnm);
     valref_t val;
-    if (!expr_parse(cnm, &val, false, false, PREC_FULL)) return TESTFAIL;
+    if (!expr_parse(cnm, &val, false, false, PREC_FULL, NULL)) return TESTFAIL;
     if (!val.isliteral) return TESTFAIL;
     if (val.type.type[0].class != TYPE_DOUBLE) return TESTFAIL;
     if (val.literal.f != 5.0) return TESTFAIL;
@@ -530,7 +530,7 @@ SIMPLE_TEST(test_expr_constant_folding2, test_errcb,  "5.0")
 SIMPLE_TEST(test_expr_constant_folding3, test_errcb,  "5000000000")
     token_next(cnm);
     valref_t val;
-    if (!expr_parse(cnm, &val, false, false, PREC_FULL)) return TESTFAIL;
+    if (!expr_parse(cnm, &val, false, false, PREC_FULL, NULL)) return TESTFAIL;
     if (!val.isliteral) return TESTFAIL;
     if (val.type.type[0].class != TYPE_LONG) return TESTFAIL;
     if (val.literal.i != 5000000000) return TESTFAIL;
@@ -539,7 +539,7 @@ SIMPLE_TEST(test_expr_constant_folding3, test_errcb,  "5000000000")
 SIMPLE_TEST(test_expr_constant_folding4, test_errcb,  "5u")
     token_next(cnm);
     valref_t val;
-    if (!expr_parse(cnm, &val, false, false, PREC_FULL)) return TESTFAIL;
+    if (!expr_parse(cnm, &val, false, false, PREC_FULL, NULL)) return TESTFAIL;
     if (!val.isliteral) return TESTFAIL;
     if (val.type.type[0].class != TYPE_UINT) return TESTFAIL;
     if (val.literal.u != 5) return TESTFAIL;
@@ -548,7 +548,7 @@ SIMPLE_TEST(test_expr_constant_folding4, test_errcb,  "5u")
 SIMPLE_TEST(test_expr_constant_folding5, test_errcb,  "9223372036854775809ull")
     token_next(cnm);
     valref_t val;
-    if (!expr_parse(cnm, &val, false, false, PREC_FULL)) return TESTFAIL;
+    if (!expr_parse(cnm, &val, false, false, PREC_FULL, NULL)) return TESTFAIL;
     if (!val.isliteral) return TESTFAIL;
     if (val.type.type[0].class != TYPE_ULLONG) return TESTFAIL;
     if (val.literal.u != 9223372036854775809ull) return TESTFAIL;
@@ -557,13 +557,13 @@ SIMPLE_TEST(test_expr_constant_folding5, test_errcb,  "9223372036854775809ull")
 SIMPLE_TEST(test_expr_constant_folding6, test_expect_errcb,  "9223372036854775809")
     token_next(cnm);
     valref_t val;
-    if (!expr_parse(cnm, &val, false, false, PREC_FULL)) return TESTFAIL;
+    if (!expr_parse(cnm, &val, false, false, PREC_FULL, NULL)) return TESTFAIL;
     return test_expect_err;
 }
 SIMPLE_TEST(test_expr_constant_folding7, test_errcb,  "92ull")
     token_next(cnm);
     valref_t val;
-    if (!expr_parse(cnm, &val, false, false, PREC_FULL)) return TESTFAIL;
+    if (!expr_parse(cnm, &val, false, false, PREC_FULL, NULL)) return TESTFAIL;
     if (!val.isliteral) return TESTFAIL;
     if (val.type.type[0].class != TYPE_ULLONG) return TESTFAIL;
     if (val.literal.u != 92ull) return TESTFAIL;
@@ -572,7 +572,7 @@ SIMPLE_TEST(test_expr_constant_folding7, test_errcb,  "92ull")
 SIMPLE_TEST(test_expr_constant_folding8, test_errcb,  "5 + 5")
     token_next(cnm);
     valref_t val;
-    if (!expr_parse(cnm, &val, false, false, PREC_FULL)) return TESTFAIL;
+    if (!expr_parse(cnm, &val, false, false, PREC_FULL, NULL)) return TESTFAIL;
     if (!val.isliteral) return TESTFAIL;
     if (val.type.type[0].class != TYPE_INT) return TESTFAIL;
     if (val.literal.i != 10) return TESTFAIL;
@@ -581,7 +581,7 @@ SIMPLE_TEST(test_expr_constant_folding8, test_errcb,  "5 + 5")
 SIMPLE_TEST(test_expr_constant_folding9, test_errcb,  "5 * 5 + 3")
     token_next(cnm);
     valref_t val;
-    if (!expr_parse(cnm, &val, false, false, PREC_FULL)) return TESTFAIL;
+    if (!expr_parse(cnm, &val, false, false, PREC_FULL, NULL)) return TESTFAIL;
     if (!val.isliteral) return TESTFAIL;
     if (val.type.type[0].class != TYPE_INT) return TESTFAIL;
     if (val.literal.i != 28) return TESTFAIL;
@@ -590,7 +590,7 @@ SIMPLE_TEST(test_expr_constant_folding9, test_errcb,  "5 * 5 + 3")
 SIMPLE_TEST(test_expr_constant_folding10, test_errcb,  "5 + 5 * 3")
     token_next(cnm);
     valref_t val;
-    if (!expr_parse(cnm, &val, false, false, PREC_FULL)) return TESTFAIL;
+    if (!expr_parse(cnm, &val, false, false, PREC_FULL, NULL)) return TESTFAIL;
     if (!val.isliteral) return TESTFAIL;
     if (val.type.type[0].class != TYPE_INT) return TESTFAIL;
     if (val.literal.i != 20) return TESTFAIL;
@@ -599,7 +599,7 @@ SIMPLE_TEST(test_expr_constant_folding10, test_errcb,  "5 + 5 * 3")
 SIMPLE_TEST(test_expr_constant_folding11, test_errcb,  "5ul + 30.0")
     token_next(cnm);
     valref_t val;
-    if (!expr_parse(cnm, &val, false, false, PREC_FULL)) return TESTFAIL;
+    if (!expr_parse(cnm, &val, false, false, PREC_FULL, NULL)) return TESTFAIL;
     if (!val.isliteral) return TESTFAIL;
     if (val.type.type[0].class != TYPE_DOUBLE) return TESTFAIL;
     if (val.literal.f != 35) return TESTFAIL;
@@ -608,7 +608,7 @@ SIMPLE_TEST(test_expr_constant_folding11, test_errcb,  "5ul + 30.0")
 SIMPLE_TEST(test_expr_constant_folding12, test_errcb,  "10 / 3.0")
     token_next(cnm);
     valref_t val;
-    if (!expr_parse(cnm, &val, false, false, PREC_FULL)) return TESTFAIL;
+    if (!expr_parse(cnm, &val, false, false, PREC_FULL, NULL)) return TESTFAIL;
     if (!val.isliteral) return TESTFAIL;
     if (val.type.type[0].class != TYPE_DOUBLE) return TESTFAIL;
     if (val.literal.f != 10.0 / 3.0) return TESTFAIL;
@@ -617,7 +617,7 @@ SIMPLE_TEST(test_expr_constant_folding12, test_errcb,  "10 / 3.0")
 SIMPLE_TEST(test_expr_constant_folding13, test_errcb,  "10 / 3")
     token_next(cnm);
     valref_t val;
-    if (!expr_parse(cnm, &val, false, false, PREC_FULL)) return TESTFAIL;
+    if (!expr_parse(cnm, &val, false, false, PREC_FULL, NULL)) return TESTFAIL;
     if (!val.isliteral) return TESTFAIL;
     if (val.type.type[0].class != TYPE_INT) return TESTFAIL;
     if (val.literal.i != 10 / 3) return TESTFAIL;
@@ -626,7 +626,7 @@ SIMPLE_TEST(test_expr_constant_folding13, test_errcb,  "10 / 3")
 SIMPLE_TEST(test_expr_constant_folding14, test_errcb,  "10ul * 12")
     token_next(cnm);
     valref_t val;
-    if (!expr_parse(cnm, &val, false, false, PREC_FULL)) return TESTFAIL;
+    if (!expr_parse(cnm, &val, false, false, PREC_FULL, NULL)) return TESTFAIL;
     if (!val.isliteral) return TESTFAIL;
     if (val.type.type[0].class != TYPE_ULONG) return TESTFAIL;
     if (val.literal.u != 120) return TESTFAIL;
@@ -635,7 +635,7 @@ SIMPLE_TEST(test_expr_constant_folding14, test_errcb,  "10ul * 12")
 SIMPLE_TEST(test_expr_constant_folding15, test_errcb,  "3 - 9 * 2l")
     token_next(cnm);
     valref_t val;
-    if (!expr_parse(cnm, &val, false, false, PREC_FULL)) return TESTFAIL;
+    if (!expr_parse(cnm, &val, false, false, PREC_FULL, NULL)) return TESTFAIL;
     if (!val.isliteral) return TESTFAIL;
     if (val.type.type[0].class != TYPE_LONG) return TESTFAIL;
     if (val.literal.i != -15) return TESTFAIL;
@@ -644,7 +644,7 @@ SIMPLE_TEST(test_expr_constant_folding15, test_errcb,  "3 - 9 * 2l")
 SIMPLE_TEST(test_expr_constant_folding16, test_errcb,  "-8")
     token_next(cnm);
     valref_t val;
-    if (!expr_parse(cnm, &val, false, false, PREC_FULL)) return TESTFAIL;
+    if (!expr_parse(cnm, &val, false, false, PREC_FULL, NULL)) return TESTFAIL;
     if (!val.isliteral) return TESTFAIL;
     if (val.type.type[0].class != TYPE_INT) return TESTFAIL;
     if (val.literal.i != -8) return TESTFAIL;
@@ -653,7 +653,7 @@ SIMPLE_TEST(test_expr_constant_folding16, test_errcb,  "-8")
 SIMPLE_TEST(test_expr_constant_folding17, test_errcb,  "(-8)")
     token_next(cnm);
     valref_t val;
-    if (!expr_parse(cnm, &val, false, false, PREC_FULL)) return TESTFAIL;
+    if (!expr_parse(cnm, &val, false, false, PREC_FULL, NULL)) return TESTFAIL;
     if (!val.isliteral) return TESTFAIL;
     if (val.type.type[0].class != TYPE_INT) return TESTFAIL;
     if (val.literal.i != -8) return TESTFAIL;
@@ -662,7 +662,7 @@ SIMPLE_TEST(test_expr_constant_folding17, test_errcb,  "(-8)")
 SIMPLE_TEST(test_expr_constant_folding18, test_errcb,  "-(0x8)")
     token_next(cnm);
     valref_t val;
-    if (!expr_parse(cnm, &val, false, false, PREC_FULL)) return TESTFAIL;
+    if (!expr_parse(cnm, &val, false, false, PREC_FULL, NULL)) return TESTFAIL;
     if (!val.isliteral) return TESTFAIL;
     if (val.type.type[0].class != TYPE_INT) return TESTFAIL;
     if (val.literal.i != -8) return TESTFAIL;
@@ -671,7 +671,7 @@ SIMPLE_TEST(test_expr_constant_folding18, test_errcb,  "-(0x8)")
 SIMPLE_TEST(test_expr_constant_folding19, test_errcb,  "~0x8u")
     token_next(cnm);
     valref_t val;
-    if (!expr_parse(cnm, &val, false, false, PREC_FULL)) return TESTFAIL;
+    if (!expr_parse(cnm, &val, false, false, PREC_FULL, NULL)) return TESTFAIL;
     if (!val.isliteral) return TESTFAIL;
     if (val.type.type[0].class != TYPE_UINT) return TESTFAIL;
     if (val.literal.u != ~0x8u) return TESTFAIL;
@@ -680,13 +680,13 @@ SIMPLE_TEST(test_expr_constant_folding19, test_errcb,  "~0x8u")
 SIMPLE_TEST(test_expr_constant_folding20, test_expect_errcb,  "~(1 + 0.9)")
     token_next(cnm);
     valref_t val;
-    if (expr_parse(cnm, &val, false, false, PREC_FULL)) return TESTFAIL;
+    if (expr_parse(cnm, &val, false, false, PREC_FULL, NULL)) return TESTFAIL;
     return test_expect_err;
 }
 SIMPLE_TEST(test_expr_constant_folding21, test_errcb,  "!1")
     token_next(cnm);
     valref_t val;
-    if (!expr_parse(cnm, &val, false, false, PREC_FULL)) return TESTFAIL;
+    if (!expr_parse(cnm, &val, false, false, PREC_FULL, NULL)) return TESTFAIL;
     if (!val.isliteral) return TESTFAIL;
     if (val.type.type[0].class != TYPE_BOOL) return TESTFAIL;
     if (val.literal.u != false) return TESTFAIL;
@@ -695,7 +695,7 @@ SIMPLE_TEST(test_expr_constant_folding21, test_errcb,  "!1")
 SIMPLE_TEST(test_expr_constant_folding22, test_errcb,  "!0.0")
     token_next(cnm);
     valref_t val;
-    if (!expr_parse(cnm, &val, false, false, PREC_FULL)) return TESTFAIL;
+    if (!expr_parse(cnm, &val, false, false, PREC_FULL, NULL)) return TESTFAIL;
     if (!val.isliteral) return TESTFAIL;
     if (val.type.type[0].class != TYPE_BOOL) return TESTFAIL;
     if (val.literal.u != true) return TESTFAIL;
@@ -704,7 +704,7 @@ SIMPLE_TEST(test_expr_constant_folding22, test_errcb,  "!0.0")
 SIMPLE_TEST(test_expr_constant_folding23, test_errcb,  "1 << 4")
     token_next(cnm);
     valref_t val;
-    if (!expr_parse(cnm, &val, false, false, PREC_FULL)) return TESTFAIL;
+    if (!expr_parse(cnm, &val, false, false, PREC_FULL, NULL)) return TESTFAIL;
     if (!val.isliteral) return TESTFAIL;
     if (val.type.type[0].class != TYPE_INT) return TESTFAIL;
     if (val.literal.i != 16) return TESTFAIL;
@@ -713,7 +713,7 @@ SIMPLE_TEST(test_expr_constant_folding23, test_errcb,  "1 << 4")
 SIMPLE_TEST(test_expr_constant_folding24, test_errcb,  "0xff | 0xff << 8")
     token_next(cnm);
     valref_t val;
-    if (!expr_parse(cnm, &val, false, false, PREC_FULL)) return TESTFAIL;
+    if (!expr_parse(cnm, &val, false, false, PREC_FULL, NULL)) return TESTFAIL;
     if (!val.isliteral) return TESTFAIL;
     if (val.type.type[0].class != TYPE_INT) return TESTFAIL;
     if (val.literal.i != 0xffff) return TESTFAIL;
@@ -722,7 +722,7 @@ SIMPLE_TEST(test_expr_constant_folding24, test_errcb,  "0xff | 0xff << 8")
 SIMPLE_TEST(test_expr_constant_folding25, test_errcb,  "-(5 + 10) * 2 + 60 >> 2")
     token_next(cnm);
     valref_t val;
-    if (!expr_parse(cnm, &val, false, false, PREC_FULL)) return TESTFAIL;
+    if (!expr_parse(cnm, &val, false, false, PREC_FULL, NULL)) return TESTFAIL;
     if (!val.isliteral) return TESTFAIL;
     if (val.type.type[0].class != TYPE_INT) return TESTFAIL;
     if (val.literal.i != (-(5 + 10) * 2 + 60) >> 2) return TESTFAIL;
@@ -731,7 +731,7 @@ SIMPLE_TEST(test_expr_constant_folding25, test_errcb,  "-(5 + 10) * 2 + 60 >> 2"
 SIMPLE_TEST(test_expr_constant_folding26, test_errcb,  "1 + 'a'")
     token_next(cnm);
     valref_t val;
-    if (!expr_parse(cnm, &val, false, false, PREC_FULL)) return TESTFAIL;
+    if (!expr_parse(cnm, &val, false, false, PREC_FULL, NULL)) return TESTFAIL;
     if (!val.isliteral) return TESTFAIL;
     if (val.type.type[0].class != TYPE_INT) return TESTFAIL;
     if (val.literal.i != 'b') return TESTFAIL;
@@ -1333,7 +1333,7 @@ static bool test_type_parsing21(void) {
     if (!cnm->type.types) return TESTFAIL;
     userty_t *u = cnm->type.types->next;
     if (!u) return TESTFAIL;
-    struct_t *s = (struct_t *)u->data;
+    field_list_t *s = (field_list_t *)u->data;
 
     if (!strview_eq(u->name, SV("foo"))) return TESTFAIL;
     if (u->type != USER_STRUCT) return TESTFAIL;
@@ -1422,7 +1422,7 @@ SIMPLE_TEST(test_typedef_parsing1, test_errcb,
 
     // struct foo
     userty_t *t = cnm->type.types;
-    struct_t *s = (struct_t *)t->data;
+    field_list_t *s = (field_list_t *)t->data;
     if (!t) return TESTFAIL;
     if (t->inf.size != sizeof(int) * 2) return TESTFAIL;
     if (t->inf.align != sizeof(int)) return TESTFAIL;
@@ -1476,7 +1476,7 @@ SIMPLE_TEST(test_typedef_parsing2, test_errcb,
 
     // struct baz
     userty_t *t = cnm->type.types;
-    struct_t *s = (struct_t *)t->data;
+    field_list_t *s = (field_list_t *)t->data;
     if (!t) return TESTFAIL;
     if (t->inf.size != sizeof(double) * 3) return TESTFAIL;
     if (t->inf.align != sizeof(double)) return TESTFAIL;
@@ -1546,7 +1546,7 @@ SIMPLE_TEST(test_typedef_parsing3, test_errcb,
     // struct "anonymous"
     userty_t *t = cnm->type.types;
     if (!t) return TESTFAIL;
-    struct_t *s = (struct_t *)t->data;
+    field_list_t *s = (field_list_t *)t->data;
     field_t *f = s->fields;
     if (t->inf.size != 8) return TESTFAIL;
     if (t->inf.align != 4) return TESTFAIL;
@@ -1581,7 +1581,7 @@ SIMPLE_TEST(test_typedef_parsing3, test_errcb,
     // Goto next struct
     t = t->next;
     if (!t) return TESTFAIL;
-    s = (struct_t *)t->data;
+    s = (field_list_t *)t->data;
     f = s->fields;
 
     // struct SNU
@@ -1770,7 +1770,7 @@ SIMPLE_TEST(test_typedef_parsing7, test_errcb,
     // struct "anonymous"
     userty_t *t = cnm->type.types;
     if (!t) return TESTFAIL;
-    struct_t *s = (struct_t *)t->data;
+    field_list_t *s = (field_list_t *)t->data;
     field_t *f = s->fields;
     if (t->inf.size != 8) return TESTFAIL;
     if (t->inf.align != 4) return TESTFAIL;
@@ -1805,7 +1805,7 @@ SIMPLE_TEST(test_typedef_parsing7, test_errcb,
     // Goto next struct
     t = t->next;
     if (!t) return TESTFAIL;
-    s = (struct_t *)t->data;
+    s = (field_list_t *)t->data;
     f = s->fields;
 
     // struct SNU
@@ -1895,7 +1895,7 @@ SIMPLE_TEST(test_typedef_parsing11, test_errcb,
 
     // struct foo
     userty_t *t = cnm->type.types;
-    struct_t *s = (struct_t *)t->data;
+    field_list_t *s = (field_list_t *)t->data;
     if (!t) return TESTFAIL;
     if (t->inf.size != sizeof(int) * 2) return TESTFAIL;
     if (t->inf.align != sizeof(int)) return TESTFAIL;
@@ -1966,7 +1966,7 @@ SIMPLE_TEST(test_typedef_parsing13, test_errcb,
 
     // struct foo
     userty_t *t = cnm->type.types;
-    struct_t *s = (struct_t *)t->data;
+    field_list_t *s = (field_list_t *)t->data;
     if (!t) return TESTFAIL;
     if (t->inf.size != sizeof(int)) return TESTFAIL;
     if (t->inf.align != sizeof(int)) return TESTFAIL;
@@ -2014,7 +2014,7 @@ SIMPLE_TEST(test_typedef_parsing14, test_errcb,
 
     // struct foo
     userty_t *t = cnm->type.types;
-    struct_t *s = (struct_t *)t->data;
+    field_list_t *s = (field_list_t *)t->data;
     if (!t) return TESTFAIL;
     if (t->inf.size != sizeof(int) * 2) return TESTFAIL;
     if (t->inf.align != sizeof(int)) return TESTFAIL;
@@ -2074,7 +2074,7 @@ SIMPLE_TEST(test_typedef_parsing15, test_errcb,
 
     // struct foo
     userty_t *t = cnm->type.types;
-    struct_t *s = (struct_t *)t->data;
+    field_list_t *s = (field_list_t *)t->data;
     if (!t) return TESTFAIL;
     if (t->inf.size != sizeof(int)) return TESTFAIL;
     if (t->inf.align != sizeof(int)) return TESTFAIL;
@@ -2122,7 +2122,7 @@ SIMPLE_TEST(test_typedef_parsing16, test_errcb,
 
     // struct foo
     userty_t *t = cnm->type.types;
-    struct_t *s = (struct_t *)t->data;
+    field_list_t *s = (field_list_t *)t->data;
     if (!t) return TESTFAIL;
     if (t->inf.size != sizeof(int) * 2) return TESTFAIL;
     if (t->inf.align != sizeof(int)) return TESTFAIL;
@@ -2170,7 +2170,7 @@ SIMPLE_TEST(test_typedef_parsing17, test_errcb,
 
     // struct foo
     userty_t *t = cnm->type.types;
-    struct_t *s = (struct_t *)t->data;
+    field_list_t *s = (field_list_t *)t->data;
     if (!t) return TESTFAIL;
     if (t->inf.size != sizeof(int) * 2) return TESTFAIL;
     if (t->inf.align != sizeof(int)) return TESTFAIL;
@@ -2231,7 +2231,7 @@ SIMPLE_TEST(test_typedef_parsing18, test_errcb,
 
     // struct foo
     userty_t *t = cnm->type.types;
-    struct_t *s = (struct_t *)t->data;
+    field_list_t *s = (field_list_t *)t->data;
     if (!t) return TESTFAIL;
     if (t->inf.size != sizeof(short) * 2) return TESTFAIL;
     if (t->inf.align != sizeof(short)) return TESTFAIL;
@@ -2292,7 +2292,7 @@ SIMPLE_TEST(test_typedef_parsing19, test_errcb,
 
     // struct foo
     userty_t *t = cnm->type.types;
-    struct_t *s = (struct_t *)t->data;
+    field_list_t *s = (field_list_t *)t->data;
     if (!t) return TESTFAIL;
     if (t->inf.size != sizeof(short) * 2) return TESTFAIL;
     if (t->inf.align != sizeof(short)) return TESTFAIL;
@@ -2353,7 +2353,7 @@ SIMPLE_TEST(test_typedef_parsing20, test_errcb,
 
     // struct foo
     userty_t *t = cnm->type.types;
-    struct_t *s = (struct_t *)t->data;
+    field_list_t *s = (field_list_t *)t->data;
     if (!t) return TESTFAIL;
     if (t->inf.size != sizeof(int) * 2) return TESTFAIL;
     if (t->inf.align != sizeof(int)) return TESTFAIL;
@@ -2663,7 +2663,6 @@ GENERIC_TEST(test_global_variable10, test_expect_errcb)
     if (!var) return TESTFAIL;
     if (cnm->cg.uid_start != 1) return TESTFAIL;
     if (var->scope != 0) return TESTFAIL;
-    if (var->abs_addr != test_globals_a8 + 16) return TESTFAIL;
     if (var->uid != 0) return TESTFAIL;
     if (!strview_eq(var->name, SV("str"))) return TESTFAIL;
     if (var->range != NULL) return TESTFAIL;
@@ -2725,6 +2724,60 @@ GENERIC_TEST(test_global_variable13, test_expect_errcb)
         },
     }, true)) return TESTFAIL;
     if (memcmp(var->abs_addr, &(void *){(void *)1234}, sizeof(void *)) != 0) return TESTFAIL;
+    if (var->next != NULL) return TESTFAIL;
+    return !test_expect_err;
+}
+
+cnm(test_util_types2,
+    struct test_vec2 {
+        float x;
+        float y;
+    };
+    struct test_obj {
+        struct test_vec2 pos;
+        char name[8];
+        union {
+            int plr_lives;
+            int imp_target;
+        } data;
+        struct {
+            float x, y, w, h;
+        } col;
+        int type;
+    };
+    struct test_obj test_obj = {
+        .pos.x = 4.0, 5.0,
+        .name = "hello!",
+    };
+)
+
+static cnm_t *test_util_create_types2(const char *fname) {
+    cnm_t *cnm = cnm_init(test_region, sizeof(test_region),
+                          test_code_area, test_code_size,
+                          test_globals, sizeof(test_globals));
+    cnm_set_errcb(cnm, test_errcb);
+    return cnm_parse(cnm, cnm_csrc_test_util_types2, fname) ? cnm : NULL;
+}
+static bool test_global_variable14(void) {
+    cnm_t *cnm = test_util_create_types2("test_global_variable14");
+    if (!cnm_parse(cnm, "struct ",
+                        "test_global_variable14")) return TESTFAIL;
+    scope_t *var = cnm->vars;
+    if (!var) return TESTFAIL;
+    if (cnm->cg.uid_start != 1) return TESTFAIL;
+    if (var->scope != 0) return TESTFAIL;
+    if (var->abs_addr != test_globals_a8 + 0) return TESTFAIL;
+    if (var->uid != 0) return TESTFAIL;
+    if (!strview_eq(var->name, SV("x"))) return TESTFAIL;
+    if (var->range != NULL) return TESTFAIL;
+    if (!type_eq(var->type, (typeref_t){
+        .size = 1,
+        .type = (type_t[]){
+            (type_t){ .class = TYPE_ULLONG, .n = 64 },
+        },
+    }, true)) return TESTFAIL;
+    if (memcmp(var->abs_addr, &(unsigned long long){3},
+               sizeof(unsigned long long)) != 0) return TESTFAIL;
     if (var->next != NULL) return TESTFAIL;
     return !test_expect_err;
 }

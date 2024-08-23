@@ -28,8 +28,8 @@
 #include <stddef.h>
 
 // Used by the cnm macro
-#define cnmstr(x) #x
-#define cnmxstr(x) cnmstr(x)
+#define cnmstr(...) #__VA_ARGS__
+#define cnmxstr(...) cnmstr(__VA_ARGS__)
 
 // Use this to refrence the source string of declarations you wrapped in cnm()
 #define cnmsymb(symbol_name) cnm_csrc_##symbol_name

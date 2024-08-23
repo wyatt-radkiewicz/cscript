@@ -122,7 +122,7 @@ typedef struct field_s {
     size_t offs; // Offset from begining of struct
     size_t bit_offs; // Used in bitfields
     typeref_t type; // Actual base type (plus bit field width)
-    struct field_s *next; // Next field (fields are stored in reverse order)
+    struct field_s *next, *last; // Next field (fields are stored in reverse order)
 } field_t;
 
 typedef enum userty_class_e {
@@ -153,8 +153,8 @@ typedef struct userty_s {
 
 typedef struct cnm_struct_s {
     // Fields
-    field_t *fields;
-} struct_t;
+    field_t *fields, *end;
+} field_list_t;
 
 typedef struct variant_s {
     strview_t name;
@@ -191,8 +191,8 @@ typedef struct typedef_s {
 
 // String entries are refrences to strings stored in the code segement
 typedef struct strent_s {
-    char *str;
     struct strent_s *next;
+    char str[];
 } strent_t;
 
 // A named variable in the current scope
@@ -281,8 +281,10 @@ typedef enum prec_e {
 
 // Used in parsing rules to create correct precedences and associativity and to
 // parse tokens correctly
-typedef bool (expr_parse_prefix_t)(cnm_t *cnm, valref_t *out, bool gencode, bool gendata);
-typedef bool (expr_parse_infix_t)(cnm_t *cnm, valref_t *out, bool gencode, bool gendata, valref_t *left);
+typedef bool (expr_parse_prefix_t)(cnm_t *cnm, valref_t *out, bool gencode, bool gendata,
+                                   const typeref_t *expected_type);
+typedef bool (expr_parse_infix_t)(cnm_t *cnm, valref_t *out, bool gencode, bool gendata,
+                                  valref_t *left, const typeref_t *expected_type);
 typedef expr_parse_prefix_t *expr_parse_prefix_pfn_t;
 typedef expr_parse_infix_t *expr_parse_infix_pfn_t;
 
@@ -311,7 +313,8 @@ struct cnm_s {
         uint8_t *buf;
         size_t len;
 
-        uint8_t *next; // Where the next global will be allocated
+        uint8_t *next; // Where the next global will be allocated (grows up)
+        uint8_t *strnext; // Where next string goes (grows down)
     } globals;
 
     struct {
@@ -381,10 +384,12 @@ struct cnm_s {
     uint8_t buf[];
 };
 
-static bool expr_parse(cnm_t *cnm, valref_t *out, bool gencode, bool gendata, prec_t prec);
+static bool expr_parse(cnm_t *cnm, valref_t *out, bool gencode, bool gendata,
+                       prec_t prec, const typeref_t *expected_type);
 
 static expr_parse_prefix_t expr_char;
 static expr_parse_prefix_t expr_str;
+static expr_parse_prefix_t expr_init_list;
 static expr_parse_prefix_t expr_int;
 static expr_parse_prefix_t expr_double;
 static expr_parse_infix_t expr_arith;
@@ -398,6 +403,7 @@ static expr_rule_t expr_rules[TOKEN_MAX] = {
     [TOKEN_STRING] = { .prefix_prec = PREC_FACTOR, .prefix = expr_str },
     [TOKEN_DOUBLE] = { .prefix_prec = PREC_FACTOR, .prefix = expr_double },
     [TOKEN_PLUS] = { .infix_prec = PREC_ADDI, .infix = expr_arith },
+    [TOKEN_BRACE_L] = { .prefix_prec = PREC_FACTOR, .prefix = expr_init_list },
     [TOKEN_MINUS] = { .infix_prec = PREC_ADDI, .infix = expr_arith,
                       .prefix_prec = PREC_PREFIX, .prefix = expr_prefix_arith },
     [TOKEN_STAR] = { .infix_prec = PREC_MULT, .infix = expr_arith },
@@ -415,6 +421,20 @@ static expr_rule_t expr_rules[TOKEN_MAX] = {
 static inline bool strview_eq(const strview_t lhs, const strview_t rhs) {
     if (lhs.len != rhs.len) return false;
     return memcmp(lhs.str, rhs.str, lhs.len) == 0;
+}
+
+// Copy from to 'to'
+// len is the size of the buffer
+// will copy at most len - 1 characters and then append a null terminator
+// returns the end of the string copied from from 
+static strview_t strview_cat_str(char *to, size_t len, const strview_t from) {
+    len = len - 1 < from.len ? len - 1 : from.len;
+    memcpy(to, from.str, len);
+    to[len] = '\0';
+    return (strview_t){
+        .str = from.str + len,
+        .len = from.len - len,
+    };
 }
 
 // Print out error to the error callback in the cnm state
@@ -499,6 +519,23 @@ static void *cnm_alloc_static(cnm_t *cnm, size_t size, size_t align) {
 }
 
 // Allocate memory in the global buffer
+// Grows down
+static void *cnm_alloc_string(cnm_t *cnm, size_t size, size_t align) {
+    // Get the next alloc pointer
+    cnm->globals.strnext = (uint8_t *)(
+            (uintptr_t)(cnm->globals.strnext - size) / align * align);
+
+    // Check memory overflow
+    if (cnm->globals.strnext < cnm->globals.next) {
+        cnm_doerr(cnm, true, "ran out of globals memory");
+        return NULL;
+    }
+
+    // Return new pointer
+    return cnm->globals.strnext;
+}
+
+// Allocate memory in the global buffer
 // Grows up
 static void *cnm_alloc_global(cnm_t *cnm, size_t size, size_t align) {
     // Align the next alloc pointer
@@ -506,7 +543,7 @@ static void *cnm_alloc_global(cnm_t *cnm, size_t size, size_t align) {
             ((uintptr_t)(cnm->globals.next - 1) / align + 1) * align);
 
     // Check memory overflow
-    if (cnm->globals.next + size > cnm->globals.buf + cnm->globals.len) {
+    if (cnm->globals.next + size > cnm->globals.strnext) {
         cnm_doerr(cnm, true, "ran out of globals memory");
         return NULL;
     }
@@ -540,6 +577,17 @@ static bool token_utf32_validation(uint32_t cp) {
 // Checks a uint8_t to see if its in the range of a single utf8 code point
 static bool token_utf8_single_validation(uint8_t cp) {
     return cp < 0x80;
+}
+
+// Find size of string token
+static size_t token_strlen(token_t *tok) {
+    if (tok->suffix[0] != 'U') {
+        return strlen(tok->s);
+    }
+
+    size_t len = 0;
+    while (((uint32_t *)tok->s)[len]) len++;
+    return len;
 }
 
 // Lex a single character/escape code
@@ -833,8 +881,9 @@ static token_t *token_string(cnm_t *cnm) {
     buflen += cnm->s.tok.suffix[0] == 'U' ? 4 : 1;
 
     // Allocate space for the string
-    char *buf = cnm_alloc_global(cnm, buflen, cnm->s.tok.suffix[0] == 'U' ? 4 : 1);
-    if (!buf) goto error_scenario;
+    strent_t *ent = cnm_alloc_string(cnm, sizeof(strent_t) + buflen, sizeof(void *));
+    if (!ent) goto error_scenario;
+    char *buf = ent->str;
     size_t bufloc = 0;
 
     // Fill out the new string buffer string by string
@@ -851,19 +900,17 @@ static token_t *token_string(cnm_t *cnm) {
     else buf[bufloc] = '\0';
     
     // Test to see if there is already a string with these contents
-    for (const strent_t *ent = cnm->strs; ent; ent = ent->next) {
-        if (strcmp(ent->str, buf)) continue;
+    for (strent_t *iter = cnm->strs; iter; iter = iter->next) {
+        if (strcmp(iter->str, buf)) continue;
 
         // We found exact copy of the string, so use that string instead
         cnm->globals.next = global_ptr;
-        cnm->s.tok.s = ent->str;
+        cnm->s.tok.s = iter->str;
         return &cnm->s.tok;
     }
 
     // String has not been found so add it to the string entries list
-    strent_t *ent = cnm_alloc(cnm, sizeof(*ent), sizeof(void *));
     if (!ent) goto error_scenario;
-    ent->str = buf;
     ent->next = cnm->strs;
     cnm->strs = ent;
     cnm->s.tok.s = ent->str;
@@ -1473,13 +1520,14 @@ parse_def:
 static bool type_parse_declspec_struct(cnm_t *cnm, type_t *type, bool *istypedef,
                                        declspec_options_t *options) {
     userty_t *u;
-    if (!type_parse_declspec_user(cnm, type, false, &u, sizeof(struct_t), options)) {
+    if (!type_parse_declspec_user(cnm, type, false, &u, sizeof(field_list_t), options)) {
         return false;
     }
     if (!u) return true;
-    struct_t *s = (struct_t *)u->data;
+    field_list_t *s = (field_list_t *)u->data;
     token_next(cnm);
     // s now points to a new struct that we must fill out the members of
+    *s = (field_list_t){0};
 
     // Info so that we can store bitfields correctly
     struct {
@@ -1515,6 +1563,8 @@ static bool type_parse_declspec_struct(cnm_t *cnm, type_t *type, bool *istypedef
             field_t *f = cnm_alloc_static(cnm, sizeof(field_t), sizeof(void *));
             if (!f) return false;
             f->next = s->fields;
+            f->last = NULL;
+            if (f->next) f->next->last = f;
             s->fields = f;
 
             // Save normal stack pointer for afterwards when we copy buffers over to
@@ -1557,7 +1607,9 @@ static bool type_parse_declspec_struct(cnm_t *cnm, type_t *type, bool *istypedef
 
                 // Free the field
                 s->fields = f->next;
+                if (f->next) f->next->last = NULL;
                 cnm->alloc.curr_static = static_stack;
+                f = NULL;
             } else if (inf.size != bit.inf.size || inf.align != bit.inf.align
                        || bit_overflow) {
                 // Allocate new area if bitfield is for different size type or
@@ -1588,6 +1640,9 @@ static bool type_parse_declspec_struct(cnm_t *cnm, type_t *type, bool *istypedef
                     bit.offs = 0;
                 }
             }
+
+            // Set end pointer of structs field
+            if (f && !s->end) s->end = f;
 
             // Consume ',' token
             if (cnm->s.tok.type != TOKEN_COMMA) break;
@@ -1713,7 +1768,7 @@ static bool type_parse_declspec_enum(cnm_t *cnm, type_t *type, bool *istypedef,
 
         // Get number
         valref_t val;
-        if (!expr_parse(cnm, &val, false, false, PREC_COND)) return false;
+        if (!expr_parse(cnm, &val, false, false, PREC_COND, NULL)) return false;
         if (!val.isliteral || !type_is_int(*val.type.type)) {
             cnm_doerr(cnm, true, "expected constant int expression for variant id");
             return false;
@@ -1739,13 +1794,15 @@ static bool type_parse_declspec_enum(cnm_t *cnm, type_t *type, bool *istypedef,
 }
 static bool type_parse_declspec_union(cnm_t *cnm, type_t *type, bool *istypedef,
                                       declspec_options_t *options) {
-    userty_t *u;
-    if (!type_parse_declspec_user(cnm, type, false, &u, 0, options)) {
+    userty_t *t;
+    if (!type_parse_declspec_user(cnm, type, false, &t, 0, options)) {
         return false;
     }
-    if (!u) return true;
+    if (!t) return true;
     token_next(cnm);
+    field_list_t *u = (field_list_t *)t->data;
     // u now points to a new union that we must fill out the members of
+    *u = (field_list_t){0};
 
     bool any_fields = false;
 
@@ -1766,8 +1823,16 @@ static bool type_parse_declspec_union(cnm_t *cnm, type_t *type, bool *istypedef,
         }
 
         while (true) {
+            // Allocate new field member and add it to the list
+            field_t *f = cnm_alloc_static(cnm, sizeof(field_t), sizeof(void *));
+            if (!f) return false;
+            f->next = u->fields;
+            f->last = NULL;
+            if (f->next) f->next->last = f;
+            u->fields = f;
+
             // Get the type data
-            typeref_t ref = type_parse(cnm, &base, NULL, true);
+            typeref_t ref = type_parse(cnm, &base, &f->name, true);
             if (!typeref_isvalid(ref)) {
                 cnm_doerr(cnm, true, "can not have 0 sized type in union field");
                 return false;
@@ -1775,8 +1840,15 @@ static bool type_parse_declspec_union(cnm_t *cnm, type_t *type, bool *istypedef,
 
             // Get offset and new struct size and alignment
             typeinf_t inf = type_getinf(cnm, ref.type);
-            if (inf.size > u->inf.size) u->inf.size = inf.size;
-            if (inf.align > u->inf.align) u->inf.align = inf.align;
+            if (inf.size > t->inf.size) t->inf.size = inf.size;
+            if (inf.align > t->inf.align) t->inf.align = inf.align;
+            
+            // Set more field parameters
+            f->type = ref;
+            f->bit_offs = 0;
+            f->offs = 0;
+
+            if (!u->end) u->end = f;
 
             // Consume ',' token
             if (cnm->s.tok.type != TOKEN_COMMA) break;
@@ -2103,7 +2175,7 @@ static typeref_t type_parse_ex(cnm_t *cnm, const type_t *base,
             // Get size and store alloc pointer so we can free
             uint8_t *const stack_ptr = cnm->alloc.next;
             valref_t val;
-            if (!expr_parse(cnm, &val, false, false, PREC_FULL)) goto return_error;
+            if (!expr_parse(cnm, &val, false, false, PREC_FULL, NULL)) goto return_error;
             if (!val.isliteral) {
                 cnm_doerr(cnm, true, "array size must be constant integer expression");
                 goto return_error;
@@ -2212,7 +2284,7 @@ static typeref_t type_parse_ex(cnm_t *cnm, const type_t *base,
         token_next(cnm);
 
         valref_t val;
-        if (!expr_parse(cnm, &val, false, false, PREC_COND)) goto return_error;
+        if (!expr_parse(cnm, &val, false, false, PREC_COND, NULL)) goto return_error;
         if (!val.isliteral) {
             cnm_doerr(cnm, true, "expect constant value for bitfield width");
             goto return_error;
@@ -2256,20 +2328,21 @@ static typeref_t type_parse(cnm_t *cnm, const type_t *base,
 }
 
 // Generates code and data for the expression being parsed
-static bool expr_parse(cnm_t *cnm, valref_t *out, bool gencode, bool gendata, prec_t prec) {
+static bool expr_parse(cnm_t *cnm, valref_t *out, bool gencode, bool gendata,
+                       prec_t prec, const typeref_t *expected_type) {
     // Consume a prefix/unary ast node like an integer literal
     expr_rule_t *rule = &expr_rules[cnm->s.tok.type];
     if (!rule->prefix || prec > rule->prefix_prec) {
         cnm_doerr(cnm, true, "expected expression");
         return false;
     }
-    if (!rule->prefix(cnm, out, gencode, gendata)) return false;
+    if (!rule->prefix(cnm, out, gencode, gendata, expected_type)) return false;
 
     // Continue to consume binary operators that fall under this precedence level
     rule = &expr_rules[cnm->s.tok.type];
     while (rule->infix && prec <= rule->infix_prec) {
         valref_t tmp;
-        if (!rule->infix(cnm, &tmp, gencode, gendata, out)) return false;
+        if (!rule->infix(cnm, &tmp, gencode, gendata, out, expected_type)) return false;
         *out = tmp;
         rule = &expr_rules[cnm->s.tok.type];
     }
@@ -2347,7 +2420,8 @@ static bool valref_cast(cnm_t *cnm, valref_t *val, const typeref_t to, bool genc
 }
 
 // Cast something, with token pointing to right after '(' in cast expr
-static bool expr_cast(cnm_t *cnm, valref_t *out, bool gencode, bool gendata) {
+static bool expr_cast(cnm_t *cnm, valref_t *out, bool gencode, bool gendata,
+                      const typeref_t *expected_type) {
     // Get the type to cast to first
     type_t base;
     bool istypedef;
@@ -2371,7 +2445,7 @@ static bool expr_cast(cnm_t *cnm, valref_t *out, bool gencode, bool gendata) {
     token_next(cnm);
 
     // Now parse the expression
-    if (!expr_parse(cnm, out, gencode, gendata, PREC_PREFIX)) return false;
+    if (!expr_parse(cnm, out, gencode, gendata, PREC_PREFIX, &type)) return false;
 
     // Now cast out to the type
     if (!valref_cast(cnm, out, type, gencode)) return false;
@@ -2379,17 +2453,386 @@ static bool expr_cast(cnm_t *cnm, valref_t *out, bool gencode, bool gendata) {
     return true;
 }
 
+// Makes sure that a literal is allocated to the global data buffer
+static bool val_enforce_global(cnm_t *cnm, valref_t *val) {
+    if (!val->isliteral || !type_is_pod(*val->type.type)) return true;
+
+    // Move the data to the global region
+    const typeinf_t inf = type_getinf(cnm, val->type.type);
+    uint8_t *buf = cnm_alloc_global(cnm, inf.size, inf.align);
+    if (!buf) return false;
+    memcpy(buf, &val->literal, inf.size);
+
+    // Update the variable info
+    val->scope->abs_addr = buf;
+    val->isliteral = false;
+
+    return true;
+}
+
+// Parse an POD initializer list
+static bool expr_parse_init_list_pod(cnm_t *cnm, valref_t *out, bool gencode, bool gendata,
+                                     const typeref_t *type) {
+    if (!expr_parse(cnm, out, gencode, gendata, PREC_FULL, NULL)) return false;
+
+    if (!type_eq(out->type, *type, false)) {
+        cnm_doerr(cnm, true, "initializer list type does not match expected type");
+        return false;
+    }
+
+    return true;
+}
+
+#define INIT_LIST_MAX_DEPTH 16
+
+typedef struct {
+    typeref_t type;
+
+    // Normal union fields
+    field_list_t *s;
+    field_t *f;
+    uint8_t *d;
+    int n_fields_inited;
+
+    // Array fields
+    bool isarr;
+    int arridx, arrlen;
+} init_list_stack_t;
+
+typedef struct {
+    init_list_stack_t stack[INIT_LIST_MAX_DEPTH];
+    init_list_stack_t *cur;
+    bool stop, isliteral;
+    int biggest_idx;
+
+    // Save this for the case that the initializer isn't completely constant
+    uint8_t *global_backup;
+    uint8_t *data_start;
+
+    typeref_t basety;
+    typeinf_t inf;
+} init_list_state_t;
+
+static inline int init_list_stack_get_offs(cnm_t *cnm, init_list_stack_t *self) {
+    if (self->isarr) {
+        const typeinf_t inf = type_getinf(cnm, self->type.type);
+        if (self->arridx > self->arrlen) {
+            cnm_doerr(cnm, true, "array index out of bounds in initializer");
+            return -1;
+        } else {
+            return self->arridx * inf.size;
+        }
+    } else {
+        return self->f->offs;
+    }
+}
+
+// Initialize a initializer stack element based on the previous stack element
+// if there is one
+static void init_list_stack_init(cnm_t *cnm, const typeref_t *type,
+                                 init_list_stack_t *self, init_list_state_t *state) {
+    userty_t *u;
+    for (u = cnm->type.types; u && u->typeid != type->type[0].n; u = u->next);
+
+    if (type->type[0].class == TYPE_ARR) {
+        *self = (init_list_stack_t){
+            .isarr = true,
+            .arridx = 0,
+            .arrlen = type->type[0].n,
+        };
+    } else {
+        *self = (init_list_stack_t){
+            .s = (field_list_t *)u->data,
+        };
+        self->f = self->s->end;
+        self->type = self->f->type;
+    }
+
+    self->d = state->cur ? state->data_start :
+        state->cur->d + init_list_stack_get_offs(cnm, state->cur);
+}
+
+static bool init_list_designator(cnm_t *cnm, init_list_state_t *state,
+                                 bool in_designator) {
+    if (cnm->s.tok.type == TOKEN_DOT) {
+        // Move 1 stack inwards
+        if (in_designator) {
+            init_list_stack_t *cur = state->cur + 1;
+            if (cur >= state->stack + INIT_LIST_MAX_DEPTH) {
+                cnm_doerr(cnm, true, "hit max initializer designator depth");
+                return false;
+            }
+
+            init_list_stack_init(cnm, &state->cur->f->type, cur, state);
+            state->cur = cur;
+        }
+
+        // Struct parameter
+        token_next(cnm);
+        if (cnm->s.tok.type != TOKEN_IDENT) {
+            cnm_doerr(cnm, true, "expected identifier");
+            return false;
+        }
+
+        field_t *f = state->cur->s->fields;
+        for (; f && !strview_eq(f->name, cnm->s.tok.src); f = f->next);
+        if (!f) {
+            cnm_doerr(cnm, true, "no member found with that name");
+            return false;
+        }
+        state->cur->f = f;
+        state->cur->type = f->type;
+
+        return init_list_designator(cnm, state, true);
+    } else if (cnm->s.tok.type == TOKEN_BRACK_L) {
+        // Move 1 stack inwards
+        if (in_designator) {
+            init_list_stack_t *cur = state->cur + 1;
+            if (cur >= state->stack + INIT_LIST_MAX_DEPTH) {
+                cnm_doerr(cnm, true, "hit max initializer designator depth");
+                return false;
+            }
+
+            init_list_stack_init(cnm, &(typeref_t){
+                .type = state->cur->type.type + 1,
+                .size = state->cur->type.size - 1,
+            }, cur, state);
+            state->cur = cur;
+        }
+
+        // Array index
+        token_next(cnm);
+
+        valref_t val;
+        if (!expr_parse(cnm, &val, false, false, PREC_OR, NULL)) return false;
+        if (!val.isliteral) {
+            cnm_doerr(cnm, true, "array index initializer must be constant expression");
+            return false;
+        }
+        if (!type_is_int(val.type.type[0])) return false;
+        if (type_is_unsigned(val.type.type[0]) && val.literal.i < 0) {
+            cnm_doerr(cnm, true, "can not have negative array index in initializer");
+            return false;
+        }
+        state->cur->arridx = val.literal.u;
+        if (state->cur->arridx >= state->cur->arrlen) {
+            cnm_doerr(cnm, true, "array index in initializer is out of bounds");
+            return false;
+        }
+
+        return init_list_designator(cnm, state, true);
+    } else if (cnm->s.tok.type == TOKEN_ASSIGN) {
+        token_next(cnm);
+        if (in_designator) {
+            return true;
+        } else {
+            cnm_doerr(cnm, true, "expected initialzer expression, not =");
+            return false;
+        }
+    } else {
+        return true;
+    }
+}
+
+// Optionally grow the array size to the needed size of an array on the top of the
+// globals array on the cnm state
+static bool array_init_grow_size(cnm_t *cnm, typeref_t *type, const typeref_t *needed) {
+    if (type->type[0].class != TYPE_ARR || needed->type[0].class != TYPE_ARR) return true;
+
+    int curr_n = type->type[0].n, needed_n = needed->type[0].n;
+
+    if (!type_eq((typeref_t){
+        .type = type->type + 1,
+        .size = type->size - 1,
+    }, (typeref_t){
+        .type = needed->type + 1,
+        .size = needed->size - 1,
+    }, true) || curr_n > needed_n) {
+        cnm_doerr(cnm, true, "array types don't match");
+        return false;
+    }
+
+    if (curr_n == needed_n) return true;
+    typeinf_t inf = type_getinf(cnm, type->type + 1);
+    const size_t size = inf.size * (needed_n - curr_n);
+    void *area;
+    if (!(area = cnm_alloc_global(cnm, size, 1))) return false;
+    memset(area, 0, size);
+
+    return true;
+}
+
+static bool init_list_field(cnm_t *cnm, init_list_state_t *state,
+                            bool gencode, bool gendata) {
+    if (!init_list_designator(cnm, state, false)) return false;
+
+    // Consume actual value here
+    valref_t val;
+    if (gendata) {
+        int offs = init_list_stack_get_offs(cnm, state->cur);
+        if (offs == -1) return false;
+        cnm->globals.next = state->cur->d + offs;
+    }
+    if (!expr_parse(cnm, &val, gencode, gendata, PREC_COND, &state->cur->type)) return false;
+    state->isliteral &= val.isliteral;
+    if (val.isliteral && !array_init_grow_size(cnm, &val.type, &state->cur->type)) return false;
+    if (!valref_cast(cnm, &val, state->cur->type, gencode)) return false;
+    if (!type_eq(val.type, state->cur->type, false)) {
+        cnm_doerr(cnm, true, "types in initializer list do not match");
+        return false;
+    }
+    if (!val_enforce_global(cnm, &val)) return false;
+
+    // Advance to next field / index
+    if (state->cur->isarr) {
+        if (state->cur == state->stack
+            && state->cur->arridx > state->biggest_idx) {
+            state->biggest_idx = state->cur->arridx;
+        }
+        if (state->cur->arridx < state->cur->arrlen - 1) state->cur->arridx++;
+        else if (state->cur > state->stack) state->cur--;
+        else state->stop = true;
+    } else {
+        state->cur->n_fields_inited++;
+        if (state->cur->f->last) state->cur->f = state->cur->f->last;
+        else if (state->cur > state->stack) state->cur--;
+        else state->stop = true;
+    }
+
+    return true;
+}
+
+static bool init_list_init(cnm_t *cnm, init_list_state_t *state,
+                           const typeref_t *type, bool gencode, bool gendata) {
+    // Unions and structs
+    *state = (init_list_state_t){
+        .global_backup = cnm->globals.next,
+        .stop = false,
+        .inf = type_getinf(cnm, type->type),
+        .basety = *type,
+    };
+
+    // Save this for if the initializer is completely constant
+    // TODO: Code pointer here
+
+    // Now make sure that we can even fit the type onto the global segment
+    if (gendata) {
+        if (!(state->data_start = cnm_alloc_global(cnm, 0, state->inf.align))) return false;
+        if (!cnm_alloc_global(cnm, state->inf.size, 1)) return false;
+        cnm->globals.next = state->data_start;
+        memset(state->data_start, 0, state->inf.size);
+    }
+
+    init_list_stack_init(cnm, type, state->cur, state);
+    state->cur = state->stack;
+
+    return true;
+}
+
+static bool init_list_finish(cnm_t *cnm, init_list_state_t *state,
+                             valref_t *out, bool gencode, bool gendata) {
+    if (gendata) cnm->globals.next = state->data_start + state->inf.size;
+
+    if (state->isliteral) {
+        // Generate memcpy code
+    } else {
+        // DEBUG: Remove this. This is here just because yea
+        return false;
+    }
+
+    *out = (valref_t){
+        .isliteral = false,
+        .type = state->basety,
+    };
+
+    return true;
+}
+
+static bool expr_parse_init_list_user(cnm_t *cnm, valref_t *out, bool gencode, bool gendata,
+                                      const typeref_t *type) {
+    userty_t *u = NULL;
+
+    // Optional code for unions and enums
+    if (type->type[0].class != TYPE_ARR) {
+        // Get fields and struct
+        for (u = cnm->type.types; u && u->typeid != type->type[0].n; u = u->next);
+
+        // Optionally do enums
+        if (u->type == USER_ENUM) {
+            valref_t val;
+            if (!expr_parse(cnm, &val, gencode, gendata, PREC_FULL, NULL)) return false;
+            if (!type_is_int(val.type.type[0])) {
+                cnm_doerr(cnm, true, "you need int for enum initializer");
+                return false;
+            } else {
+                return true;
+            }
+        }
+    }
+
+    init_list_state_t state;
+    if (!init_list_init(cnm, &state, type, gencode, gendata)) return false;
+
+    // Do the field initializers!!!!!
+    while (!state.stop) {
+        if (!(init_list_field(cnm, &state, gencode, gendata))) return false;
+        if (cnm->s.tok.type == TOKEN_COMMA) token_next(cnm);
+    }
+
+    if (!init_list_finish(cnm, &state, out, gencode, gendata)) return false;
+
+    if (state.cur == state.stack && u && u->type == USER_UNION
+        && state.cur->n_fields_inited > 1) {
+        cnm_doerr(cnm, false, "excess initializers in union initializer list");
+    }
+
+    return true;
+}
+
+// Parse initializer list and create code and data for it
+// the cnm token should be pointing to the opening '{'
+static bool expr_init_list(cnm_t *cnm, valref_t *out, bool gencode, bool gendata,
+                                 const typeref_t *type) {
+    if (!type) {
+        cnm_doerr(cnm, true, "can not have initializer list here");
+        return false;
+    }
+
+    token_next(cnm);
+
+    // Do POD types first if it is one
+    if (type_is_pod(type->type[0])) {
+        if (!expr_parse_init_list_pod(cnm, out, gencode, gendata, type)) return false;
+    } else if (type->type[0].class == TYPE_USER
+            || type->type[0].class == TYPE_ARR) {
+        if (!expr_parse_init_list_user(cnm, out, gencode, gendata, type)) return false;
+    } else {
+        cnm_doerr(cnm, true, "Can not initialize this type");
+        return false;
+    }
+
+    // Check for ending }
+    if (cnm->s.tok.type != TOKEN_BRACE_R) {
+        cnm_doerr(cnm, true, "expected } after initializer list");
+        return false;
+    }
+    token_next(cnm);
+
+    return true;
+}
+
 // Group together operations into one group inbetween parentheses
-static bool expr_group(cnm_t *cnm, valref_t *out, bool gencode, bool gendata) {
+static bool expr_group(cnm_t *cnm, valref_t *out, bool gencode, bool gendata,
+                       const typeref_t *expected_type) {
     // Consume the '(' token
     const token_t errtok = cnm->s.tok;
     token_next(cnm);
    
     // This might also be a cast operator so watch out
-    if (cnm_at_declspec(cnm)) return expr_cast(cnm, out, gencode, gendata);
+    if (cnm_at_declspec(cnm)) return expr_cast(cnm, out, gencode, gendata, expected_type);
 
     // Get the inner grouping
-    if (!expr_parse(cnm, out, gencode, gendata, PREC_FULL)) return false;
+    if (!expr_parse(cnm, out, gencode, gendata, PREC_FULL, NULL)) return false;
 
     // Consume the ')' token
     if (cnm->s.tok.type != TOKEN_PAREN_R) {
@@ -2404,7 +2847,8 @@ static bool expr_group(cnm_t *cnm, valref_t *out, bool gencode, bool gendata) {
 }
 
 // Create a literal value valref for a string token
-static bool expr_str(cnm_t *cnm, valref_t *out, bool gencode, bool gendata) {
+static bool expr_str(cnm_t *cnm, valref_t *out, bool gencode, bool gendata,
+                     const typeref_t *expected_type) {
     *out = (valref_t){ .isliteral = true, .type.size = 2 };
 
     // Allocate and initialize type
@@ -2420,8 +2864,25 @@ static bool expr_str(cnm_t *cnm, valref_t *out, bool gencode, bool gendata) {
         out->type.type[1] = (type_t){ .class = TYPE_CHAR, .n = 8, .isconst = true };
     }
 
-    // Set the pointer
-    out->literal.addr = cnm->s.tok.s;
+    if (expected_type->type[0].class == TYPE_ARR) {
+        out->type.type[0].class = TYPE_ARR;
+        out->type.type[0].n = token_strlen(&cnm->s.tok) + 1;
+        out->type.type[1].isconst = false;
+
+        size_t align = 1;
+        size_t size = out->type.type[0].n;
+        if (cnm->s.tok.suffix[0] == 'U') {
+            size *= 4;
+            align = 4;
+        }
+        void *area = cnm_alloc_global(cnm, size, align);
+        memcpy(area, cnm->s.tok.s, size);
+
+        out->literal.addr = area;
+    } else {
+        // Set the pointer
+        out->literal.addr = cnm->s.tok.s;
+    }
 
     token_next(cnm);
 
@@ -2429,7 +2890,8 @@ static bool expr_str(cnm_t *cnm, valref_t *out, bool gencode, bool gendata) {
 }
 
 // Create a literal value valref for a character token
-static bool expr_char(cnm_t *cnm, valref_t *out, bool gencode, bool gendata) {
+static bool expr_char(cnm_t *cnm, valref_t *out, bool gencode, bool gendata,
+                      const typeref_t *expected_type) {
     *out = (valref_t){ .isliteral = true, .type.size = 1 };
 
     // Allocate and initialize type
@@ -2452,7 +2914,8 @@ static bool expr_char(cnm_t *cnm, valref_t *out, bool gencode, bool gendata) {
 }
 
 // Create a literal value valref for the integer
-static bool expr_int(cnm_t *cnm, valref_t *out, bool gencode, bool gendata) {
+static bool expr_int(cnm_t *cnm, valref_t *out, bool gencode, bool gendata,
+                     const typeref_t *expected_type) {
     *out = (valref_t){ .isliteral = true };
 
     // Allocate type
@@ -2539,7 +3002,8 @@ static bool expr_int(cnm_t *cnm, valref_t *out, bool gencode, bool gendata) {
 }
 
 // Generate valref with literal double
-static bool expr_double(cnm_t *cnm, valref_t *out, bool gencode, bool gendata) {
+static bool expr_double(cnm_t *cnm, valref_t *out, bool gencode, bool gendata,
+                        const typeref_t *expected_type) {
     *out = (valref_t){
         .isliteral = true,
         .literal.f = cnm->s.tok.f,
@@ -2639,7 +3103,8 @@ static void cf_bit_not(valref_t *var) {
 
 // Generate valref that runs arithmetic operation on left and right hand side
 // and perform constant folding if nessesary
-static bool expr_arith(cnm_t *cnm, valref_t *out, bool gencode, bool gendata, valref_t *left) {
+static bool expr_arith(cnm_t *cnm, valref_t *out, bool gencode, bool gendata,
+                       valref_t *left, const typeref_t *expected_type) {
     *out = (valref_t){0};
 
     // Allocate ast type
@@ -2670,7 +3135,7 @@ static bool expr_arith(cnm_t *cnm, valref_t *out, bool gencode, bool gendata, va
 
     // Evaluate right hand side with left to right associativity
     valref_t right;
-    if (!expr_parse(cnm, &right, gencode, gendata, prec + 1)) return false;
+    if (!expr_parse(cnm, &right, gencode, gendata, prec + 1, NULL)) return false;
 
     // Make sure operands can even perform the operation we want
     if (!type_is_arith(*left->type.type) || !type_is_arith(*right.type.type)) {
@@ -2720,7 +3185,8 @@ static bool expr_arith(cnm_t *cnm, valref_t *out, bool gencode, bool gendata, va
 
 // Generate ast node that performs a math operation on its child and does
 // constant folding if nessescary
-static bool expr_prefix_arith(cnm_t *cnm, valref_t *out, bool gencode, bool gendata) {
+static bool expr_prefix_arith(cnm_t *cnm, valref_t *out, bool gencode, bool gendata,
+                              const typeref_t *expected_type) {
     *out = (valref_t){0};
 
     // Allocate out type
@@ -2741,7 +3207,7 @@ static bool expr_prefix_arith(cnm_t *cnm, valref_t *out, bool gencode, bool gend
 
     // Evaluate child with right to left hand associativity. Use PREC_PREFIX
     // for every option because every token used by this function has that prec
-    if (!expr_parse(cnm, out, gencode, gendata, PREC_PREFIX)) return false;
+    if (!expr_parse(cnm, out, gencode, gendata, PREC_PREFIX, NULL)) return false;
 
     // Make sure we can even perform the operation we want with this type
     if (!type_is_arith(*out->type.type)) {
@@ -2795,6 +3261,7 @@ cnm_t *cnm_init(void *region, size_t regionsz,
     cnm->globals.buf = globals;
     cnm->globals.len = globalsz;
     cnm->globals.next = cnm->globals.buf;
+    cnm->globals.strnext = cnm->globals.buf + cnm->globals.len;
     cnm->buflen = regionsz - sizeof(cnm_t);
     cnm->alloc.next = cnm->buf;
     cnm->alloc.curr_static = cnm->buf + cnm->buflen;
@@ -2825,23 +3292,6 @@ static void cnm_set_src(cnm_t *cnm, const char *src, const char *fname) {
         .end = { .row = 1, .col = 1 },
         .type = TOKEN_UNINITIALIZED,
     };
-}
-
-// Makes sure that a literal is allocated to the global data buffer
-static bool val_enforce_global(cnm_t *cnm, valref_t *val) {
-    if (!val->isliteral) return true;
-
-    // Move the data to the global region
-    const typeinf_t inf = type_getinf(cnm, val->type.type);
-    uint8_t *buf = cnm_alloc_global(cnm, inf.size, inf.align);
-    if (!buf) return false;
-    memcpy(buf, &val->literal, inf.size);
-
-    // Update the variable info
-    val->scope->abs_addr = buf;
-    val->isliteral = false;
-
-    return true;
 }
 
 // Parse and generate code for a function
@@ -2894,7 +3344,9 @@ static bool parse_file_decl_var(cnm_t *cnm, strview_t name, typeref_t type) {
 
     // Get the contents of the variable
     valref_t val;
-    if (!expr_parse(cnm, &val, false, true, PREC_COND)) return false;
+    if (!expr_parse(cnm, &val, false, true, PREC_COND, &type)) return false;
+
+    if (!array_init_grow_size(cnm, &val.type, &type)) return false;
    
     // Implicity cast arithmetic types (int -> long, double -> int, etc)
     if (type_is_arith(val.type.type[0]) && type_is_arith(type.type[0])
