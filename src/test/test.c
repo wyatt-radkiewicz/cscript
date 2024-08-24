@@ -524,7 +524,7 @@ SIMPLE_TEST(test_expr_constant_folding2, test_errcb,  "5.0")
     if (!expr_parse(cnm, &val, false, false, PREC_FULL, NULL)) return TESTFAIL;
     if (!val.isliteral) return TESTFAIL;
     if (val.type.type[0].class != TYPE_DOUBLE) return TESTFAIL;
-    if (val.literal.f != 5.0) return TESTFAIL;
+    if (val.literal.d != 5.0) return TESTFAIL;
     return true;
 }
 SIMPLE_TEST(test_expr_constant_folding3, test_errcb,  "5000000000")
@@ -602,16 +602,16 @@ SIMPLE_TEST(test_expr_constant_folding11, test_errcb,  "5ul + 30.0")
     if (!expr_parse(cnm, &val, false, false, PREC_FULL, NULL)) return TESTFAIL;
     if (!val.isliteral) return TESTFAIL;
     if (val.type.type[0].class != TYPE_DOUBLE) return TESTFAIL;
-    if (val.literal.f != 35) return TESTFAIL;
+    if (val.literal.d != 35) return TESTFAIL;
     return true;
 }
-SIMPLE_TEST(test_expr_constant_folding12, test_errcb,  "10 / 3.0")
+SIMPLE_TEST(test_expr_constant_folding12, test_errcb,  "1 / 2.0f")
     token_next(cnm);
     valref_t val;
     if (!expr_parse(cnm, &val, false, false, PREC_FULL, NULL)) return TESTFAIL;
     if (!val.isliteral) return TESTFAIL;
-    if (val.type.type[0].class != TYPE_DOUBLE) return TESTFAIL;
-    if (val.literal.f != 10.0 / 3.0) return TESTFAIL;
+    if (val.type.type[0].class != TYPE_FLOAT) return TESTFAIL;
+    if (val.literal.f != 1 / 2.0f) return TESTFAIL;
     return true;
 }
 SIMPLE_TEST(test_expr_constant_folding13, test_errcb,  "10 / 3")
@@ -2745,9 +2745,26 @@ cnm(test_util_types2,
         } col;
         int type;
     };
-    struct test_obj test_obj = {
+)
+
+cnm(test_util_def1,
+    struct test_obj test_obj1 = {
         .pos.x = 4.0, 5.0,
         .name = "hello!",
+    };
+)
+
+cnm(test_util_def2,
+    struct test_obj test_obj2 = {
+        .pos.x = 4.0, 5.0,
+        .name = "hello!",
+        .data.imp_target = 3,
+        .col = {
+            .x = 420,
+            .y = 69,
+            .w = 1337,
+            .h = 911,
+        },
     };
 )
 
@@ -2760,26 +2777,31 @@ static cnm_t *test_util_create_types2(const char *fname) {
 }
 static bool test_global_variable14(void) {
     cnm_t *cnm = test_util_create_types2("test_global_variable14");
-    if (!cnm_parse(cnm, "struct ",
-                        "test_global_variable14")) return TESTFAIL;
+    if (!cnm_parse(cnm, cnm_csrc_test_util_def1, "test_global_variable14")) return TESTFAIL;
     scope_t *var = cnm->vars;
     if (!var) return TESTFAIL;
-    if (cnm->cg.uid_start != 1) return TESTFAIL;
-    if (var->scope != 0) return TESTFAIL;
-    if (var->abs_addr != test_globals_a8 + 0) return TESTFAIL;
-    if (var->uid != 0) return TESTFAIL;
-    if (!strview_eq(var->name, SV("x"))) return TESTFAIL;
-    if (var->range != NULL) return TESTFAIL;
     if (!type_eq(var->type, (typeref_t){
         .size = 1,
         .type = (type_t[]){
-            (type_t){ .class = TYPE_ULLONG, .n = 64 },
+            (type_t){ .class = TYPE_USER, .n = 1 },
         },
     }, true)) return TESTFAIL;
-    if (memcmp(var->abs_addr, &(unsigned long long){3},
-               sizeof(unsigned long long)) != 0) return TESTFAIL;
-    if (var->next != NULL) return TESTFAIL;
-    return !test_expect_err;
+    if (memcmp(var->abs_addr, &test_obj1, sizeof(struct test_obj)) != 0) return TESTFAIL;
+    return true;
+}
+static bool test_global_variable15(void) {
+    cnm_t *cnm = test_util_create_types2("test_global_variable15");
+    if (!cnm_parse(cnm, cnm_csrc_test_util_def2, "test_global_variable15")) return TESTFAIL;
+    scope_t *var = cnm->vars;
+    if (!var) return TESTFAIL;
+    if (!type_eq(var->type, (typeref_t){
+        .size = 1,
+        .type = (type_t[]){
+            (type_t){ .class = TYPE_USER, .n = 1 },
+        },
+    }, true)) return TESTFAIL;
+    if (memcmp(var->abs_addr, &test_obj2, sizeof(struct test_obj)) != 0) return TESTFAIL;
+    return true;
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -2994,6 +3016,8 @@ static test_t tests[] = {
     TEST(test_global_variable11),
     TEST(test_global_variable12),
     TEST(test_global_variable13),
+    TEST(test_global_variable14),
+    TEST(test_global_variable15),
 };
 
 int main(int argc, char **argv) {

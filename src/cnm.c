@@ -244,7 +244,8 @@ typedef struct {
         // Integer constants
         uintmax_t u;
         intmax_t i;
-        double f;
+        double d;
+        float f;
         uint32_t c;
 
         // Address to global data if it is a global variable
@@ -1524,6 +1525,7 @@ static bool type_parse_declspec_struct(cnm_t *cnm, type_t *type, bool *istypedef
         return false;
     }
     if (!u) return true;
+    u->type = USER_STRUCT;
     field_list_t *s = (field_list_t *)u->data;
     token_next(cnm);
     // s now points to a new struct that we must fill out the members of
@@ -1675,6 +1677,7 @@ static bool type_parse_declspec_enum(cnm_t *cnm, type_t *type, bool *istypedef,
         return false;
     }
     if (!u) return true;
+    u->type = USER_ENUM;
     enum_t *e = (enum_t *)u->data;
     // e now points to a new enum that we must fill out the variants for
 
@@ -1795,10 +1798,11 @@ static bool type_parse_declspec_enum(cnm_t *cnm, type_t *type, bool *istypedef,
 static bool type_parse_declspec_union(cnm_t *cnm, type_t *type, bool *istypedef,
                                       declspec_options_t *options) {
     userty_t *t;
-    if (!type_parse_declspec_user(cnm, type, false, &t, 0, options)) {
+    if (!type_parse_declspec_user(cnm, type, false, &t, sizeof(field_list_t), options)) {
         return false;
     }
     if (!t) return true;
+    t->type = USER_UNION;
     token_next(cnm);
     field_list_t *u = (field_list_t *)t->data;
     // u now points to a new union that we must fill out the members of
@@ -1838,16 +1842,25 @@ static bool type_parse_declspec_union(cnm_t *cnm, type_t *type, bool *istypedef,
                 return false;
             }
 
-            // Get offset and new struct size and alignment
-            typeinf_t inf = type_getinf(cnm, ref.type);
-            if (inf.size > t->inf.size) t->inf.size = inf.size;
-            if (inf.align > t->inf.align) t->inf.align = inf.align;
-            
             // Set more field parameters
             f->type = ref;
             f->bit_offs = 0;
             f->offs = 0;
 
+            // Move type data to static region
+            cnm->alloc.next = stack_ptr; // free old data
+            type_t *buf = cnm_alloc_static(cnm, sizeof(type_t) * f->type.size,
+                                           sizeof(type_t));
+            if (!buf) return false;
+            memmove(buf, f->type.type, sizeof(type_t) * f->type.size); // move to new spot
+            f->type.type = buf;
+
+            // Get offset and new struct size and alignment
+            typeinf_t inf = type_getinf(cnm, ref.type);
+            if (inf.size > t->inf.size) t->inf.size = inf.size;
+            if (inf.align > t->inf.align) t->inf.align = inf.align;
+            
+            // Set end var
             if (!u->end) u->end = f;
 
             // Consume ',' token
@@ -2361,26 +2374,29 @@ static bool valref_cast_literal(cnm_t *cnm, valref_t *val, typeref_t cast_to) {
 
     // Cache information about from and to types
     const bool fp_to = type_is_fp(*cast_to.type), fp_from = type_is_fp(*val->type.type),
-        u_from = type_is_unsigned(*val->type.type) || val->type.type->class == TYPE_PTR;
+        u_from = type_is_unsigned(*val->type.type) || val->type.type->class == TYPE_PTR,
+        f_to = cast_to.type[0].class == TYPE_FLOAT,
+        f_from = val->type.type[0].class == TYPE_FLOAT;
 
     val->type = cast_to;
 
     // Convert to or convert from and to float types
     if (to->class == TYPE_BOOL) {
-        if (fp_from) val->literal.u = !!val->literal.f;
+        if (fp_from) val->literal.u = !!(f_from ? val->literal.f : val->literal.d);
         else val->literal.u = !!val->literal.u;
     } else if (fp_to && !fp_from) {
-        val->literal.f = u_from ? val->literal.u : val->literal.i;
+        if (f_to) val->literal.f = u_from ? val->literal.u : val->literal.i;
+        else val->literal.d = u_from ? val->literal.u : val->literal.i;
     } else if (!fp_to && fp_from) {
-        if (u_from) val->literal.u = val->literal.f;
-        else val->literal.i = val->literal.f;
+        if (u_from) val->literal.u = f_from ? val->literal.f : val->literal.d;
+        else val->literal.i = f_from ? val->literal.f : val->literal.d;
+    } else if (f_to != f_from) {
+        if (f_to) val->literal.f = val->literal.d;
+        else val->literal.d = val->literal.f;
     }
 
 enforce_width:
-    if (to->class == TYPE_FLOAT) {
-        val->literal.f = (float)val->literal.f;
-        return true;
-    } else if (to->class == TYPE_DOUBLE || to->class == TYPE_PTR
+    if (to->class == TYPE_FLOAT || to->class == TYPE_DOUBLE || to->class == TYPE_PTR
         || to->class == TYPE_LONG || to->class == TYPE_LLONG
         || to->class == TYPE_ULONG || to->class == TYPE_ULLONG) {
         return true;
@@ -2411,6 +2427,7 @@ static bool valref_cast_runtime(cnm_t *cnm, valref_t *val, const typeref_t to) {
 
 // Cast val to 'to'
 static bool valref_cast(cnm_t *cnm, valref_t *val, const typeref_t to, bool gencode) {
+    if (type_eq(val->type, to, true)) return true;
     if (val->isliteral) {
         if (!valref_cast_literal(cnm, val, to)) return false;
     } else if (gencode) {
@@ -2455,6 +2472,11 @@ static bool expr_cast(cnm_t *cnm, valref_t *out, bool gencode, bool gendata,
 
 // Makes sure that a literal is allocated to the global data buffer
 static bool val_enforce_global(cnm_t *cnm, valref_t *val) {
+    if (val->isliteral &&
+        (val->type.type[0].class == TYPE_USER || val->type.type[0].class == TYPE_ARR)) {
+        if (val->scope) val->scope->abs_addr = val->literal.addr;
+        return true;
+    }
     if (!val->isliteral || !type_is_pod(*val->type.type)) return true;
 
     // Move the data to the global region
@@ -2464,7 +2486,7 @@ static bool val_enforce_global(cnm_t *cnm, valref_t *val) {
     memcpy(buf, &val->literal, inf.size);
 
     // Update the variable info
-    val->scope->abs_addr = buf;
+    if (val->scope) val->scope->abs_addr = buf;
     val->isliteral = false;
 
     return true;
@@ -2530,7 +2552,8 @@ static inline int init_list_stack_get_offs(cnm_t *cnm, init_list_stack_t *self) 
 // Initialize a initializer stack element based on the previous stack element
 // if there is one
 static void init_list_stack_init(cnm_t *cnm, const typeref_t *type,
-                                 init_list_stack_t *self, init_list_state_t *state) {
+                                 init_list_stack_t *last, init_list_stack_t *self,
+                                 init_list_state_t *state) {
     userty_t *u;
     for (u = cnm->type.types; u && u->typeid != type->type[0].n; u = u->next);
 
@@ -2548,8 +2571,7 @@ static void init_list_stack_init(cnm_t *cnm, const typeref_t *type,
         self->type = self->f->type;
     }
 
-    self->d = state->cur ? state->data_start :
-        state->cur->d + init_list_stack_get_offs(cnm, state->cur);
+    self->d = last ? last->d + init_list_stack_get_offs(cnm, last) : state->data_start;
 }
 
 static bool init_list_designator(cnm_t *cnm, init_list_state_t *state,
@@ -2563,7 +2585,7 @@ static bool init_list_designator(cnm_t *cnm, init_list_state_t *state,
                 return false;
             }
 
-            init_list_stack_init(cnm, &state->cur->f->type, cur, state);
+            init_list_stack_init(cnm, &state->cur->f->type, state->cur, cur, state);
             state->cur = cur;
         }
 
@@ -2583,6 +2605,7 @@ static bool init_list_designator(cnm_t *cnm, init_list_state_t *state,
         state->cur->f = f;
         state->cur->type = f->type;
 
+        token_next(cnm);
         return init_list_designator(cnm, state, true);
     } else if (cnm->s.tok.type == TOKEN_BRACK_L) {
         // Move 1 stack inwards
@@ -2596,7 +2619,7 @@ static bool init_list_designator(cnm_t *cnm, init_list_state_t *state,
             init_list_stack_init(cnm, &(typeref_t){
                 .type = state->cur->type.type + 1,
                 .size = state->cur->type.size - 1,
-            }, cur, state);
+            }, state->cur, cur, state);
             state->cur = cur;
         }
 
@@ -2620,6 +2643,7 @@ static bool init_list_designator(cnm_t *cnm, init_list_state_t *state,
             return false;
         }
 
+        token_next(cnm);
         return init_list_designator(cnm, state, true);
     } else if (cnm->s.tok.type == TOKEN_ASSIGN) {
         token_next(cnm);
@@ -2658,6 +2682,7 @@ static bool array_init_grow_size(cnm_t *cnm, typeref_t *type, const typeref_t *n
     void *area;
     if (!(area = cnm_alloc_global(cnm, size, 1))) return false;
     memset(area, 0, size);
+    type->type[0].n = needed_n;
 
     return true;
 }
@@ -2675,7 +2700,8 @@ static bool init_list_field(cnm_t *cnm, init_list_state_t *state,
     }
     if (!expr_parse(cnm, &val, gencode, gendata, PREC_COND, &state->cur->type)) return false;
     state->isliteral &= val.isliteral;
-    if (val.isliteral && !array_init_grow_size(cnm, &val.type, &state->cur->type)) return false;
+    if (val.isliteral
+        && !array_init_grow_size(cnm, &val.type, &state->cur->type)) return false;
     if (!valref_cast(cnm, &val, state->cur->type, gencode)) return false;
     if (!type_eq(val.type, state->cur->type, false)) {
         cnm_doerr(cnm, true, "types in initializer list do not match");
@@ -2710,6 +2736,7 @@ static bool init_list_init(cnm_t *cnm, init_list_state_t *state,
         .stop = false,
         .inf = type_getinf(cnm, type->type),
         .basety = *type,
+        .isliteral = true,
     };
 
     // Save this for if the initializer is completely constant
@@ -2723,8 +2750,8 @@ static bool init_list_init(cnm_t *cnm, init_list_state_t *state,
         memset(state->data_start, 0, state->inf.size);
     }
 
-    init_list_stack_init(cnm, type, state->cur, state);
     state->cur = state->stack;
+    init_list_stack_init(cnm, type, NULL, state->cur, state);
 
     return true;
 }
@@ -2741,8 +2768,9 @@ static bool init_list_finish(cnm_t *cnm, init_list_state_t *state,
     }
 
     *out = (valref_t){
-        .isliteral = false,
+        .isliteral = true,
         .type = state->basety,
+        .literal.addr = state->data_start,
     };
 
     return true;
@@ -2774,7 +2802,7 @@ static bool expr_parse_init_list_user(cnm_t *cnm, valref_t *out, bool gencode, b
     if (!init_list_init(cnm, &state, type, gencode, gendata)) return false;
 
     // Do the field initializers!!!!!
-    while (!state.stop) {
+    while (!state.stop && cnm->s.tok.type != TOKEN_BRACE_R) {
         if (!(init_list_field(cnm, &state, gencode, gendata))) return false;
         if (cnm->s.tok.type == TOKEN_COMMA) token_next(cnm);
     }
@@ -3006,7 +3034,6 @@ static bool expr_double(cnm_t *cnm, valref_t *out, bool gencode, bool gendata,
                         const typeref_t *expected_type) {
     *out = (valref_t){
         .isliteral = true,
-        .literal.f = cnm->s.tok.f,
     };
 
     // Allocate ast type
@@ -3015,6 +3042,9 @@ static bool expr_double(cnm_t *cnm, valref_t *out, bool gencode, bool gendata,
     out->type.type[0] = (type_t){
         .class = cnm->s.tok.suffix[0] == 'f' ? TYPE_FLOAT : TYPE_DOUBLE,
     };
+
+    if (cnm->s.tok.suffix[0] == 'f') out->literal.f = cnm->s.tok.f;
+    else out->literal.d = cnm->s.tok.f;
 
     // Goto next token for the rest of the expression
     token_next(cnm);
@@ -3040,7 +3070,9 @@ static bool set_arith_type(cnm_t *cnm, valref_t *out, valref_t *left, valref_t *
 #define CF_OP(opname, optoken) \
     static void cf_##opname(valref_t *out, valref_t *left, valref_t *right) { \
         const typeclass_t class = out->type.type[0].class; \
-        if (class == TYPE_DOUBLE || class == TYPE_FLOAT) { \
+        if (class == TYPE_DOUBLE) { \
+            out->literal.d = left->literal.d optoken right->literal.d; \
+        } else if (class == TYPE_FLOAT) { \
             out->literal.f = left->literal.f optoken right->literal.f; \
         } else if (type_is_unsigned(*out->type.type)) { \
             out->literal.u = left->literal.u optoken right->literal.u; \
@@ -3073,7 +3105,9 @@ CF_OP_INT(shift_r, >>)
 // Perform math operation constant folding on unary valref
 static void cf_neg(valref_t *var) {
     const typeclass_t class = var->type.type[0].class;
-    if (class == TYPE_DOUBLE || class == TYPE_FLOAT) {
+    if (class == TYPE_DOUBLE) {
+        var->literal.d = -var->literal.d;
+    } else if (class == TYPE_FLOAT) {
         var->literal.f = -var->literal.f;
     } else if (type_is_unsigned(*var->type.type)) {
         var->literal.u = -var->literal.u;
@@ -3083,7 +3117,9 @@ static void cf_neg(valref_t *var) {
 }
 static void cf_not(valref_t *var) {
     type_t *type = &var->type.type[0];
-    if (type->class == TYPE_DOUBLE || type->class == TYPE_FLOAT) {
+    if (type->class == TYPE_DOUBLE) {
+        var->literal.u = !var->literal.d;
+    } else if (type->class == TYPE_FLOAT) {
         var->literal.u = !var->literal.f;
     } else if (type_is_unsigned(*var->type.type)) {
         var->literal.u = !var->literal.u;
