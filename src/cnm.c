@@ -2562,6 +2562,10 @@ static void init_list_stack_init(cnm_t *cnm, const typeref_t *type,
             .isarr = true,
             .arridx = 0,
             .arrlen = type->type[0].n,
+            .type = (typeref_t){
+                .type = type->type + 1,
+                .size = type->size - 1,
+            },
         };
     } else {
         *self = (init_list_stack_t){
@@ -2572,6 +2576,16 @@ static void init_list_stack_init(cnm_t *cnm, const typeref_t *type,
     }
 
     self->d = last ? last->d + init_list_stack_get_offs(cnm, last) : state->data_start;
+
+    // Make it the maximum that we can
+    if (self->isarr && !self->arrlen) {
+        const typeinf_t inf = type_getinf(cnm, self->type.type);
+        
+        // Get amount of free data memory
+        size_t nfree = (cnm->globals.strnext - self->d) / inf.size * inf.size;
+
+        self->arrlen = nfree;
+    }
 }
 
 static bool init_list_designator(cnm_t *cnm, init_list_state_t *state,
@@ -2658,6 +2672,18 @@ static bool init_list_designator(cnm_t *cnm, init_list_state_t *state,
     }
 }
 
+static bool array_init_grow_to_size(cnm_t *cnm, const typeref_t array,
+                                    size_t curr_n, size_t needed_n) {
+    if (curr_n == needed_n || !needed_n) return true;
+    typeinf_t inf = type_getinf(cnm, array.type + 1);
+    const size_t size = inf.size * (needed_n - curr_n);
+    void *area;
+    if (!(area = cnm_alloc_global(cnm, size, 1))) return false;
+    memset(area, 0, size);
+
+    return true;
+}
+
 // Optionally grow the array size to the needed size of an array on the top of the
 // globals array on the cnm state
 static bool array_init_grow_size(cnm_t *cnm, typeref_t *type, const typeref_t *needed) {
@@ -2671,20 +2697,13 @@ static bool array_init_grow_size(cnm_t *cnm, typeref_t *type, const typeref_t *n
     }, (typeref_t){
         .type = needed->type + 1,
         .size = needed->size - 1,
-    }, true) || curr_n > needed_n) {
+    }, true) || (curr_n > needed_n && needed_n)) {
         cnm_doerr(cnm, true, "array types don't match");
         return false;
     }
 
-    if (curr_n == needed_n) return true;
-    typeinf_t inf = type_getinf(cnm, type->type + 1);
-    const size_t size = inf.size * (needed_n - curr_n);
-    void *area;
-    if (!(area = cnm_alloc_global(cnm, size, 1))) return false;
-    memset(area, 0, size);
-    type->type[0].n = needed_n;
-
-    return true;
+    if (needed_n) type->type[0].n = needed_n;
+    return array_init_grow_to_size(cnm, *needed, curr_n, needed_n);
 }
 
 static bool init_list_field(cnm_t *cnm, init_list_state_t *state,
@@ -2700,8 +2719,6 @@ static bool init_list_field(cnm_t *cnm, init_list_state_t *state,
     }
     if (!expr_parse(cnm, &val, gencode, gendata, PREC_COND, &state->cur->type)) return false;
     state->isliteral &= val.isliteral;
-    if (val.isliteral
-        && !array_init_grow_size(cnm, &val.type, &state->cur->type)) return false;
     if (!valref_cast(cnm, &val, state->cur->type, gencode)) return false;
     if (!type_eq(val.type, state->cur->type, false)) {
         cnm_doerr(cnm, true, "types in initializer list do not match");
@@ -2723,6 +2740,7 @@ static bool init_list_field(cnm_t *cnm, init_list_state_t *state,
         if (state->cur->f->last) state->cur->f = state->cur->f->last;
         else if (state->cur > state->stack) state->cur--;
         else state->stop = true;
+        state->cur->type = state->cur->f->type;
     }
 
     return true;
@@ -2758,6 +2776,16 @@ static bool init_list_init(cnm_t *cnm, init_list_state_t *state,
 
 static bool init_list_finish(cnm_t *cnm, init_list_state_t *state,
                              valref_t *out, bool gencode, bool gendata) {
+    // Finalize array size
+    if (state->basety.type[0].class == TYPE_ARR) {
+        if (!array_init_grow_to_size(cnm, state->basety,
+                                     state->biggest_idx + 1,
+                                     state->basety.type[0].n)) return false;
+        if (!state->basety.type[0].n) state->basety.type[0].n = state->biggest_idx + 1;
+        state->inf = type_getinf(cnm, state->basety.type);
+    }
+
+    // Goto end of size
     if (gendata) cnm->globals.next = state->data_start + state->inf.size;
 
     if (state->isliteral) {
@@ -2907,6 +2935,8 @@ static bool expr_str(cnm_t *cnm, valref_t *out, bool gencode, bool gendata,
         memcpy(area, cnm->s.tok.s, size);
 
         out->literal.addr = area;
+
+        if (!array_init_grow_size(cnm, &out->type, expected_type)) return false;
     } else {
         // Set the pointer
         out->literal.addr = cnm->s.tok.s;
@@ -3337,6 +3367,20 @@ static bool parse_func(cnm_t *cnm, func_t *func) {
 
 // Parse variable declaration/definition
 static bool parse_file_decl_var(cnm_t *cnm, strview_t name, typeref_t type) {
+    // Make sure that the variable has a defined size
+    {
+        typeinf_t inf = type_getinf(cnm, type.type);
+
+        // In this case we have an implicit array size "[]", so skip check
+        if (!inf.size && inf.align && type.type[0].class != TYPE_VOID) inf.size = 1;
+
+        // Can not store 0 sized variables
+        if (!inf.size || !inf.align) {
+            cnm_doerr(cnm, true, "can not declare unknown size or unknown type of variable!");
+            return false;
+        }
+    }
+
     scope_t *var = NULL;
 
     // Find existing variable with this name
@@ -3383,10 +3427,18 @@ static bool parse_file_decl_var(cnm_t *cnm, strview_t name, typeref_t type) {
     if (!expr_parse(cnm, &val, false, true, PREC_COND, &type)) return false;
 
     if (!array_init_grow_size(cnm, &val.type, &type)) return false;
-   
+ 
     // Implicity cast arithmetic types (int -> long, double -> int, etc)
     if (type_is_arith(val.type.type[0]) && type_is_arith(type.type[0])
         && !valref_cast_literal(cnm, &val, type)) return false;
+
+    // Set type's array length if its implied aka "[]"
+    if (type.type[0].class == TYPE_ARR && !type.type[0].n &&
+        val.type.type[0].class == TYPE_ARR &&
+        type_eq((typeref_t){ .type = type.type + 1, .size = type.size - 1 },
+            (typeref_t){ .type = val.type.type + 1, .size = val.type.size - 1 }, true)) {
+        type.type[0].n = val.type.type[0].n;
+    }
 
     // Make sure types match
     if (!type_eq(val.type, type, false)) {

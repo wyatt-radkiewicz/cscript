@@ -2753,7 +2753,6 @@ cnm(test_util_def1,
         .name = "hello!",
     };
 )
-
 cnm(test_util_def2,
     struct test_obj test_obj2 = {
         .pos.x = 4.0, 5.0,
@@ -2766,6 +2765,22 @@ cnm(test_util_def2,
             .h = 911,
         },
     };
+)
+cnm(test_util_def3,
+    int test_arr3[] = { 1, 2, 3, 4, 5 };
+)
+cnm(test_util_def4,
+    int test_arr4[5] = { 1, 2, 1.0, };
+)
+cnm(test_util_def5,
+    struct test_vec2 test_arr5[] = {
+        (struct test_vec2) { .x = 69, .y = 420 },
+        { .y = 69, },
+        { 420, 69 },
+    };
+)
+cnm(test_util_def6,
+    char test_arr6[] = "ballz in yo jaws";
 )
 
 static cnm_t *test_util_create_types2(const char *fname) {
@@ -2802,6 +2817,75 @@ static bool test_global_variable15(void) {
     }, true)) return TESTFAIL;
     if (memcmp(var->abs_addr, &test_obj2, sizeof(struct test_obj)) != 0) return TESTFAIL;
     return true;
+}
+static bool test_global_variable16(void) {
+    cnm_t *cnm = test_util_create_types2("test_global_variable16");
+    if (!cnm_parse(cnm, cnm_csrc_test_util_def3, "test_global_variable16")) return TESTFAIL;
+    scope_t *var = cnm->vars;
+    if (!var) return TESTFAIL;
+    if (!type_eq(var->type, (typeref_t){
+        .size = 2,
+        .type = (type_t[]){
+            (type_t){ .class = TYPE_ARR, .n = 5 },
+            (type_t){ .class = TYPE_INT, .n = 32 },
+        },
+    }, true)) return TESTFAIL;
+    if (memcmp(var->abs_addr, &test_arr3, sizeof(test_arr3)) != 0) return TESTFAIL;
+    return true;
+}
+static bool test_global_variable17(void) {
+    cnm_t *cnm = test_util_create_types2("test_global_variable17");
+    if (!cnm_parse(cnm, cnm_csrc_test_util_def4, "test_global_variable17")) return TESTFAIL;
+    scope_t *var = cnm->vars;
+    if (!var) return TESTFAIL;
+    if (!type_eq(var->type, (typeref_t){
+        .size = 2,
+        .type = (type_t[]){
+            (type_t){ .class = TYPE_ARR, .n = 5 },
+            (type_t){ .class = TYPE_INT, .n = 32 },
+        },
+    }, true)) return TESTFAIL;
+    if (memcmp(var->abs_addr, &test_arr4, sizeof(test_arr4)) != 0) return TESTFAIL;
+    return true;
+}
+static bool test_global_variable18(void) {
+    cnm_t *cnm = test_util_create_types2("test_global_variable18");
+    if (!cnm_parse(cnm, cnm_csrc_test_util_def5, "test_global_variable18")) return TESTFAIL;
+    scope_t *var = cnm->vars;
+    if (!var) return TESTFAIL;
+    if (!type_eq(var->type, (typeref_t){
+        .size = 2,
+        .type = (type_t[]){
+            (type_t){ .class = TYPE_ARR, .n = 3 },
+            (type_t){ .class = TYPE_USER, .n = 0 },
+        },
+    }, true)) return TESTFAIL;
+    if (memcmp(var->abs_addr, &test_arr5, sizeof(test_arr5)) != 0) return TESTFAIL;
+    return true;
+}
+GENERIC_TEST(test_global_variable19, test_errcb)
+    if (!cnm_parse(cnm, cnm_csrc_test_util_def6, "test_global_variable19")) return TESTFAIL;
+    scope_t *var = cnm->vars;
+    if (!var) return TESTFAIL;
+    if (!type_eq(var->type, (typeref_t){
+        .size = 2,
+        .type = (type_t[]){
+            (type_t){ .class = TYPE_ARR, .n = 17 },
+            (type_t){ .class = TYPE_CHAR, .n = 8 },
+        },
+    }, true)) return TESTFAIL;
+    if (memcmp(var->abs_addr, &test_arr6, sizeof(test_arr6)) != 0) return TESTFAIL;
+    return true;
+}
+GENERIC_TEST(test_global_variable20, test_expect_errcb)
+    if (cnm_parse(cnm, "char str[4] = \"asdfasdf\";", "test_global_variable20")) return TESTFAIL;
+    return test_expect_err;
+}
+static bool test_global_variable21(void) {
+    cnm_t *cnm = test_util_create_types2("test_global_variable21");
+    cnm_set_errcb(cnm, test_expect_errcb);
+    if (cnm_parse(cnm, "struct test_pos x = { 0, 3, 4 };", "test_global_variable21")) return TESTFAIL;
+    return test_expect_err;
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -3018,6 +3102,12 @@ static test_t tests[] = {
     TEST(test_global_variable13),
     TEST(test_global_variable14),
     TEST(test_global_variable15),
+    TEST(test_global_variable16),
+    TEST(test_global_variable17),
+    TEST(test_global_variable18),
+    TEST(test_global_variable19),
+    TEST(test_global_variable20),
+    TEST(test_global_variable21),
 };
 
 int main(int argc, char **argv) {
