@@ -1,7 +1,7 @@
 # cscript
 [![cscript](https://github.com/wyatt-radkiewicz/cscript/actions/workflows/make.yml/badge.svg)](https://github.com/wyatt-radkiewicz/cscript/actions/workflows/make.yml)
 
- Scripting language for video games
+ Simple, fast, statically typed scripting language for games with tools included.
 
  > 0 [Try it](#try-it)
  >
