@@ -49,5 +49,26 @@ typedef struct uidref_s {
     struct uidref_s *next;
 } uidref_t;
 
+// Opcodes in a cnm instruction
+typedef enum {
+    
+} opcode_t;
+
+// 1 cnm instruction. They are fixed length to keep things simple
+typedef struct {
+
+} instr_t;
+
+// A chunk of instructions. They are a linked list so they can be expanded
+typedef struct {
+
+} ichunk_t;
+
+// A block of instructions. These take parameters for variables that are inputted
+// into this block.
+typedef struct {
+
+} iblock_t;
+
 #endif
 

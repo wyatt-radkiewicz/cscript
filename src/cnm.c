@@ -3366,8 +3366,18 @@ static void cnm_set_src(cnm_t *cnm, const char *src, const char *fname) {
     };
 }
 
+// Parse any type of statement
+static bool parse_stmt(cnm_t *cnm) {
+    
+}
+
 // Parse and generate code for a function
 static bool parse_func(cnm_t *cnm, func_t *func) {
+    while (cnm->s.tok.type != TOKEN_BRACE_R) {
+        if (!parse_stmt(cnm)) return false;
+    }
+    token_next(cnm);
+
     return true;
 }
 
