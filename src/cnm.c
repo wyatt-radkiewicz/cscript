@@ -2712,6 +2712,35 @@ static bool array_init_grow_size(cnm_t *cnm, typeref_t *type, const typeref_t *n
     return array_init_grow_to_size(cnm, *needed, curr_n, needed_n);
 }
 
+// Advance to next field / index
+static void init_list_advance_field(cnm_t *cnm, init_list_state_t *state) {
+    if (state->cur->isarr) {
+        if (state->cur == state->stack
+            && state->cur->arridx > state->biggest_idx) {
+            state->biggest_idx = state->cur->arridx;
+        }
+        if (state->cur->arridx < state->cur->arrlen - 1) {
+            state->cur->arridx++;
+        } else if (state->cur > state->stack) {
+            state->cur--;
+            init_list_advance_field(cnm, state);
+        } else {
+            state->stop = true;
+        }
+    } else {
+        state->cur->n_fields_inited++;
+        if (state->cur->f->last) {
+            state->cur->f = state->cur->f->last;
+        } else if (state->cur > state->stack) {
+            state->cur--;
+            init_list_advance_field(cnm, state);
+        } else {
+            state->stop = true;
+        }
+        state->cur->type = state->cur->f->type;
+    }
+}
+
 static bool init_list_field(cnm_t *cnm, init_list_state_t *state,
                             bool gencode, bool gendata) {
     if (!init_list_designator(cnm, state, false)) return false;
@@ -2731,23 +2760,7 @@ static bool init_list_field(cnm_t *cnm, init_list_state_t *state,
         return false;
     }
     if (!val_enforce_global(cnm, &val)) return false;
-
-    // Advance to next field / index
-    if (state->cur->isarr) {
-        if (state->cur == state->stack
-            && state->cur->arridx > state->biggest_idx) {
-            state->biggest_idx = state->cur->arridx;
-        }
-        if (state->cur->arridx < state->cur->arrlen - 1) state->cur->arridx++;
-        else if (state->cur > state->stack) state->cur--;
-        else state->stop = true;
-    } else {
-        state->cur->n_fields_inited++;
-        if (state->cur->f->last) state->cur->f = state->cur->f->last;
-        else if (state->cur > state->stack) state->cur--;
-        else state->stop = true;
-        state->cur->type = state->cur->f->type;
-    }
+    init_list_advance_field(cnm, state);
 
     return true;
 }
@@ -3366,15 +3379,15 @@ static void cnm_set_src(cnm_t *cnm, const char *src, const char *fname) {
     };
 }
 
-// Parse any type of statement
-static bool parse_stmt(cnm_t *cnm) {
-    
-}
+//// Parse any type of statement
+//static bool parse_stmt(cnm_t *cnm) {
+//    
+//}
 
 // Parse and generate code for a function
 static bool parse_func(cnm_t *cnm, func_t *func) {
     while (cnm->s.tok.type != TOKEN_BRACE_R) {
-        if (!parse_stmt(cnm)) return false;
+        //if (!parse_stmt(cnm)) return false;
     }
     token_next(cnm);
 

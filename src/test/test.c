@@ -2750,7 +2750,7 @@ cnm(test_util_types2,
 cnm(test_util_def1,
     struct test_obj test_obj1 = {
         .pos.x = 4.0, 5.0,
-        .name = "hello!",
+        "hello!",
     };
 )
 cnm(test_util_def2,
@@ -2884,7 +2884,7 @@ GENERIC_TEST(test_global_variable20, test_expect_errcb)
 static bool test_global_variable21(void) {
     cnm_t *cnm = test_util_create_types2("test_global_variable21");
     cnm_set_errcb(cnm, test_expect_errcb);
-    if (cnm_parse(cnm, "struct test_pos x = { 0, 3, 4 };", "test_global_variable21")) return TESTFAIL;
+    if (cnm_parse(cnm, "struct test_vec2 x = { 0, 3, 4 };", "test_global_variable21")) return TESTFAIL;
     return test_expect_err;
 }
 
