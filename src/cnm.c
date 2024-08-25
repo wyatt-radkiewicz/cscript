@@ -1518,6 +1518,49 @@ parse_def:
     *outu = u;
     return true;
 }
+
+// Allocate new field member and add it to the list
+static field_t *field_alloc(cnm_t *cnm, field_list_t *s) {
+    field_t *f = cnm_alloc_static(cnm, sizeof(field_t), sizeof(void *));
+    if (!f) return NULL;
+
+    f->next = s->fields;
+    f->last = NULL;
+    if (f->next) f->next->last = f;
+    s->fields = f;
+
+    return f;
+}
+
+// Get the full type data
+static bool field_set_type(cnm_t *cnm, field_t *f,
+                           const bool not_defined_new_type, const type_t *base) {
+    f->type = type_parse(cnm, base, &f->name, true);
+    if (!f->type.size) {
+        cnm_doerr(cnm, true, "field %s can not have 0 size, it's base type might"
+                             "also be undefined");
+        return false;
+    }
+    if (!f->name.str && not_defined_new_type
+        && !(type_is_int(*f->type.type) && f->type.type->n == 0)) {
+        cnm_doerr(cnm, false, "declaration does not declare name");
+    }
+    return true;
+}
+
+// Move typeref from normal region to static region
+// Move type data to static region
+static bool typeref_move_to_static(cnm_t *cnm, field_t *f, uint8_t *const stack_ptr) {
+    cnm->alloc.next = stack_ptr; // free old data
+    type_t *buf = cnm_alloc_static(cnm, sizeof(type_t) * f->type.size,
+                                   sizeof(type_t));
+    if (!buf) return false;
+    memmove(buf, f->type.type, sizeof(type_t) * f->type.size); // move to new spot
+    f->type.type = buf;
+
+    return true;
+}
+
 static bool type_parse_declspec_struct(cnm_t *cnm, type_t *type, bool *istypedef,
                                        declspec_options_t *options) {
     userty_t *u;
@@ -1561,37 +1604,15 @@ static bool type_parse_declspec_struct(cnm_t *cnm, type_t *type, bool *istypedef
             // Use this so that the field can be destroyed if its a bitfield aligner
             uint8_t *const static_stack = cnm->alloc.curr_static;
 
-            // Allocate new field member and add it to the list
-            field_t *f = cnm_alloc_static(cnm, sizeof(field_t), sizeof(void *));
+            field_t *f = field_alloc(cnm, s);
             if (!f) return false;
-            f->next = s->fields;
-            f->last = NULL;
-            if (f->next) f->next->last = f;
-            s->fields = f;
 
             // Save normal stack pointer for afterwards when we copy buffers over to
             // static region
             uint8_t *const stack_ptr = cnm->alloc.next;
 
-            // Get the full type data
-            f->type = type_parse(cnm, &base, &f->name, true);
-            if (!f->type.size) {
-                cnm_doerr(cnm, true, "field %s can not have 0 size, it's base type might"
-                                     "also be undefined");
-                return false;
-            }
-            if (!f->name.str && not_defined_new_type
-                && !(type_is_int(*f->type.type) && f->type.type->n == 0)) {
-                cnm_doerr(cnm, false, "declaration does not declare name");
-            }
-
-            // Move type data to static region
-            cnm->alloc.next = stack_ptr; // free old data
-            type_t *buf = cnm_alloc_static(cnm, sizeof(type_t) * f->type.size,
-                                           sizeof(type_t));
-            if (!buf) return false;
-            memmove(buf, f->type.type, sizeof(type_t) * f->type.size); // move to new spot
-            f->type.type = buf;
+            if (!field_set_type(cnm, f, not_defined_new_type, &base)) return false;
+            if (!typeref_move_to_static(cnm, f, stack_ptr)) return false;
 
             // Get offset and new struct size and alignment
             typeinf_t inf = type_getinf(cnm, f->type.type);
@@ -1817,6 +1838,8 @@ static bool type_parse_declspec_union(cnm_t *cnm, type_t *type, bool *istypedef,
         // static region
         uint8_t *const stack_ptr = cnm->alloc.next;
 
+        userty_t *const old_userty = cnm->type.types;
+
         // Get type data (base type)
         type_t base;
         bool istypedef;
@@ -1826,40 +1849,23 @@ static bool type_parse_declspec_union(cnm_t *cnm, type_t *type, bool *istypedef,
             return false;
         }
 
+        const bool not_defined_new_type = cnm->type.types == old_userty;
+
         while (true) {
-            // Allocate new field member and add it to the list
-            field_t *f = cnm_alloc_static(cnm, sizeof(field_t), sizeof(void *));
-            if (!f) return false;
-            f->next = u->fields;
-            f->last = NULL;
-            if (f->next) f->next->last = f;
-            u->fields = f;
+            field_t *f = field_alloc(cnm, u);
 
-            // Get the type data
-            typeref_t ref = type_parse(cnm, &base, &f->name, true);
-            if (!typeref_isvalid(ref)) {
-                cnm_doerr(cnm, true, "can not have 0 sized type in union field");
-                return false;
-            }
-
-            // Set more field parameters
-            f->type = ref;
-            f->bit_offs = 0;
-            f->offs = 0;
-
-            // Move type data to static region
-            cnm->alloc.next = stack_ptr; // free old data
-            type_t *buf = cnm_alloc_static(cnm, sizeof(type_t) * f->type.size,
-                                           sizeof(type_t));
-            if (!buf) return false;
-            memmove(buf, f->type.type, sizeof(type_t) * f->type.size); // move to new spot
-            f->type.type = buf;
+            if (!field_set_type(cnm, f, not_defined_new_type, &base)) return false;
+            if (!typeref_move_to_static(cnm, f, stack_ptr)) return false;
 
             // Get offset and new struct size and alignment
-            typeinf_t inf = type_getinf(cnm, ref.type);
+            typeinf_t inf = type_getinf(cnm, f->type.type);
             if (inf.size > t->inf.size) t->inf.size = inf.size;
             if (inf.align > t->inf.align) t->inf.align = inf.align;
             
+            // Set more field parameters
+            f->bit_offs = 0;
+            f->offs = 0;
+
             // Set end var
             if (!u->end) u->end = f;
 
