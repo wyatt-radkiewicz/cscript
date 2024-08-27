@@ -2532,12 +2532,9 @@ GENERIC_TEST(test_global_variable1, test_expect_errcb)
     if (!cnm_parse(cnm, "int a;", "test_global_variable1")) return TESTFAIL;
     scope_t *var = cnm->vars;
     if (!var) return TESTFAIL;
-    if (cnm->cg.uid_start != 1) return TESTFAIL;
     if (var->scope != 0) return TESTFAIL;
     if (var->abs_addr != NULL) return TESTFAIL;
-    if (var->uid != 0) return TESTFAIL;
     if (!strview_eq(var->name, SV("a"))) return TESTFAIL;
-    if (var->range != NULL) return TESTFAIL;
     if (!type_eq(var->type, (typeref_t){
         .size = 1,
         .type = (type_t[]){
@@ -2550,16 +2547,12 @@ GENERIC_TEST(test_global_variable1, test_expect_errcb)
 GENERIC_TEST(test_global_variable2, test_expect_errcb)
     if (!cnm_parse(cnm, "int a, *b, c[2];", "test_global_variable2")) return TESTFAIL;
 
-    if (cnm->cg.uid_start != 3) return TESTFAIL;
-
     // c
     scope_t *var = cnm->vars;
     if (!var) return TESTFAIL;
     if (var->scope != 0) return TESTFAIL;
     if (var->abs_addr != NULL) return TESTFAIL;
-    if (var->uid != 2) return TESTFAIL;
     if (!strview_eq(var->name, SV("c"))) return TESTFAIL;
-    if (var->range != NULL) return TESTFAIL;
     if (!type_eq(var->type, (typeref_t){
         .size = 2,
         .type = (type_t[]){
@@ -2571,7 +2564,6 @@ GENERIC_TEST(test_global_variable2, test_expect_errcb)
     var = var->next;
 
     // b
-    if (var->uid != 1) return TESTFAIL;
     if (!strview_eq(var->name, SV("b"))) return TESTFAIL;
     if (!type_eq(var->type, (typeref_t){
         .size = 2,
@@ -2584,7 +2576,6 @@ GENERIC_TEST(test_global_variable2, test_expect_errcb)
     var = var->next;
 
     // a
-    if (var->uid != 0) return TESTFAIL;
     if (!strview_eq(var->name, SV("a"))) return TESTFAIL;
     if (!type_eq(var->type, (typeref_t){
         .size = 1,
@@ -2600,12 +2591,9 @@ GENERIC_TEST(test_global_variable3, test_expect_errcb)
     if (!cnm_parse(cnm, "int a = 69;", "test_global_variable3")) return TESTFAIL;
     scope_t *var = cnm->vars;
     if (!var) return TESTFAIL;
-    if (cnm->cg.uid_start != 1) return TESTFAIL;
     if (var->scope != 0) return TESTFAIL;
     if (var->abs_addr != test_globals_a4 + 0) return TESTFAIL;
-    if (var->uid != 0) return TESTFAIL;
     if (!strview_eq(var->name, SV("a"))) return TESTFAIL;
-    if (var->range != NULL) return TESTFAIL;
     if (!type_eq(var->type, (typeref_t){
         .size = 1,
         .type = (type_t[]){
@@ -2620,12 +2608,9 @@ GENERIC_TEST(test_global_variable4, test_expect_errcb)
     if (!cnm_parse(cnm, "int a = 1 << 4;", "test_global_variable4")) return TESTFAIL;
     scope_t *var = cnm->vars;
     if (!var) return TESTFAIL;
-    if (cnm->cg.uid_start != 1) return TESTFAIL;
     if (var->scope != 0) return TESTFAIL;
     if (var->abs_addr != test_globals_a4 + 0) return TESTFAIL;
-    if (var->uid != 0) return TESTFAIL;
     if (!strview_eq(var->name, SV("a"))) return TESTFAIL;
-    if (var->range != NULL) return TESTFAIL;
     if (!type_eq(var->type, (typeref_t){
         .size = 1,
         .type = (type_t[]){
@@ -2661,11 +2646,8 @@ GENERIC_TEST(test_global_variable10, test_expect_errcb)
                         "test_global_variable10")) return TESTFAIL;
     scope_t *var = cnm->vars;
     if (!var) return TESTFAIL;
-    if (cnm->cg.uid_start != 1) return TESTFAIL;
     if (var->scope != 0) return TESTFAIL;
-    if (var->uid != 0) return TESTFAIL;
     if (!strview_eq(var->name, SV("str"))) return TESTFAIL;
-    if (var->range != NULL) return TESTFAIL;
     if (!type_eq(var->type, (typeref_t){
         .size = 2,
         .type = (type_t[]){
@@ -2683,12 +2665,9 @@ GENERIC_TEST(test_global_variable11, test_expect_errcb)
                         "test_global_variable11")) return TESTFAIL;
     scope_t *var = cnm->vars;
     if (!var) return TESTFAIL;
-    if (cnm->cg.uid_start != 1) return TESTFAIL;
     if (var->scope != 0) return TESTFAIL;
     if (var->abs_addr != test_globals_a8 + 0) return TESTFAIL;
-    if (var->uid != 0) return TESTFAIL;
     if (!strview_eq(var->name, SV("x"))) return TESTFAIL;
-    if (var->range != NULL) return TESTFAIL;
     if (!type_eq(var->type, (typeref_t){
         .size = 1,
         .type = (type_t[]){
@@ -2710,12 +2689,9 @@ GENERIC_TEST(test_global_variable13, test_expect_errcb)
                         "test_global_variable13")) return TESTFAIL;
     scope_t *var = cnm->vars;
     if (!var) return TESTFAIL;
-    if (cnm->cg.uid_start != 1) return TESTFAIL;
     if (var->scope != 0) return TESTFAIL;
     if (var->abs_addr != test_globals_a8 + 0) return TESTFAIL;
-    if (var->uid != 0) return TESTFAIL;
     if (!strview_eq(var->name, SV("p"))) return TESTFAIL;
-    if (var->range != NULL) return TESTFAIL;
     if (!type_eq(var->type, (typeref_t){
         .size = 2,
         .type = (type_t[]){

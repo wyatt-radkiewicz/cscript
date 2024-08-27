@@ -90,6 +90,35 @@ typedef struct token_s {
     char suffix[4];
 } token_t;
 
+// Type class contains POD data types, aggregate types, derived types, and
+// other special intermediatary types. Only types that are used in IR are the
+// POD types, VOID, BOOL, REF, ANYREF, and PTR
+typedef enum typeclass_e {
+    // POD Types
+    TYPE_CHAR,      TYPE_UCHAR,
+    TYPE_SHORT,     TYPE_USHORT,
+    TYPE_INT,       TYPE_UINT,
+    TYPE_LONG,      TYPE_ULONG,
+    TYPE_LLONG,     TYPE_ULLONG,
+    TYPE_FLOAT,     TYPE_DOUBLE,
+    TYPE_BOOL,
+
+    // Derived POD types
+    TYPE_PTR,       TYPE_REF,
+    TYPE_ANYREF,
+
+    // Special types
+    TYPE_VOID,      TYPE_ARR,
+    TYPE_FN,        TYPE_FN_ARG,    
+
+    // User made types
+    TYPE_USER,
+
+    // This special type is only used while parsing, and will immediately be
+    // expanded once parsing is over. (compilation step will never see this type)
+    TYPE_TYPEDEF,
+} typeclass_t;
+
 typedef struct type_s {
     typeclass_t class : 5; // what type of type it is
     unsigned int isconst : 1; // is it const?
@@ -200,13 +229,6 @@ typedef struct scope_s {
     strview_t name;
     typeref_t type;
 
-    // The range data associated with this scope
-    // This updates to the latest range data so that it can be updated
-    uidref_t *range;
-
-    // The actual UID name of the variable (last one used)
-    unsigned uid;
-
     // What scope is this variable apart of?
     int scope;
 
@@ -254,13 +276,6 @@ typedef struct {
 
     // The type of the value, copy of the scope type if this is a scoped var
     typeref_t type;
-
-    // The range data associated with this scope
-    // This updates to the latest range data so that it can be updated
-    uidref_t *range;
-
-    // The actual UID name of the variable (last one used)
-    unsigned uid;
 
     // Pointer to the actual scope data of this variable
     scope_t *scope;
@@ -328,19 +343,6 @@ struct cnm_s {
         // Where we are in the source code
         token_t tok;
     } s;
-
-    // Code generation
-    struct {
-        // When compiling a function/arguments start at this UID id because
-        // the global variables will be under this uid
-        unsigned uid_start;
-
-        // SSA Variable 'name' next global id
-        unsigned uid;
-
-        // UID refrences used in the IR
-        uidref_t *uids;
-    } cg;
 
     // Callbacks
     struct {
@@ -3434,8 +3436,6 @@ static bool parse_file_decl_var(cnm_t *cnm, strview_t name, typeref_t type) {
             .name = name,
             .type = type,
             .scope = cnm->scope,
-            .uid = cnm->cg.uid_start++,
-            .range = NULL,
             .abs_addr = NULL,
             .next = cnm->vars,
         };
